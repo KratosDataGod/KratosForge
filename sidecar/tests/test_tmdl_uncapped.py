@@ -3,7 +3,7 @@ checked: the size limits, indents of spaces, the canonical form of a model and h
 
 import pytest
 
-from fabric_desktop import tmdl
+from fabric_desktop import model_ossie, tmdl
 
 
 # ---- limits
@@ -72,15 +72,32 @@ def test_a_value_with_a_quote_at_only_one_end_is_written_as_it_is():
     assert tmdl._scalar('"a"') == '"""a"""'
 
 
+# A part of the wrong type is refused by from_bim (export's shape check); the writer's own handling of one, which
+# a caller of _from_bim gets, is pinned below too.
+@pytest.mark.parametrize(("bim", "path"), [
+    ({"tables": [{"name": 5}]}, r"\$\.model\.tables\[0\]\.name is a number where it should be text"),
+    ({"tables": [{"name": "T", "description": 5}]}, r"\$\.model\.tables\['T'\]\.description is a number"),
+    ({"tables": ["x", {"name": "T"}]}, r"\$\.model\.tables\[0\] is text where it should be an object"),
+    ({"tables": [{"name": "T", "columns": [{"name": "C", "expression": 5}]}]},
+     r"\$\.model\.tables\['T'\]\.columns\['C'\]\.expression is a number"),
+    ({"relationships": [{"name": "r", "fromTable": 5}]}, r"\$\.model\.relationships\['r'\]\.fromTable is a number"),
+], ids=["name", "description", "table", "default", "relationship"])
+def test_a_part_of_the_wrong_type_is_refused_by_path_as_export_refuses_it(bim, path):
+    with pytest.raises(ValueError, match=r"^This model couldn't be written as TMDL, because part of it .*" + path):
+        tmdl.from_bim({"name": "M", "model": bim})
+    with pytest.raises(ValueError, match=path):
+        model_ossie.export({"name": "M", "model": bim})
+
+
 @pytest.mark.parametrize("name", [5, ""])
 def test_an_object_whose_name_is_not_text_or_is_empty_is_left_out_by_name(name):
-    files, report = tmdl.from_bim({"name": "M", "model": {"tables": [{"name": name, "columns": []}, {"name": "T"}]}})
+    files, report = tmdl._from_bim({"name": "M", "model": {"tables": [{"name": name, "columns": []}, {"name": "T"}]}})
     assert sorted(files) == ["definition/model.tmdl", "definition/tables/T.tmdl"]
     assert report == [{"object": "table", "kind": "lost", "message": "an object with no name was left out"}]
 
 
 def test_a_description_that_is_not_text_is_not_written_and_is_reported():
-    files, report = tmdl.from_bim({"name": "M", "model": {"tables": [{"name": "T", "description": 5}]}})
+    files, report = tmdl._from_bim({"name": "M", "model": {"tables": [{"name": "T", "description": 5}]}})
     assert files["definition/tables/T.tmdl"] == "table T\n"
     assert report == [{"object": "table 'T' description (left out)", "kind": "lost",
                        "message": "wouldn't read back from TMDL as it was"}]
@@ -100,7 +117,7 @@ def test_database_and_model_properties_are_one_tab_deep():
 
 
 def test_a_table_entry_that_is_not_an_object_is_left_out_and_reported():
-    files, report = tmdl.from_bim({"name": "M", "model": {"tables": ["x", {"name": "T"}]}})
+    files, report = tmdl._from_bim({"name": "M", "model": {"tables": ["x", {"name": "T"}]}})
     assert files["definition/model.tmdl"] == "model Model\nref table T\n"
     assert report == [{"object": "tables", "kind": "lost", "message": "an entry that isn't an object was left out"}]
 
@@ -122,7 +139,7 @@ def test_a_relationship_end_without_a_column_keeps_its_table():
 
 
 def test_a_relationship_table_that_is_not_text_is_kept_as_a_property():
-    files, report = tmdl.from_bim({"name": "M", "model": {"relationships": [
+    files, report = tmdl._from_bim({"name": "M", "model": {"relationships": [
         {"name": "r", "fromTable": 5, "fromColumn": "k", "toTable": "B", "toColumn": "k"}]}})
     assert report == []
     assert files["definition/relationships.tmdl"].split("\n") == [
@@ -142,7 +159,7 @@ def test_a_line_not_understood_is_reported_by_its_first_80_characters():
 
 
 def test_a_default_that_is_not_text_is_written_as_text():
-    files, _ = tmdl.from_bim({"name": "M", "model": {"tables": [{"name": "T", "columns": [{"name": "C", "expression": 5}]}]}})
+    files, _ = tmdl._from_bim({"name": "M", "model": {"tables": [{"name": "T", "columns": [{"name": "C", "expression": 5}]}]}})
     assert files["definition/tables/T.tmdl"] == "table T\n\tcolumn C = 5\n"
 
 

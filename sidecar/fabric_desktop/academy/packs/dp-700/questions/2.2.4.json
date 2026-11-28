@@ -322,6 +322,38 @@
       "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.4-q11",
+      "type": "single",
+      "stem": "At Quillon, how should the policy details reach Fabric?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Export the policy tables to CSV files each week and load the files into ClaimsDW with the COPY INTO statement"
+        },
+        {
+          "id": "b",
+          "text": "Create a OneLake shortcut in a lakehouse that points straight at the Azure SQL Database tables"
+        },
+        {
+          "id": "c",
+          "text": "Mirror the Azure SQL Database into Fabric, which replicates its changes continuously into OneLake"
+        },
+        {
+          "id": "d",
+          "text": "Copy the policy tables into a lakehouse with a pipeline that runs every hour on a schedule"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Mirroring continuously replicates an Azure SQL Database into OneLake as Delta tables, publishing changes as fast as every 15 seconds, with a SQL analytics endpoint to query them and no pipeline to build or schedule. A scheduled pipeline or weekly export is neither near real time nor free of load jobs.",
+      "source": "https://learn.microsoft.com/en-us/fabric/mirroring/overview",
+      "case": "quillon-claims",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

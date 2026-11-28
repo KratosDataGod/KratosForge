@@ -48,6 +48,146 @@ async function nbReloadIfChangedOutside() {
 
 window.addEventListener("focus", () => { nbReloadIfChangedOutside(); });
 
+// A save found the notebook saved by another program too (VS Code, a Git pull), and the engine knows the
+// cells both started from, so it merged them by cell (notebook_sync.py). Changes made on one side only
+// are taken as they are. A cell edited on both sides, a cell deleted on one side and edited on the
+// other, and cells moved on both sides are each picked here, one by one; nothing is picked for the
+// person (Preview, WR-506). Both full versions stay under Versions whatever is picked.
+const SYNC_KIND = {
+  both_edited: "Edited on both sides",
+  deleted_there: "Deleted in VS Code, edited here",
+  deleted_here: "Deleted here, edited in VS Code",
+  reordered_both: "Reordered on both sides",
+};
+const SYNC_PICKS = {
+  both_edited: [["mine", "Keep mine"], ["theirs", "Use VS Code's"], ["both", "Keep both"]],
+  deleted_there: [["mine", "Keep the cell"], ["theirs", "Delete it"]],
+  deleted_here: [["theirs", "Keep the cell"], ["mine", "Delete it"]],
+  reordered_both: [["mine", "Use my order"], ["theirs", "Use VS Code's order"]],
+};
+
+function syncCellLabel(cell) {
+  if (!cell) return "";
+  const title = cell.meta?.title;
+  if (title) return title;
+  const line = (cell.source || "").split("\n").map((l) => l.replace(/^[#\s]+/, "").trim()).find(Boolean) || (cell.type === "markdown" ? "Text" : "Code");
+  return line.length > 40 ? line.slice(0, 39) + "…" : line;
+}
+
+// The cell's code, with the lines that aren't in the version both started from marked.
+function syncCode(cell, base) {
+  const was = new Set((base?.source || "").split("\n"));
+  return h("div", { class: "sync-code" }, (cell.source || "").split("\n").map((line) =>
+    h("span", { class: was.has(line) ? "sync-line" : "sync-line sync-added" }, line || " ")));
+}
+
+function syncSavedAt(iso) {
+  const at = timeText(iso);
+  return at ? `In VS Code, saved ${at}` : "In VS Code";
+}
+
+async function nbSyncApplied(nb, res) {
+  nb.diskConflict = false;
+  nb.dirty = false;
+  const fresh = await attempt(() => rpc("open_notebook", { name: nb.name }), "Couldn't open the notebook");
+  if (!fresh || state.notebook !== nb) return;
+  loadIntoState(fresh);
+  if (state.view === "notebook") renderNotebook();
+}
+
+// Sends the picks (none when nothing needs one). The engine saves only a merge with every pick made;
+// if the file changed again meanwhile, the person is asked again about the newer file. `saved` runs
+// once the merge is on disk, before the notebook is read back, so the screen never shows a saved
+// notebook behind a still-open chooser.
+async function nbSyncSave(nb, choices, saved = () => {}) {
+  const res = await attempt(() => rpc("notebook_sync_merge", { ...notebookPayload(), disk_stamp: nb.diskStamp, choices }),
+    "Couldn't save the merged notebook");
+  if (!res) return null;
+  if (res.changed_on_disk) {
+    nbSyncMerge(nb, res);
+    return null;
+  }
+  if (!res.resolved) return res;
+  saved();
+  await nbSyncApplied(nb, res);
+  return res;
+}
+
+function nbSyncMerge(nb, out) {
+  const merge = out.merge;
+  if (!merge || nbRunning(nb) || nb.diskConflictOpen) return nbDiskConflict(nb, out);  // a running cell's screen isn't replaced
+  if (merge.resolved) {
+    nbSyncSave(nb, {}, () => toast(`Merged the changes saved in VS Code with yours in ${nb.name}. Both versions are under Versions.`));
+    return;
+  }
+  nb.diskConflictOpen = true;
+  const picks = {};
+  const conflicts = merge.conflicts;
+  const ids = new Set(conflicts.map((c) => c.cell_id).filter(Boolean));
+  const position = new Map(merge.cells.map((c, i) => [c.cell_id, i + 1]));
+  const labels = new Map();
+  for (const c of [...merge.cells, ...conflicts.flatMap((k) => k.cell_id ? [k.mine, k.theirs] : [])]) {
+    if (c && !labels.has(c.cell_id)) labels.set(c.cell_id, syncCellLabel(c));
+  }
+  const others = merge.cells.filter((c) => !ids.has(c.cell_id) && ![...ids].some((id) => c.cell_id.startsWith(`${id}-theirs`)));
+  const save = btn("Save", null, () => run(), "tool primary");
+  const left = h("span", { class: "muted-text" });
+  const radios = [];
+  const count = () => {
+    const missing = conflicts.filter((c) => !picks[c.id]).length;
+    left.textContent = missing ? `Pick ${missing} more to save.` : "Every difference has a pick.";
+    save.disabled = !!missing;
+  };
+  const setAll = (side) => {
+    for (const c of conflicts) picks[c.id] = side;
+    for (const r of radios) r.checked = picks[r.name.slice(5)] === r.value;
+    count();
+  };
+  const side = (head, body) => h("div", { class: "sync-side" }, h("div", { class: "sync-side-head" }, head), body);
+  const orderList = (order, base) => h("ol", { class: "sync-order" }, order.map((id, i) =>
+    h("li", { class: base[i] === id ? null : "sync-moved" }, labels.get(id) || id)));
+  const card = (c) => {
+    const pickRow = h("div", { class: "sync-pick", role: "radiogroup", "aria-label": `Pick for ${c.cell_id ? `cell ${position.get(c.cell_id) || ""}` : "the cell order"}` },
+      SYNC_PICKS[c.kind].map(([value, label]) => {
+        const r = h("input", { type: "radio", name: `sync-${c.id}`, value, onchange: () => { picks[c.id] = value; count(); } });
+        radios.push(r);
+        return h("label", {}, r, label);
+      }));
+    const what = c.cell_id ? `Cell ${position.get(c.cell_id) || ""}, ${labels.get(c.cell_id)}` : "Cell order";
+    const here = c.cell_id ? (c.mine ? syncCode(c.mine, c.base) : h("div", { class: "sync-gone" }, "This cell was deleted here."))
+      : orderList(c.mine, c.base);
+    const there = c.cell_id ? (c.theirs ? syncCode(c.theirs, c.base) : h("div", { class: "sync-gone" }, "This cell was deleted in VS Code."))
+      : orderList(c.theirs, c.base);
+    return h("div", { class: "sync-conf" },
+      h("div", { class: "sync-conf-head" }, h("span", { class: "sync-what" }, what), h("span", { class: "sync-kind" }, SYNC_KIND[c.kind])),
+      h("div", { class: "sync-sides" }, side("Here, in KratosForge", here), side(syncSavedAt(merge.theirs_saved_at), there)),
+      pickRow);
+  };
+  const cellConflicts = conflicts.filter((c) => c.cell_id).length;
+  const run = async () => {
+    save.disabled = true;
+    const res = await nbSyncSave(nb, { ...picks }, () => {
+      nb.diskConflictOpen = false;
+      closeDialog();
+      toast(`Saved ${nb.name} with your picks. Both full versions are under Versions.`);
+    });
+    if (!res?.resolved) count();
+  };
+  const overlay = showDialog("This notebook changed in both places", h("div", { class: "scroll sync-chooser" },
+    h("p", { class: "sync-banner" }, previewTag(), h("b", {}, "This notebook also changed in VS Code. "),
+      `${cellConflicts ? `${cellConflicts} cell${cellConflicts === 1 ? "" : "s"} differ${cellConflicts === 1 ? "s" : ""}` : "The cell order differs"}. Pick a version for each, then save.`,
+      h("span", { class: "sync-all" }, btn("Use all mine", null, () => setAll("mine"), "tool outline small"),
+        btn("Use all VS Code's", null, () => setAll("theirs"), "tool outline small"))),
+    others.length ? h("details", { class: "sync-same" },
+      h("summary", {}, `${others.length} other cell${others.length === 1 ? " needs" : "s need"} no pick: the same on both sides, or changed on one side only. Show them`),
+      h("ol", {}, others.map((c) => h("li", { value: position.get(c.cell_id) }, labels.get(c.cell_id))))) : null,
+    conflicts.map(card)),
+    [left, btn("Cancel", null, () => closeDialog(), "tool outline"), save],
+    () => { nb.diskConflictOpen = false; });
+  overlay.querySelector(".dialog")?.classList.add("roomy");
+  count();
+}
+
 // Set up a repository for VS Code (vscode_setup.py): adds the files a developer who opens the
 // repository in VS Code needs. Files already there are never replaced; for Copilot's instructions
 // the text to paste is shown instead. Nothing is committed.

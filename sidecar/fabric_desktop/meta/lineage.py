@@ -10,9 +10,9 @@ Each column an entity writes gets one record saying where it comes from:
 * ``custom``: produced by Python (``[hooks] adds`` or a ``[step] custom``): opaque, never guessed.
 
 and a label: ``declared`` when a file names the link (a rename, an expression, a lookup, a key),
-``inferred`` when it's assumed from a matching name, ``opaque`` when custom code decides. Columns a
-hook may touch after they're produced say so (``custom_may_change``), because a hook can change any
-column.
+``inferred`` when it's assumed from a matching name, ``opaque`` when custom code decides, ``unknown``
+when an expression can't be read for its columns (they're never guessed). Columns a hook may touch
+after they're produced say so (``custom_may_change``), because a hook can change any column.
 """
 
 from __future__ import annotations
@@ -20,20 +20,23 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import polars as pl
-
 from ..redact import describe
 from . import keys as keys_mod
-from .project import SCD2_COLUMNS, Entity, Project
+from .project import SCD2_COLUMNS, Entity, Project, sql_expr
 
 _log = logging.getLogger(__name__)
 
 RUN_COLUMNS = ("_run_id", "_loaded_at")
 
 
-def _expr_columns(expr: str) -> list[str] | None:
+def _expr_columns(expr: Any) -> list[str] | None:
+    """The columns an expression reads, or None when that isn't known: it doesn't parse, or it picks
+    columns by pattern (COLUMNS('^a.*$')), which only the data decides."""
     try:
-        return list(dict.fromkeys(pl.sql_expr(expr).meta.root_names()))
+        parsed = sql_expr(expr)
+        if parsed.meta.has_multiple_outputs():
+            return None
+        return list(dict.fromkeys(parsed.meta.root_names()))
     except Exception as exc:  # noqa: BLE001 - an expression the save gate would refuse anyway
         _log.info("Couldn't parse an expression's columns: %s", describe(exc))
         return None
@@ -53,7 +56,14 @@ def entity_columns(project: Project, name: str) -> dict[str, dict[str, Any]]:
     s = e.spec
     origin = _origin(e)
     renames = {v: k for k, v in (s.get("source", {}).get("rename") or {}).items()}  # contract name -> source name
-    derives = {d["column"]: d for d in s.get("derive", []) if isinstance(d, dict) and "column" in d}
+    derive_list = [d for d in s.get("derive", []) if isinstance(d, dict) and "column" in d]
+    derives = {d["column"]: d for d in derive_list}
+    # Derives run in order, so one reads a column another makes only when that one comes first; before
+    # then it reads the column as it came in (x = y + 1 then y = x * 2 is no loop).
+    derive_at = {d["column"]: n for n, d in enumerate(derive_list)}
+    first_derived: dict[str, int] = {}
+    for n, d in enumerate(derive_list):
+        first_derived.setdefault(d["column"], n)
     lookups = {lk["as"]: lk for lk in s.get("lookup", []) if isinstance(lk, dict) and "as" in lk}
     keys = {k["column"]: k for k in keys_mod.entity_keys(e)}
     hooks = s.get("hooks", {})
@@ -93,16 +103,24 @@ def entity_columns(project: Project, name: str) -> dict[str, dict[str, Any]]:
         elif col in adds:
             rec = {"how": "custom", "label": "opaque", "inputs": [], "note": "added by your Python (hooks adds)"}
         elif col in derives:
-            used = _expr_columns(derives[col]["expr"])
-            rec = {"how": "derived", "label": "declared", "expr": derives[col]["expr"],
-                   "inputs": [i for c in used or [] for i in ref(c, col)]}
-            if used is None:
+            # A column derived more than once (x = a, then x = x + 1) is traced by its last derive, and its
+            # own name in that expression reads the column as it came in, not the earlier derive: known, kept.
+            expr = derives[col].get("expr")
+            used = _expr_columns(expr)
+            rec = {"how": "derived", "label": "declared", "expr": expr,
+                   "inputs": [i for c in used or []
+                              for i in (src_inputs(c) if first_derived.get(c, -1) >= derive_at[col] else ref(c, col))]}
+            if used is None:  # never guessed: the columns it reads aren't known
+                rec["label"] = "unknown"
                 rec["note"] = "the expression couldn't be read"
         elif col in lookups:
             lk = lookups[col]
             dim = project.entities.get(lk.get("dim") or "")
             rec = {"how": "lookup", "label": "declared",
-                   "inputs": ([{"entity": dim.name, "column": dim.surrogate_key}] if dim and dim.surrogate_key else [])
+                   # a "dim" that isn't a dimension doesn't make the key: the link is there, the column isn't
+                   "inputs": ([{"entity": dim.name, "column": dim.surrogate_key,
+                                **({} if dim.surrogate_key in entity_columns_names(project, dim.name) else {"missing": True})}]
+                              if dim and dim.surrogate_key else [])
                    + [i for c in (lk.get("on"), lk.get("at")) if c for i in ref(c, col)],
                    "note": f"{lk.get('dim')} key matched on {lk.get('on')}" + (f" as of {lk['at']}" if lk.get("at") else "")}
         elif col in keys:
@@ -127,25 +145,34 @@ def entity_columns(project: Project, name: str) -> dict[str, dict[str, Any]]:
 
 
 def entity_columns_names(project: Project, name: str) -> list[str]:
+    """Every column the entity writes (the keys of ``entity_columns``), its run stamps too: a table that
+    reads _run_id from it reads a column that is there."""
     e = project.entities[name]
-    return list(e.columns) + sorted(e.mode_columns() - set(e.columns))
+    names = list(e.columns) + sorted(e.mode_columns() - set(e.columns))
+    return names + [c for c in RUN_COLUMNS if c not in names]
 
 
-def upstream(project: Project, name: str, column: str, _seen: set | None = None) -> list[dict[str, Any]]:
-    """Every step back from ``name.column`` to where it starts, nearest first."""
-    seen = _seen if _seen is not None else set()
-    if (name, column) in seen or name not in project.entities:
-        return []
-    seen.add((name, column))
-    rec = entity_columns(project, name).get(column)
-    if rec is None:
-        return [{"entity": name, "column": column, "how": "unknown", "label": "inferred", "inputs": [],
-                 "note": f"{name} doesn't write {column}"}]
-    steps = [{"entity": name, "column": column, **rec}]
-    for i in rec["inputs"]:
-        if i.get("missing") or "entity" not in i:
+def upstream(project: Project, name: str, column: str) -> list[dict[str, Any]]:
+    """Every step back from ``name.column`` to where it starts, nearest first (depth first, each step once).
+    Walked with a stack, not recursion, so a chain of any length (or a cycle in hand-written files) ends."""
+    cols: dict[str, dict[str, dict[str, Any]]] = {}  # each entity's columns, worked out once per call
+    seen: set[tuple[str, str]] = set()
+    steps: list[dict[str, Any]] = []
+    todo = [(name, column)]
+    while todo:
+        ent, col = todo.pop()
+        if (ent, col) in seen or ent not in project.entities:
             continue
-        steps += upstream(project, i["entity"], i["column"], seen)
+        seen.add((ent, col))
+        if ent not in cols:
+            cols[ent] = entity_columns(project, ent)
+        rec = cols[ent].get(col)
+        if rec is None:
+            steps.append({"entity": ent, "column": col, "how": "unknown", "label": "inferred", "inputs": [],
+                          "note": f"{ent} doesn't write {col}"})
+            continue
+        steps.append({"entity": ent, "column": col, **rec})
+        todo += [(i["entity"], i["column"]) for i in reversed(rec["inputs"]) if not i.get("missing") and "entity" in i]
     return steps
 
 

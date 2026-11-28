@@ -3,7 +3,8 @@
 // no rail slot. Levels and achievements are for fun; skills show evidence coverage, never a score.
 // Loaded after features.js; everything here runs after startup.
 
-const profilePage = { tab: "overview", data: null, days: 90, achievements: false, report: null };
+const profilePage = { tab: "overview", data: null, days: 90, achievements: false, report: null,
+  trees: { classId: null, spec: null, talent: null, data: null, error: false } };
 const RECORDING_ON = "Recording is on: notebooks that pass Validate, Prove or Side by side are kept in a private record on this PC. Turn it off in Profile > Settings.";
 // Badge glyphs (20x22), from the approved mockup. Locked achievements show the lock.
 const BADGE_GLYPHS = {
@@ -35,16 +36,17 @@ function profileTabs(p) {
   return h("div", { class: "subtabs", role: "tablist", "aria-label": "Profile" },
     tab("overview", "Overview"), p.settings.progression ? tab("journey", "Journey") : null,
     p.settings.progression ? tab("ranks", "Ranks") : null,
+    p.settings.progression ? tab("trees", "Skill trees") : null,
     p.settings.progression ? tab("achievements", "Achievements") : null,
     tab("impact", "Impact"), tab("goals", "Goals"),
     tab("report", "Professional report"), tab("settings", "Settings"));
 }
 
 // Living Experience (home-hero.js, Preview): Chris's header art with "Profile" and Edit profile on its
-// sky. Your name, picture and role stay under it, so a long name never runs onto the art. The Ranks
-// tab carries its own banner under the tabs, so there the page keeps its plain heading: one picture per screen.
+// sky. Your name, picture and role stay under it, so a long name never runs onto the art. The Ranks and
+// Skill trees tabs carry their own banner under the tabs, so there the page keeps its plain heading: one picture per screen.
 function profileHero(actions) {
-  if (profilePage.tab === "ranks") return null;
+  if (profilePage.tab === "ranks" || profilePage.tab === "trees") return null;
   return typeof pageHero === "function" ? pageHero("profile", "Profile ", { tag: previewMarked("profile", h("span")), actions }) : null;
 }
 
@@ -73,8 +75,8 @@ async function renderProfile() {
           .filter(Boolean).join(" · "), " ", learnMore("profile-preview")))),
     hero ? null : edit);
   // Journey and Achievements are progression: with it off they aren't shown.
-  if (!p.settings.progression && ["journey", "ranks", "achievements"].includes(profilePage.tab)) profilePage.tab = "overview";
-  const body = { overview: profileOverview, journey: profileJourney, ranks: profileRanks, achievements: profileAchievements, impact: profileImpact, goals: profileGoals, report: profileReport,
+  if (!p.settings.progression && ["journey", "ranks", "trees", "achievements"].includes(profilePage.tab)) profilePage.tab = "overview";
+  const body = { overview: profileOverview, journey: profileJourney, ranks: profileRanks, trees: profileTrees, achievements: profileAchievements, impact: profileImpact, goals: profileGoals, report: profileReport,
     settings: profileSettings }[profilePage.tab](p);
   const notice = p.notice ? h("div", { class: "callout git-warn", role: "alert" }, h("span", { class: "grow" }, p.notice),
     btn("Dismiss", null, () => saveProfile({ dismiss_notice: true }, null), "tool outline small")) : null;
@@ -319,6 +321,172 @@ function profileRanks(p) {
           h("span", { class: "grow" }),
           btn("Copy picture prompt", null, () => copyText(x.prompt, "Picture prompt"), "tool link small")),
         x.checks.length ? x.checks.map(profileRankCheck) : h("div", { class: "muted-text small" }, "Everyone starts here."))))));
+}
+
+// ---------- Skill trees (PB-134) ----------
+// Developer classes as talent trees, from profile_mastery (mastery/levels.py): every level comes from
+// evidence KratosForge verified on this PC, worked out each time. The tree is the one dark, forged
+// surface in Profile (Chris, 2026-11-17: "I do want ... fantasy skill trees"): energy runs only along
+// paths whose talents are mastered, and it moves only when branded motion is on (motion.js).
+
+const TREE_GLYPHS = [BADGE_GLYPHS.anvil, BADGE_GLYPHS.bolt, BADGE_GLYPHS.shield, BADGE_GLYPHS.spark, BADGE_GLYPHS.flame, BADGE_GLYPHS.eye];
+const TREE_STATE = { mastered: "Mastered", in_progress: "In progress", available: "Available", locked: "Locked" };
+
+async function loadTrees(classId) {
+  const t = profilePage.trees;
+  const out = await attempt(() => rpc("profile_mastery", classId ? { class_id: classId } : {}), "Couldn't open your skill trees");
+  t.error = !out;
+  if (!out) { if (state.view === "profile" && profilePage.tab === "trees") render(); return; }
+  if (t.data?.class.id !== out.class.id) { t.spec = out.class.specializations[0].id; t.talent = null; }
+  t.data = out; t.classId = out.class.id;
+  if (state.view === "profile" && profilePage.tab === "trees") render();
+}
+
+function profileTrees() {
+  const t = profilePage.trees;
+  if (!t.data && t.error) {
+    return h("p", { class: "muted-text" }, "Couldn't open your skill trees. ",
+      btn("Try again", null, () => { t.error = false; render(); }, "tool outline small"));
+  }
+  if (!t.data) {
+    loadTrees(t.classId);
+    return h("p", { class: "muted-text" }, "Loading your skill trees...");
+  }
+  const d = t.data, c = d.class;
+  const spec = c.specializations.find((s) => s.id === t.spec) || c.specializations[0];
+  const talent = spec.nodes.find((n) => n.id === t.talent) || spec.nodes.find((n) => n.state === "in_progress")
+    || spec.nodes.find((n) => n.state === "available") || spec.nodes[0];
+  const picker = h("select", { "aria-label": "Developer class", onchange: (e) => loadTrees(e.target.value) },
+    d.classes.map((x) => h("option", { value: x.id, selected: x.id === c.id ? true : null },
+      `${x.title}${x.mastered ? ` (${x.mastered} of ${x.talents} mastered)` : ""}`)));
+  const tabs = h("div", { class: "tree-specs", role: "tablist", "aria-label": "Specializations" },
+    c.specializations.map((s) => h("button", { role: "tab", class: `tree-spec${s.id === spec.id ? " active" : ""}`,
+      "aria-selected": s.id === spec.id ? "true" : "false",
+      onclick: () => { t.spec = s.id; t.talent = null; render(); } },
+      s.title, h("span", { class: "tree-spec-count" }, ` ${s.nodes.filter((n) => n.state === "mastered").length}/${s.nodes.length}`))));
+  const head = h("section", { class: "tree-head", "aria-label": c.title },
+    h("div", { class: "tree-head-text" },
+      h("h2", { class: "tree-title" }, c.title),
+      h("p", { class: "tree-sub" }, `${c.professional} · class mastery ${c.mastery_name.toLowerCase()} · ${c.mastered} ${c.mastered === 1 ? "talent" : "talents"} mastered`),
+      h("p", { class: "tree-lore" }, c.fantasy)),
+    h("label", { class: "tree-pick" }, "Class", picker), classAchievements(c), tabs);
+  return h("div", { class: "profile-col" }, head,
+    h("div", { class: "tree-body" }, treeCanvas(spec, talent), treeDetail(spec, talent)),
+    h("p", { class: "muted-text small" }, `Levels show only work KratosForge verified on this PC (rules v${d.rules_version}). `
+      + "They aren't professional certifications. A talent counts as mastered from Adept. A talent opens when every talent before it reaches Apprentice. "
+      + "Evidence for a locked talent is kept and counts once the talent opens."));
+}
+
+// The class's achievements, above its trees (approved mockup, 2026-11-24). Earned ones carry the ember ring
+// and the day the evidence first met the rule; the others show how many talents count so far, or why no one
+// can earn them yet. The criteria come from the achievement's own rule.
+const ACHIEVEMENT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function achievementRing(fraction) {
+  const ns = "http://www.w3.org/2000/svg", r = 28, len = 2 * Math.PI * r;
+  const el = (tag, attrs) => { const n = document.createElementNS(ns, tag); Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v)); return n; };
+  const svg = el("svg", { class: "tree-ach-ring", viewBox: "0 0 64 64", "aria-hidden": "true" });
+  svg.append(el("circle", { cx: 32, cy: 32, r, class: "tree-ach-track" }));
+  if (fraction > 0) svg.append(el("circle", { cx: 32, cy: 32, r, class: "tree-ach-arc", transform: "rotate(-90 32 32)",
+    "stroke-dasharray": `${(len * Math.min(1, fraction)).toFixed(1)} ${len.toFixed(1)}` }));
+  return svg;
+}
+
+function classAchievements(c) {
+  const list = c.achievements || [];
+  const card = (a, i) => {
+    // "going", not "progress": the app's .progress is a 6px progress bar that clips what it holds.
+    const state = a.earned ? "earned" : a.available ? "going" : "unavailable";
+    const day = a.earned_on ? `${ACHIEVEMENT_MONTHS[Number(a.earned_on.slice(5, 7)) - 1]} ${Number(a.earned_on.slice(8, 10))}` : "";
+    const status = a.earned ? (day ? `Earned ${day}` : "Earned")
+      : !a.available ? `Not yet available. ${a.unavailable_reason}` : a.of ? `${a.met} of ${a.of}` : "Not started";
+    const ring = h("div", { class: "tree-ach-badge", ...(state === "going" && a.of
+      ? { role: "progressbar", "aria-valuenow": String(a.met), "aria-valuemin": "0", "aria-valuemax": String(a.of), "aria-label": `${a.name} progress` }
+      : {}) }, achievementRing(a.earned ? 1 : a.available && a.of ? a.met / a.of : 0),
+      h("span", { class: "tree-ach-glyph", "aria-hidden": "true" }, svgIcon(TREE_GLYPHS[i % TREE_GLYPHS.length], 22)));
+    return h("li", { class: `tree-ach ${state}` }, ring, h("h4", {}, a.name), h("p", {}, a.criteria), h("p", { class: "tree-ach-status" }, status));
+  };
+  return h("section", { class: "tree-achs", "aria-label": "Class achievements" },
+    h("div", { class: "tree-achs-head" }, h("h3", {}, "Class achievements"),
+      h("span", {}, `${list.filter((a) => a.earned).length} of ${list.length} earned`)),
+    h("ul", { class: "tree-ach-row" }, list.map(card)));
+}
+
+// The tree: tiers top to bottom, each tier's talents spread across. Lines are drawn in a 100 x 100 box
+// stretched over the canvas; the talents are real buttons placed on the same grid.
+function treeCanvas(spec, selected) {
+  const t = profilePage.trees;
+  const tiers = [...new Set(spec.nodes.map((n) => n.tier))].sort((a, b) => a - b);
+  const pos = {};
+  for (const tier of tiers) {
+    const row = spec.nodes.filter((n) => n.tier === tier);
+    row.forEach((n, i) => { pos[n.id] = { x: ((i + 1) * 100) / (row.length + 1), y: 8 + ((tiers.indexOf(tier)) * 84) / Math.max(1, tiers.length - 1) }; });
+  }
+  const byId = Object.fromEntries(spec.nodes.map((n) => [n.id, n]));
+  const ns = "http://www.w3.org/2000/svg";
+  const el = (tag, attrs) => { const n = document.createElementNS(ns, tag); Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v)); return n; };
+  const svg = el("svg", { class: "tree-lines", viewBox: "0 0 100 100", preserveAspectRatio: "none", "aria-hidden": "true" });
+  for (const n of spec.nodes) {
+    for (const r of n.requires) {
+      if (!pos[r]) continue;
+      const a = pos[r], b = pos[n.id];
+      const lit = byId[r].state === "mastered" && n.state !== "locked";
+      const d = `M${a.x} ${a.y + 4} C${a.x} ${(a.y + b.y) / 2} ${b.x} ${(a.y + b.y) / 2} ${b.x} ${b.y - 4}`;
+      const edge = { "data-from": r, "data-to": n.id };
+      if (lit) svg.append(el("path", { d, class: "tree-line lit-glow" }), el("path", { d, class: "tree-line lit", ...edge }), el("path", { d, class: "tree-line flow" }));
+      else svg.append(el("path", { d, class: "tree-line", ...edge }));
+    }
+  }
+  const nodes = spec.nodes.map((n, i) => h("button", {
+    class: `tree-node ${n.state}${n.id === selected.id ? " selected" : ""}${n.capstone ? " capstone" : ""}`, "data-talent": n.id,
+    style: `left:${pos[n.id].x}%;top:${pos[n.id].y}%`,
+    "aria-label": `${n.title}${n.capstone ? " (capstone)" : ""}, ${n.state === "locked" ? "locked" : `${n.level_name}, ${TREE_STATE[n.state].toLowerCase()}`}`,
+    "aria-pressed": n.id === selected.id ? "true" : "false",
+    onclick: () => { t.talent = n.id; render(); } },
+    h("span", { class: "tree-emblem", "aria-hidden": "true" }, svgIcon(n.state === "locked" ? BADGE_GLYPHS.lock : TREE_GLYPHS[i % TREE_GLYPHS.length], 28)),
+    h("span", { class: "tree-node-name", "aria-hidden": "true" }, n.title),
+    h("span", { class: "tree-node-level", "aria-hidden": "true" }, n.state === "locked" ? (n.banked_name ? `Locked · ${n.banked_name} waiting` : "Locked") : n.level_name)));
+  // Arrow keys walk the tree: up to a talent it builds on, down to one it opens, left and right along a tier.
+  const move = (e) => {
+    const i = nodes.indexOf(document.activeElement);
+    if (i < 0) return;
+    const n = spec.nodes[i], here = pos[n.id];
+    const pick = (list) => list.sort((a, b) => Math.abs(pos[a.id].x - here.x) - Math.abs(pos[b.id].x - here.x))[0];
+    const to = { ArrowUp: () => pick(n.requires.map((r) => byId[r]).filter(Boolean)),
+      ArrowDown: () => pick(spec.nodes.filter((m) => m.requires.includes(n.id))),
+      ArrowLeft: () => spec.nodes.filter((m) => m.tier === n.tier && pos[m.id].x < here.x).sort((a, b) => pos[b.id].x - pos[a.id].x)[0],
+      ArrowRight: () => spec.nodes.filter((m) => m.tier === n.tier && pos[m.id].x > here.x).sort((a, b) => pos[a.id].x - pos[b.id].x)[0] }[e.key];
+    const next = to && to();
+    if (!next) return;
+    e.preventDefault();
+    nodes[spec.nodes.indexOf(next)].focus();
+  };
+  return h("div", { class: "tree-canvas", role: "group", "aria-label": `${spec.title} talent tree. Arrow keys move between talents.`,
+    style: `height:${tiers.length * 128}px`, onkeydown: move }, svg, nodes);
+}
+
+function treeDetail(spec, n) {
+  const ev = n.evidence.slice().reverse();
+  const where = [...n.learn.map((id) => btn(`Open ${id}`, null, () => learnOpen(id), "tool outline small")),
+    ...n.academy.slice(0, 3).map((id) => btn(`Open ${id.split("/").pop()} in Academy`, null, () => { academyPage.pack = id.split("/")[0]; academyOpen(id.split("/").pop()); }, "tool outline small"))];
+  const byId = Object.fromEntries(spec.nodes.map((m) => [m.id, m]));
+  const needs = n.requires.map((r) => byId[r]).filter(Boolean);
+  const short = needs.filter((m) => m.state === "locked" || m.level < 2);
+  const names = (list) => list.map((m) => m.title).join(" and ");
+  return h("aside", { class: "tree-detail", "aria-label": "Selected talent", "aria-live": "polite" },
+    h("h3", { class: "tree-detail-title" }, n.title),
+    h("div", { class: "row wrap" }, h("span", { class: `pill-s tree-pill ${n.state}` }, n.level_name),
+      h("span", { class: "muted-text small" }, `${spec.title} · tier ${n.tier} · ${TREE_STATE[n.state]}`)),
+    needs.length ? h("p", { class: "small" }, `Builds on ${names(needs)}.`) : null,
+    n.state === "locked" ? h("p", { class: "small" }, (short.length ? `Opens when ${names(short)} ${short.length > 1 ? "reach" : "reaches"} Apprentice.` : "Opens when the talents it builds on open.")
+      + (n.banked_name ? ` You already have ${n.banked_name} here, and it counts as soon as the talent opens.` : "")) : null,
+    n.next ? h("div", {}, h("b", { class: "small" }, n.level < n.ceiling ? `To reach ${profilePage.trees.data.levels[n.level + 1]}` : "Highest level for now"),
+      h("p", { class: "small" }, n.next)) : null,
+    h("div", {}, h("b", { class: "small" }, "Evidence"),
+      ev.length ? h("ul", { class: "tree-evidence" }, ev.slice(0, 6).map((r) => h("li", {},
+        h("span", {}, r.source), h("span", { class: "muted-text small" }, ` ${r.category} · ${dateText(r.at)}`))))
+        : h("p", { class: "muted-text small" }, "None yet.")),
+    where.length ? h("div", { class: "row wrap" }, where) : h("p", { class: "muted-text small" }, "No lesson or exercise covers this talent yet."));
 }
 
 // ---------- Journey ----------

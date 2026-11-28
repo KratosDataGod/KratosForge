@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import os
 import sys
 from types import SimpleNamespace
 
@@ -164,10 +165,12 @@ class Handle(io.StringIO):
 def started(monkeypatch, tmp_path):
     """main()'s process handles, faked: fd 1 for stdout, fd 2 for stderr, the reply pipe it opens, and stdin."""
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-    rpc_out, stderr, dups = Handle(11), Handle(2), []
+    rpc_out, stderr, dups, rpc_in = Handle(11), Handle(2), [], {}
     monkeypatch.setattr(server, "os", SimpleNamespace(
-        dup=lambda fd: dups.append(("dup", fd)) or 11, dup2=lambda a, b: dups.append(("dup2", a, b)),
-        fdopen=lambda fd, *a, **k: rpc_out if fd == 11 else pytest.fail(f"fdopen {fd}")))
+        dup=lambda fd: dups.append(("dup", fd)) or {1: 11, 0: 10}[fd], dup2=lambda a, b: dups.append(("dup2", a, b)),
+        fdopen=lambda fd, *a, **k: {11: rpc_out, 10: rpc_in.get("stream")}.get(fd) or pytest.fail(f"fdopen {fd}"),
+        open=lambda path, flags: dups.append(("open", path)) or 12, O_RDONLY=os.O_RDONLY,
+        close=lambda fd: dups.append(("close", fd))))
     crashes = []
     monkeypatch.setattr(server, "_report_native_crashes", crashes.append)
     monkeypatch.setattr(server, "_log_to_stderr", lambda: None)
@@ -178,7 +181,8 @@ def started(monkeypatch, tmp_path):
         monkeypatch.setattr(sys, "stderr", stderr_now)
         monkeypatch.setattr(sys, "stdin", sys.stdin)
         body = "".join(json.dumps(r) + "\n" for r in requests).encode()
-        sys.stdin = io.TextIOWrapper(io.BytesIO(body), encoding="ascii")
+        rpc_in["stream"] = io.TextIOWrapper(io.BytesIO(body), encoding="ascii")  # what fd 0's private copy reads
+        sys.stdin = Handle(0)
         server.main()
         return [json.loads(line) for line in rpc_out.getvalue().splitlines()]
 
@@ -193,7 +197,8 @@ def test_main_answers_every_call_with_why_when_the_data_is_a_newer_builds(starte
     replies = started.start([{"id": 1, "method": "app_settings"}])
     assert replies == [{"id": 1, "error": "NewerData: This data folder was last used by a newer KratosForge."}]
     assert "engine: This data folder was last used by a newer KratosForge." in started.stderr.getvalue()
-    assert started.dups == [("dup", 1), ("dup2", 2, 1)]  # fd 1 now goes to stderr; replies have their own handle
+    # fd 1 now goes to stderr, and fd 0 is the null device; requests and replies have their own handles
+    assert started.dups == [("dup", 1), ("dup2", 2, 1), ("dup", 0), ("open", server.devnull), ("dup2", 12, 0), ("close", 12)]
     assert started.crashes == [started.stderr]
     assert isinstance(sys.stderr, server._RedactedStream) and sys.stdout is sys.stderr
     assert sys.stdin.encoding == "utf-8"  # the requests are read as UTF-8 whatever the code page

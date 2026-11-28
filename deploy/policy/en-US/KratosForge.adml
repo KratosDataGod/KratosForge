@@ -40,9 +40,9 @@
       <string id="telemetry">Telemetry</string>
       <string id="telemetry_Help">Whether daily usage counts are sent. Off unless turned on. People can also change it in Settings; this policy fixes it. Policy file key: telemetry. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="audit_retention_days">Audit retention days</string>
-      <string id="audit_retention_days_Help">Days the audit trails on this PC are kept; 0 keeps them, otherwise a whole number of at least 30. Trusted only from an admin-only source. Policy file key: audit_retention_days. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="audit_retention_days_Help">Days the audit trails on this PC are kept: at least 30. They are kept when it isn't set (or is 0 in the policy file). Trusted only from an admin-only source. Policy file key: audit_retention_days. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="receipt_retention_days">Receipt retention days</string>
-      <string id="receipt_retention_days_Help">Days run receipts are kept; 0 keeps them, otherwise a whole number of at least 30. Trusted only from an admin-only source. Policy file key: receipt_retention_days. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="receipt_retention_days_Help">Days run receipts are kept: at least 30. They are kept when it isn't set (or is 0 in the policy file). Trusted only from an admin-only source. Policy file key: receipt_retention_days. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="telemetry_connection_string">Telemetry connection string</string>
       <string id="telemetry_connection_string_Help">An Application Insights connection string, so usage data goes to the organization's own Azure Monitor. Policy file key: telemetry_connection_string. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="cell_time_limit_minutes">Cell time limit minutes</string>
@@ -58,7 +58,7 @@
       <string id="allow_notebook_packages">Allow notebook packages</string>
       <string id="allow_notebook_packages_Help">False stops people installing packages into notebook environments. Policy file key: allow_notebook_packages. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="forge_animations">Forge animations</string>
-      <string id="forge_animations_Help">The first motion switch: false means motion level 0 unless motion_level is set. People can also change it in Settings; this policy fixes it. Policy file key: forge_animations. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="forge_animations_Help">The first motion switch: false means Professional (motion level 0) unless motion_level is set. People can also change it in Settings; this policy fixes it. Policy file key: forge_animations. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="allow_staging_cleanup">Allow staging cleanup</string>
       <string id="allow_staging_cleanup_Help">False stops the Estate X-ray deleting leftover Dataflow Gen2 staging lakehouses; it still lists them. Policy file key: allow_staging_cleanup. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="allow_central_environment">Allow central environment</string>
@@ -82,15 +82,15 @@
       <string id="wh_monitoring_auto">Wh monitoring auto</string>
       <string id="wh_monitoring_auto_Help">Workspace IDs whose warehouses get monitoring views without asking again. People can also change it in Settings; this policy fixes it. Add one item per line. Policy file key: wh_monitoring_auto. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="motion_level">Motion level</string>
-      <string id="motion_level_Help">Visual intensity: 0 Off, 1 Minimal, 2 Refined, 3 Expressive. People can also change it in Settings; this policy fixes it. Policy file key: motion_level. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="motion_level_Help">Visual intensity: 0 Professional, 1 Subtle (the default), 2 Heroic, 3 Legendary. People can also change it in Settings; this policy fixes it. Policy file key: motion_level. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="motion_wolf">Motion wolf</string>
-      <string id="motion_wolf_Help">Whether the wolf effects show at motion levels 2 and 3. People can also change it in Settings; this policy fixes it. Policy file key: motion_wolf. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="motion_wolf_Help">Whether the wolf effects show at Heroic and Legendary (motion levels 2 and 3). People can also change it in Settings; this policy fixes it. Policy file key: motion_wolf. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="motion_sparks">Motion sparks</string>
-      <string id="motion_sparks_Help">Whether spark effects show at motion levels 2 and 3. People can also change it in Settings; this policy fixes it. Policy file key: motion_sparks. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="motion_sparks_Help">Whether spark effects show at Heroic and Legendary (motion levels 2 and 3). People can also change it in Settings; this policy fixes it. Policy file key: motion_sparks. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="motion_achievements">Motion achievements</string>
-      <string id="motion_achievements_Help">Whether achievement celebrations show at motion levels 2 and 3. People can also change it in Settings; this policy fixes it. Policy file key: motion_achievements. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="motion_achievements_Help">Whether achievement celebrations show at Subtle and above (motion levels 1 to 3). People can also change it in Settings; this policy fixes it. Policy file key: motion_achievements. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="motion_ambient">Motion ambient</string>
-      <string id="motion_ambient_Help">Whether ambient effects show at motion levels 2 and 3. People can also change it in Settings; this policy fixes it. Policy file key: motion_ambient. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="motion_ambient_Help">Whether ambient effects show at Heroic and Legendary (motion levels 2 and 3). People can also change it in Settings; this policy fixes it. Policy file key: motion_ambient. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="motion_follow_system">Motion follow system</string>
       <string id="motion_follow_system_Help">Whether Windows' reduced-motion setting turns decorative motion off. People can also change it in Settings; this policy fixes it. Policy file key: motion_follow_system. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="allow_signed_out_schedules">Allow signed out schedules</string>
@@ -139,7 +139,7 @@
       <string id="editor_word_wrap_sql">sql</string>
       <string id="editor_word_wrap_both">both</string>
       <string id="editor_font_size">Editor font size</string>
-      <string id="editor_font_size_Help">The code font size in notebook cells and SQL editors, 10 to 24; 0 keeps each editor's own. People can also change it in Settings; this policy fixes it. Policy file key: editor_font_size. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="editor_font_size_Help">The code font size in notebook cells and SQL editors, 10 to 24. Each editor keeps its own size when it isn't set (or is 0 in the policy file). People can also change it in Settings; this policy fixes it. Policy file key: editor_font_size. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="editor_keys">Editor keys</string>
       <string id="editor_keys_Help">Editing keys in cells and SQL editors: default, or vim (Preview). People can also change it in Settings; this policy fixes it. Policy file key: editor_keys. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="editor_keys_default">default</string>
@@ -169,6 +169,10 @@
       <string id="allow_dbconnect_install_Help">False stops the app installing the Databricks Connect client. Policy file key: allow_dbconnect_install. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="dbconnect_index_url">Dbconnect index url</string>
       <string id="dbconnect_index_url_Help">The package index the Databricks Connect client is fetched from, for networks that mirror PyPI. Policy file key: dbconnect_index_url. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="allow_snowpark_install">Allow snowpark install</string>
+      <string id="allow_snowpark_install_Help">False stops the app installing Snowpark Python with local testing for the Snowpark engine on this PC. Policy file key: allow_snowpark_install. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="snowpark_index_url">Snowpark index url</string>
+      <string id="snowpark_index_url_Help">The package index Snowpark Python with local testing is fetched from, for networks that mirror PyPI. Policy file key: snowpark_index_url. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="integrations">Integrations</string>
       <string id="integrations_Help">False turns external AI tools off on this PC. Policy file key: integrations. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="integrations_max_permissions">Integrations max permissions</string>
@@ -202,8 +206,8 @@
       <presentation id="support_url"><textBox refId="support_url"><label>support_url</label></textBox></presentation>
       <presentation id="allowed_tenants"><listBox refId="allowed_tenants">allowed_tenants</listBox></presentation>
       <presentation id="local_retention_days"><decimalTextBox refId="local_retention_days" defaultValue="0">local_retention_days</decimalTextBox></presentation>
-      <presentation id="audit_retention_days"><decimalTextBox refId="audit_retention_days" defaultValue="0">audit_retention_days</decimalTextBox></presentation>
-      <presentation id="receipt_retention_days"><decimalTextBox refId="receipt_retention_days" defaultValue="0">receipt_retention_days</decimalTextBox></presentation>
+      <presentation id="audit_retention_days"><decimalTextBox refId="audit_retention_days" defaultValue="30">audit_retention_days</decimalTextBox></presentation>
+      <presentation id="receipt_retention_days"><decimalTextBox refId="receipt_retention_days" defaultValue="30">receipt_retention_days</decimalTextBox></presentation>
       <presentation id="telemetry_connection_string"><textBox refId="telemetry_connection_string"><label>telemetry_connection_string</label></textBox></presentation>
       <presentation id="cell_time_limit_minutes"><decimalTextBox refId="cell_time_limit_minutes" defaultValue="0">cell_time_limit_minutes</decimalTextBox></presentation>
       <presentation id="kernel_memory_limit_gb"><decimalTextBox refId="kernel_memory_limit_gb" defaultValue="0">kernel_memory_limit_gb</decimalTextBox></presentation>
@@ -226,13 +230,14 @@
       <presentation id="ui_skin"><textBox refId="ui_skin"><label>ui_skin</label></textBox></presentation>
       <presentation id="ui_color_mode"><dropdownList refId="ui_color_mode" noSort="true">ui_color_mode</dropdownList></presentation>
       <presentation id="editor_word_wrap"><dropdownList refId="editor_word_wrap" noSort="true">editor_word_wrap</dropdownList></presentation>
-      <presentation id="editor_font_size"><decimalTextBox refId="editor_font_size" defaultValue="0">editor_font_size</decimalTextBox></presentation>
+      <presentation id="editor_font_size"><decimalTextBox refId="editor_font_size" defaultValue="10">editor_font_size</decimalTextBox></presentation>
       <presentation id="editor_keys"><dropdownList refId="editor_keys" noSort="true">editor_keys</dropdownList></presentation>
       <presentation id="learn_mode"><dropdownList refId="learn_mode" noSort="true">learn_mode</dropdownList></presentation>
       <presentation id="learn_mode_sql"><dropdownList refId="learn_mode_sql" noSort="true">learn_mode_sql</dropdownList></presentation>
       <presentation id="learn_mode_notebooks"><dropdownList refId="learn_mode_notebooks" noSort="true">learn_mode_notebooks</dropdownList></presentation>
       <presentation id="notebook_package_folder"><textBox refId="notebook_package_folder"><label>notebook_package_folder</label></textBox></presentation>
       <presentation id="dbconnect_index_url"><textBox refId="dbconnect_index_url"><label>dbconnect_index_url</label></textBox></presentation>
+      <presentation id="snowpark_index_url"><textBox refId="snowpark_index_url"><label>snowpark_index_url</label></textBox></presentation>
       <presentation id="integrations_max_permissions"><listBox refId="integrations_max_permissions">integrations_max_permissions</listBox></presentation>
       <presentation id="integrations_extensions"><listBox refId="integrations_extensions">integrations_extensions</listBox></presentation>
       <presentation id="receipt_redactions"><listBox refId="receipt_redactions">receipt_redactions</listBox></presentation>

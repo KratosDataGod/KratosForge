@@ -143,8 +143,16 @@ def test_a_leftover_spill_file_that_cant_be_removed_is_logged(tmp_path, monkeypa
 def test_data_files_named_by_uri_are_read_as_paths_on_disk(tmp_path):
     class Table:
         def get_add_actions(self, flatten=False):
+            return pa.record_batch({"path": pa.array(["file://" + tmp_path.as_posix() + "/part%201.parquet"], pa.string())})
+    assert eng._data_files(Table(), str(tmp_path)) == [(tmp_path / "part 1.parquet").as_posix()]
+
+
+def test_data_files_named_by_uri_outside_the_table_are_refused(tmp_path):
+    class Table:
+        def get_add_actions(self, flatten=False):
             return pa.record_batch({"path": pa.array(["file:///data/t/part%201.parquet"], pa.string())})
-    assert eng._data_files(Table(), str(tmp_path)) == ["/data/t/part 1.parquet"]
+    with pytest.raises(ValueError, match="outside the table's folder"):
+        eng._data_files(Table(), str(tmp_path))
 
 
 # ---- a project

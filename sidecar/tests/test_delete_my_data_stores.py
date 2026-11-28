@@ -41,6 +41,7 @@ REMOVED: dict[str, tuple[str, ...]] = {
         "msal_cache.bin", "fabric-view-signin.bin", "fabric-view/Default/Cookies", WEBVIEW + "EBWebView/Default/Cookies"),
     "`profile\\<hash>\\profile.json`, `avatar.png`": ("profile/0123abcd/profile.json", "profile/0123abcd/avatar.png"),
     "Notebooks (`notebooks\\*.ipynb`)": ("notebooks/Orders.ipynb",),
+    "`notebook-sync\\<hash>\\*.json`": ("notebook-sync/0123abcd/stamp0001.json",),
     "`history.jsonl`, `schedule_runs.jsonl`, `fabric_runs.jsonl`, `side_by_side.jsonl`, `proofs.jsonl`, `validations.json`": (
         "history.jsonl", "schedule_runs.jsonl", "fabric_runs.jsonl", "side_by_side.jsonl", "proofs.jsonl", "validations.json"),
     "`receipts\\`": ("receipts/proof-1.json",),
@@ -60,6 +61,7 @@ REMOVED: dict[str, tuple[str, ...]] = {
     "`sidecar.log`, `sidecar.prev.log`, `integrations\\http.log`, `http.prev.log`, agent `logs\\agent.log`": (
         "sidecar.log", "sidecar.prev.log", "integrations/http.log", "integrations/http.prev.log"),
     "`app-crash.log`": ("app-crash.log",),
+    "`keys\\fingerprint.key`": ("keys/fingerprint.key",),
     "`telemetry\\usage.json` (only when usage data is on)": ("telemetry/usage.json",),
     # Rows #3159 adds (IN_REVIEW below).
     "`alerts_outbox.sqlite.sent-not-removed.json` (and the same beside each outbox below)": (

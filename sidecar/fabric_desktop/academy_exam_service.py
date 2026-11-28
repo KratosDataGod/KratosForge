@@ -25,6 +25,7 @@ METHODS = {"academy_exam_home", "academy_exam_start", "academy_exam_open", "acad
 PRACTICE_COUNT = 50          # when the certification doesn't publish its exam's length (certification.json "exam")
 PRACTICE_MINUTES = 100
 DIAGNOSTIC_PER_OBJECTIVE = 2
+ALL_DOMAINS = "all"           # a diagnostic over every domain (Academy Home's "Take a diagnostic")
 
 
 def _practice(cert: dict[str, Any], available: int) -> tuple[int, int]:
@@ -35,6 +36,20 @@ def _practice(cert: dict[str, Any], available: int) -> tuple[int, int]:
     count: int = scored if isinstance(scored, int) else PRACTICE_COUNT
     minutes: int = mins if isinstance(mins, int) else PRACTICE_MINUTES
     return min(count, available), minutes
+
+
+def _diagnostic_card(ids: list[str], counts: dict[str, int], practice: tuple[int, int],
+                     done: list[dict[str, Any]], domain: str) -> dict[str, Any]:
+    """One choice on the diagnostic screen: how many questions a diagnostic over ``ids`` asks (two per
+    objective, never more than the bank has for them), about how long that is at the practice exam's own
+    pace, and the last finished diagnostic for the same choice ({finished_at, correct, total}, or None)."""
+    questions = min(DIAGNOSTIC_PER_OBJECTIVE * len(ids), sum(counts.get(o, 0) for o in ids))
+    count, minutes = practice
+    last = max((s for s in done if s.get("kind") == "diagnostic" and s.get("domain") == domain
+                and isinstance(s.get("result"), dict)), key=lambda s: str(s.get("finished_at")), default=None)
+    return {"questions": questions, "minutes": max(1, round(questions * minutes / count)) if count else None,
+            "last": {"finished_at": last["finished_at"], "correct": last["result"].get("correct"),
+                     "total": last["result"].get("total")} if last else None}
 
 
 def _code(cert: dict[str, Any]) -> str:
@@ -90,12 +105,16 @@ class AcademyExamMixin:
                    for d in cert.get("domains") or []]
         sessions = [s for s in self._exam_store().list() if s.get("pack") == pid]
         count, minutes = _practice(cert, len(bank["questions"]))
+        done = self._exam_store().finished(pid)
+        for d in domains:
+            d["diagnostic"] = _diagnostic_card([o["id"] for o in d["objectives"]], counts, (count, minutes), done, d["id"])
         return {"pack": pid, "certification": {"id": cert["id"], "title": cert["title"], "vendor": cert.get("vendor"),
                                                "version": cert.get("version"), "code": _code(cert)},
                 "notice": bank["notice"], "label": exam.RESULT_LABEL, "questions": len(bank["questions"]),
                 "domains": domains,
                 "practice": {"count": count, "minutes": minutes},
                 "diagnostic_per_objective": DIAGNOSTIC_PER_OBJECTIVE,
+                "diagnostic_all": _diagnostic_card([o["id"] for o in objs], counts, (count, minutes), done, ALL_DOMAINS),
                 "unfinished": [s for s in sessions if s.get("status") == "in_progress"],
                 "finished": [s for s in sessions if s.get("status") == "finished"]}
 
@@ -114,7 +133,7 @@ class AcademyExamMixin:
             session = exam.build(bank, cert_version=cert["version"], count=count,
                                  minutes=minutes if timed else None, kind="practice", history=seen)
         elif kind == "diagnostic":
-            ids = [o["id"] for o in known.values() if o["domain"] == str(domain)]
+            ids = [o["id"] for o in known.values() if str(domain) in (ALL_DOMAINS, o["domain"])]
             if not ids:
                 raise exam.ExamError("Pick one of the certification's domains")
             session = exam.build(bank, cert_version=cert["version"], objectives=ids,
@@ -199,6 +218,8 @@ class AcademyExamMixin:
 def _title(session: dict[str, Any], cert: dict[str, Any]) -> str:
     code = _code(cert)
     if session["kind"] == "diagnostic":
+        if session.get("domain") == ALL_DOMAINS:
+            return f"Diagnostic: all of {code}"
         dom = next((d for d in cert.get("domains") or [] if d["id"] == session.get("domain")), None)
         return f"Domain diagnostic: {dom['title']}" if dom else "Domain diagnostic"
     if session["kind"] == "drill":

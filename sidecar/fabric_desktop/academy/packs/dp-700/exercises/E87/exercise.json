@@ -1,0 +1,151 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "airflow.json",
+  "reset": "Reset puts the original airflow.json back.",
+  "id": "E87",
+  "title": "Apache Airflow runtime settings: starter or custom pool, node size, autoscale and a private package",
+  "objectives": [
+    "1.1.4"
+  ],
+  "mode": "challenge",
+  "minutes": 20,
+  "prerequisites": [
+    "E05"
+  ],
+  "objective_text": "Choose the default pool for a development and a production workspace, size and scale a custom pool, add a private package as a requirement, and predict how each pool behaves.",
+  "scenario": "The operations team runs Apache Airflow jobs in two workspaces. The development workspace costs money all night, the production one waits several minutes before a run starts, and their own package was dropped in the wrong folder.",
+  "engine_label": "A model of a workspace's Apache Airflow runtime settings, checked on this PC",
+  "verifies": [
+    "Your settings location, default pools, custom pool size and autoscale, private package requirement and expectations follow the Apache Airflow job workspace settings, compute, private package and concepts pages, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That any pool is created or any DAG runs in Fabric. Nothing runs here.",
+    "The starter pool's node size. The workspace settings page says Large and the compute page says small nodes, so it isn't graded.",
+    "Which capacity size each pool needs, and the cost of each node.",
+    "How a job's own runtime settings interact with the workspace default. The workspace settings page doesn't say.",
+    "Public packages from PyPI, Git sync and the role needed to change these settings."
+  ],
+  "expected": {
+    "description": "The runtime is set in the Data Factory section of the workspace settings. Ops-Dev uses the starter pool. Ops-Prod uses a custom pool with Large nodes and autoscale on. The wheel goes in plugins/libs, the requirement is /opt/airflow/plugins/libs/<wheel>, and the job is restarted. A new Airflow version needs a new job. The starter pool shuts down after 20 idle minutes, a custom pool stays on, and each extra node adds three workers."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "The settings aren't where the Airflow runtime is set.",
+      "pass": "You set the runtime in the Data Factory section of the workspace settings.",
+      "rules": [
+        {
+          "path": "settings_location",
+          "equals": "Data Factory > Apache Airflow Runtime",
+          "why": "The default Apache Airflow runtime for a workspace is set under Data Factory in the workspace settings. Spark settings are a different section."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "A workspace has the wrong pool for how it's used.",
+      "pass": "Ops-Dev uses the starter pool and Ops-Prod uses a custom pool.",
+      "rules": [
+        {
+          "path": "workspaces.Ops-Dev.default_pool",
+          "equals": "starter pool",
+          "why": "The starter pool is meant for development. It shuts down after 20 minutes of inactivity, so idle time costs nothing."
+        },
+        {
+          "path": "workspaces.Ops-Prod.default_pool",
+          "equals": "custom pool",
+          "why": "A custom pool is meant for production. It stays on until someone pauses it, so a run starts right away."
+        },
+        {
+          "path": "expectations.starter_pool_shuts_down_after_idle_minutes",
+          "equals": 20,
+          "why": "The starter pool shuts down after 20 minutes of inactivity."
+        },
+        {
+          "path": "expectations.custom_pool_shuts_down_on_its_own_when_idle",
+          "equals": false,
+          "why": "A custom pool is always on until it's paused by hand."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The production pool is too small, or it can't grow for month-end.",
+      "pass": "ProdPool has Large nodes and scales out for month-end.",
+      "rules": [
+        {
+          "path": "workspaces.Ops-Prod.custom_pool.compute_node_size",
+          "equals": "Large",
+          "why": "Large nodes are for complex or production DAGs. Small nodes are for simpler DAGs."
+        },
+        {
+          "path": "workspaces.Ops-Prod.custom_pool.enable_autoscale",
+          "equals": true,
+          "why": "With autoscale, extra nodes start only when the load needs them and shut down when it drops. A fixed number of extra nodes costs money all month."
+        },
+        {
+          "path": "expectations.workers_added_by_each_extra_node",
+          "equals": 3,
+          "why": "Each extra node gives room for about three more Airflow workers."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The private package won't be installed, or the upgrade plan won't work.",
+      "pass": "The wheel is in plugins/libs, named as a requirement, and the job restarts. An upgrade means a new job.",
+      "rules": [
+        {
+          "path": "private_package.upload_folder",
+          "equals": "plugins/libs",
+          "why": "Without Git, upload the wheel to plugins/libs. Use plugins, not dags, for your own packages."
+        },
+        {
+          "path": "private_package.airflow_requirement",
+          "contains": "opt/airflow/plugins/libs/",
+          "why": "The Airflow requirement names the uploaded wheel by its path under /opt/airflow/plugins/libs."
+        },
+        {
+          "path": "private_package.airflow_requirement",
+          "contains": "contoso_hooks-1.2.0-py3-none-any.whl",
+          "why": "The Airflow requirement names the wheel file itself."
+        },
+        {
+          "path": "private_package.restart_the_job_after_adding_it",
+          "equals": true,
+          "why": "Restart the Apache Airflow job for the requirement to take effect."
+        },
+        {
+          "path": "airflow_upgrade",
+          "equals": "create a new job with the new version",
+          "why": "An existing job's Apache Airflow version can't be changed. Create a new job with the version you want."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Which pool stops by itself when nobody uses it? Which one is always ready?",
+    "Which node size is meant for complex or production DAGs?",
+    "What does autoscale do when the month-end spike is over?",
+    "Which folder is for your own packages, dags or plugins?",
+    "Can an existing job move to a new Apache Airflow version?"
+  ],
+  "explanation": "A workspace's default Apache Airflow runtime is set under Data Factory in the workspace settings. The starter pool is the default and is meant for development. It shuts down after 20 idle minutes and takes a few minutes to resume. A custom pool is meant for production. It stays on until paused, so runs start at once. Large nodes suit complex or production DAGs. Each extra node adds about three workers, and autoscale starts extra nodes only under load. A wheel uploaded without Git goes in plugins/libs and is named as a requirement under /opt/airflow/plugins/libs, then the job is restarted. A job's Airflow version can't change, so an upgrade means a new job.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-workspace-settings",
+    "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-compute",
+    "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-install-private-package",
+    "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-concepts"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-23. apache-airflow-jobs-workspace-settings (last updated 2026-03-18): Workspace settings > Data Factory > Apache Airflow Runtime Settings. Starter Pool is the default, shuts down after 20 minutes of inactivity, resume takes up to 5 minutes, suggested for developers. A custom pool is created with New Pool, has a name, a compute node size (Large for complex or production DAGs, Small for simpler DAGs), Enable autoscale and Extra nodes (each node gives capacity for three more workers), is always on until manually paused and is suggested for production. apache-airflow-compute (last updated 2026-09-10): starter pools for dev/test, custom pools for production, a fixed number of extra nodes or autoscale, autoscaled nodes start when needed and shut down when the load drops. apache-airflow-jobs-install-private-package (last updated 2026-09-01): use plugins, not dags, for your own packages. Without Git, upload the wheel to plugins/libs, add /opt/airflow/plugins/libs/<wheel> as an Airflow requirement and restart the job. apache-airflow-jobs-concepts (last updated 2026-06-19): an existing job's Airflow version can't be changed, create a new job. No page marks these features preview.",
+    "Not graded because the pages disagree or don't say: the starter pool's node size (Large on the workspace settings page, small nodes on the compute page), how job-level runtime settings combine with the workspace default, public PyPI requirements, and who may change the settings. The private package page's Git example puts the package under dags while its text says to use plugins, so the exercise only grades the no-Git upload to plugins/libs. The requirement rule accepts the path with or without a leading slash, since the page's example drops it."
+  ]
+}

@@ -541,15 +541,23 @@ def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[
         try:
             first = DeltaTable(uri)
         except TableNotFoundError:
-            # No write ever committed here: only the files first writes that stopped part way left, which
-            # go by the same ages as below. No folder, or one that has (or may have) a commit: as before.
-            left = uncommitted_leftovers(uri, retention_hours(days))
+            # No write ever committed here: only the files first writes that stopped part way left. Staged
+            # files go by the age below; data files by at least MIN_RETENTION_DAYS whatever allow_shorter
+            # says, since a Spark or notebook first write takes no compaction_lock and commits its part files
+            # only at its end. No folder, or one that has (or may have) a commit: as before.
+            left = uncommitted_leftovers(uri, retention_hours(max(days, MIN_RETENTION_DAYS)))
             if left is None:
                 raise
             staged = set(_stale_staged(uri))
-            return {"files_added": 0, "files_removed": 0, "files_before": 0, "files_after": 0, "vacuumed": 0,
-                    "unnamed_removed": _remove(uri, [p for p in left if p not in staged]),
-                    "staged_removed": _remove(uri, sorted(staged & set(left)))}
+            done = {"files_added": 0, "files_removed": 0, "files_before": 0, "files_after": 0, "vacuumed": 0,
+                    "unnamed_removed": 0, "staged_removed": 0}
+            # A writer can commit between the listing and each delete: look again just before, and stop if one did.
+            for key, paths in (("unnamed_removed", [p for p in left if p not in staged]),
+                               ("staged_removed", sorted(staged & set(left)))):
+                if _uncommitted_log(uri) is None:
+                    break
+                done[key] = _remove(uri, paths)
+            return done
         before, files_before = first.version(), len(first.file_uris())
         days = _with_own(first, days)
         set_retention(uri, days, allow_shorter=allow_shorter)
@@ -705,14 +713,9 @@ def leftovers(uri: str, table: DeltaTable | None = None) -> list[str]:
     return sorted(set(_stale_staged(uri)) | set(_unnamed(uri, table, STALE_STAGED_HOURS)))
 
 
-def uncommitted_leftovers(uri: str, hours: float) -> list[str] | None:
-    """What first writes that stopped part way left in a table folder on this PC that no write ever
-    committed to (a first load ended mid-write, as running out of memory ends it), as paths relative to
-    it: data files untouched for ``hours`` and stale staged files, the ages Compact removes them at in a
-    table. Only files named as Delta names them, never in a linked folder. Nothing is deleted.
-
-    None when there's nothing to look at: no folder, a folder or _delta_log that is a link, or a
-    _delta_log holding a commit or a checkpoint, which makes it a table (one that may not open)."""
+def _uncommitted_log(uri: str) -> Path | None:
+    """The table folder when it is one no write ever committed to: a folder, not a link, whose _delta_log
+    (if any) isn't a link and holds no commit or checkpoint. None otherwise."""
     root = Path(uri)
     if _linked(root) or _linked(root / "_delta_log") or not root.is_dir():
         return None
@@ -721,6 +724,19 @@ def uncommitted_leftovers(uri: str, hours: float) -> list[str] | None:
         with os.scandir(log) as it:
             if any(_LOG_FILE.fullmatch(e.name) for e in it):
                 return None
+    return root
+
+
+def uncommitted_leftovers(uri: str, hours: float) -> list[str] | None:
+    """What first writes that stopped part way left in a table folder on this PC that no write ever
+    committed to (a first load ended mid-write, as running out of memory ends it), as paths relative to
+    it: data files untouched for ``hours`` and stale staged files, the ages Compact removes them at in a
+    table. Only files named as Delta names them, never in a linked folder. Nothing is deleted.
+
+    None when there's nothing to look at: no folder, a folder or _delta_log that is a link, or a
+    _delta_log holding a commit or a checkpoint, which makes it a table (one that may not open)."""
+    if _uncommitted_log(uri) is None:
+        return None
     data = [Path(e.path).relative_to(uri).as_posix() for e in _data_folder_files(uri)
             if _DATA_FILE.fullmatch(e.name) and _older_than(e, hours)]
     return sorted(set(data) | set(_stale_staged(uri)))

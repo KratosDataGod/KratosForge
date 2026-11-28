@@ -69,6 +69,36 @@ def test_compact_removes_what_a_first_write_that_stopped_left_and_keeps_the_rest
     assert all(p.exists() for p in kept.values()) and outside.exists()
 
 
+
+def test_a_shorter_history_never_shortens_how_long_a_first_writes_data_files_are_kept(tmp_path):
+    """A Spark or notebook first write takes no compaction_lock and commits its part files only at its end:
+    with allow_shorter and 0 days, a data file younger than MIN_RETENTION_DAYS is still kept."""
+    root = tmp_path / "t"
+    day_old = _plant(root, _part(), 86400)
+    week_old = _plant(root, _part(), WEEK)
+    staged = _plant(root, _part() + "#1", 2 * 3600)
+
+    done = maintenance.compact_local(str(root), days=0, allow_shorter=True)
+    assert done["unnamed_removed"] == 1 and done["staged_removed"] == 1
+    assert day_old.exists() and not week_old.exists() and not staged.exists()
+
+
+def test_a_commit_that_lands_after_the_listing_stops_the_deletes(tmp_path, monkeypatch):
+    """A writer that commits between Compact's listing and its delete makes the folder a table: nothing more goes."""
+    root = tmp_path / "t"
+    gone, _kept = _folder(root)
+    listed = maintenance.uncommitted_leftovers
+
+    def list_then_commit(uri, hours):
+        found = listed(uri, hours)
+        _plant(root, "_delta_log/00000000000000000000.json")
+        return found
+
+    monkeypatch.setattr(maintenance, "uncommitted_leftovers", list_then_commit)
+    done = maintenance.compact_local(str(root))
+    assert done["unnamed_removed"] == done["staged_removed"] == 0
+    assert all(p.exists() for p in gone.values())
+
 def test_health_reports_the_files_on_this_pc_only(tmp_path):
     root = tmp_path / "t"
     gone, _ = _folder(root)

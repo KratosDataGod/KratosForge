@@ -251,7 +251,7 @@ class Shared:
         if current is None:
             raise ValueError("That recommendation isn't in this lakehouse, or is for an item you can't open.")
         if current["state"] not in TRANSITIONS:  # a state a newer version added, such as "reversed"
-            raise ValueError(f"This recommendation is {current['state']}, which a newer KratosForge set. "
+            raise ValueError(f"A newer version of KratosForge marked this recommendation {current['state']}. "
                              "Update KratosForge to change it here.")
         if state not in TRANSITIONS[current["state"]]:
             raise ValueError(f"A recommendation that is {current['state']} can't be marked {state}.")

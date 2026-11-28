@@ -181,7 +181,7 @@ def test_a_state_a_newer_version_wrote_is_refused_not_a_crash(tmp_path, lake):
     assert me.recommendations() == []  # not offered as something to act on
     assert me.recommendations(include_closed=True)[0]["state"] == "reversed"
     for state in ("open", "verified", "superseded"):
-        with pytest.raises(ValueError, match="newer KratosForge"):
+        with pytest.raises(ValueError, match="A newer version of KratosForge marked this recommendation reversed"):
             me.set_recommendation_state(rid, state)
     assert len(lake.rows("fdopt_recommendations")) == 4  # nothing written
 

@@ -150,6 +150,26 @@ def test_the_device_must_be_an_installation_id():
             rd.create(proposal(), installation_id=bad)  # type: ignore[arg-type]
 
 
+def test_a_bad_device_id_is_not_repeated_in_the_message():
+    with pytest.raises(ValueError) as err:
+        rd.create(proposal(), installation_id="ann@contoso.com")
+    assert "ann" not in str(err.value) and "contoso" not in str(err.value)
+
+
+def test_input_nested_past_the_limit_is_refused_not_a_crash():
+    deep: Any = "x"
+    for _ in range(5000):
+        deep = {"a": deep}
+    p = proposal()
+    p["record"]["targets"] = deep
+    with pytest.raises(ValueError, match="nests more than"):
+        rd.create(p, installation_id=PC_A)
+    rows = start()
+    rows[0] = rows[0] | {"rollback": deep}
+    with pytest.raises(ValueError, match="nests more than"):
+        rd.history(rows)
+
+
 def test_an_edited_proposal_is_refused():
     p = proposal()
     p["record"]["optimization_id"] = "opt-0000"

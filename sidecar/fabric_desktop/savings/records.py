@@ -209,10 +209,16 @@ class VersionConflict(ValueError):
 
 # ---------- checks
 
-def _keys(value: Any, where: str, allow: frozenset[str] = frozenset()) -> None:
+MAX_DEPTH = 8
+
+
+def _keys(value: Any, where: str, allow: frozenset[str] = frozenset(), depth: int = 0) -> None:
     """Refuse identity and code fields anywhere in ``value`` (nested dicts and lists included).
     ``allow``: top-level keys that hold the responsible pair; their values go through
-    ``identity.check`` instead, and nowhere else may hold one."""
+    ``identity.check`` instead, and nowhere else may hold one. Nothing legitimate nests deeper
+    than ``MAX_DEPTH``, so deeper input is refused rather than walked."""
+    if depth > MAX_DEPTH:
+        raise ValueError(f"The {where} nests more than {MAX_DEPTH} levels deep, so it isn't a record.")
     if isinstance(value, Mapping):
         for k, v in value.items():
             name = str(k).lower()
@@ -225,10 +231,10 @@ def _keys(value: Any, where: str, allow: frozenset[str] = frozenset()) -> None:
             if name in CODE_KEYS:
                 raise ValueError(f"The {where} has a field {k!r} that would hold code. Records hold definition "
                                  "fingerprints, never code text.")
-            _keys(v, where)
+            _keys(v, where, depth=depth + 1)
     elif isinstance(value, (list, tuple)):
         for v in value:
-            _keys(v, where)
+            _keys(v, where, depth=depth + 1)
 
 
 def _stored(row: dict[str, Any]) -> dict[str, Any]:
@@ -280,7 +286,7 @@ def _device(value: Any) -> str:
     except ValueError:
         ok = False
     if not ok:
-        raise ValueError(f"The responsible device is this installation's id (a UUID), not {value!r}.")
+        raise ValueError("The responsible device is this installation's id (a UUID), and this isn't one.")
     return str(value)
 
 

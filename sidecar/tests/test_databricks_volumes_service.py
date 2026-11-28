@@ -204,6 +204,28 @@ def test_upload_copies_a_file_in_and_asks_before_replacing(svc, here, tmp_path):
     assert [p.name for p in (here / "sales" / "landing").iterdir()] == ["orders.csv"]  # no .part left
 
 
+@pytest.mark.parametrize("there", [False, True])
+def test_upload_cut_short_leaves_no_file_and_no_part(svc, here, tmp_path, monkeypatch, there):
+    # A copy that fails midway (a full disk) leaves no half file: no new file, the old one kept, and no .part.
+    folder = here / "sales" / "landing"
+    if there:
+        (folder / "orders.csv").write_bytes(b"old\n")
+    src = tmp_path / "orders.csv"
+    src.write_bytes(b"id\n" * 1000)
+
+    def cut_short(source, target, follow_symlinks=True):
+        with open(source, "rb") as r, open(target, "wb") as w:
+            w.write(r.read(100))
+        raise OSError(28, "No space left on device", str(target))
+
+    monkeypatch.setattr(dvs.shutil, "copyfile", cut_short)
+    with pytest.raises(OSError, match="No space left"):
+        svc.databricks_volume_upload(str(src), V, overwrite=True)
+    assert [p.name for p in folder.iterdir()] == (["orders.csv"] if there else [])
+    if there:
+        assert (folder / "orders.csv").read_bytes() == b"old\n"
+
+
 def test_upload_refuses_what_is_not_a_file_or_not_a_folder_in_a_volume(svc, here, tmp_path):
     src = tmp_path / "orders.csv"
     src.write_text("x", encoding="utf-8")

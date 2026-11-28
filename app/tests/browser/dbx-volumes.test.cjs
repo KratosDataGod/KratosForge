@@ -1,7 +1,8 @@
 // Workspaces > Databricks > Volumes on this PC (dbx-volumes.js, Preview): the approved mockup's states (a volume with
 // files and one ticked, an empty volume, no volumes yet, the delete confirm, a narrow window), and each action's engine
 // call: New volume, Upload (asking before it replaces), New folder, Download, Delete and Drop volume (both red confirms
-// that say it can't be undone), Rename and the comment. Every engine call and the file dialog are mocked.
+// that say it can't be undone), Rename and the comment, and what failures show: a read that fails and Try again, a
+// download the engine refuses, and an upload that fails. Every engine call and the file dialog are mocked.
 // axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
 // axe covers dialogs: dbx-volumes.js:dbxVolCreate
 const { test, before, after } = require("node:test");
@@ -20,9 +21,11 @@ const FILES = [
 ];
 
 const world = {};
+// world.fail[method] is the engine's error text for that call, as server.py sends it; unset, the call answers.
+const failIf = (method) => { if (world.fail[method]) throw new Error(world.fail[method]); };
 function reset() {
   Object.assign(world, { volumes: [vol("finance", "raw", 12), vol("sales", "exports", 0), vol("sales", "landing", 3)],
-    files: { "/Volumes/main/sales/landing": FILES }, uploadExists: true, picked: null });
+    files: { "/Volumes/main/sales/landing": FILES }, uploadExists: true, picked: null, fail: {} });
 }
 reset();
 
@@ -44,8 +47,8 @@ before(async () => {
     viewport: { width: 1280, height: 900 },
     mocks: {
       app_settings: () => ({ show_preview: { value: true, source: "default" } }),
-      databricks_volumes: () => ({ root: ROOT, volumes: world.volumes }),
-      databricks_volume_files: ({ path }) => ({ path, entries: world.files[path] || [], truncated: false }),
+      databricks_volumes: () => { failIf("databricks_volumes"); return { root: ROOT, volumes: world.volumes }; },
+      databricks_volume_files: ({ path }) => { failIf("databricks_volume_files"); return { path, entries: world.files[path] || [], truncated: false }; },
       databricks_volume_create: ({ schema, volume }) => { const v = vol(schema, volume, 0); world.volumes = [...world.volumes, v]; return v; },
       databricks_volume_drop: ({ schema, volume }) => {
         world.volumes = world.volumes.filter((v) => !(v.database === schema && v.name === volume));
@@ -58,10 +61,10 @@ before(async () => {
       },
       databricks_volume_describe: ({ schema, volume }) => world.volumes.find((x) => x.database === schema && x.name === volume),
       databricks_volume_set_comment: ({ schema, volume, comment }) => Object.assign(world.volumes.find((x) => x.database === schema && x.name === volume), { comment }),
-      databricks_volume_upload: ({ source, path, overwrite }) => (world.uploadExists && !overwrite
+      databricks_volume_upload: ({ source, path, overwrite }) => (failIf("databricks_volume_upload"), world.uploadExists && !overwrite
         ? { exists: true, path: `${path}/${source.split("\\").pop()}` } : { path: `${path}/${source.split("\\").pop()}`, size: 5 }),
       databricks_volume_new_folder: ({ path }) => ({ path }),
-      databricks_volume_download: ({ save_to }) => ({ saved_to: save_to, size: 5 }),
+      databricks_volume_download: ({ save_to }) => (failIf("databricks_volume_download"), { saved_to: save_to, size: 5 }),
       databricks_volume_delete: ({ paths }) => ({ deleted: paths }),
       databricks_volume_reveal: ({ path }) => ({ shown: path }),
     },
@@ -241,4 +244,110 @@ test("a narrow window stacks the volume list above the files", { skip }, async (
   } finally {
     await page().setViewportSize({ width: 1280, height: 900 });
   }
+});
+
+const toastText = () => page().locator("#toast").textContent();
+const engineCalls = () => app.calls.filter((c) => c.method.startsWith("databricks_")).map((c) => c.method);
+async function settle() { for (let i = 0; i < 10; i++) await page().evaluate(() => new Promise((r) => requestAnimationFrame(r))); }
+
+test("a read that fails says so with Try again, and Try again reads it again", { skip }, async () => {
+  reset();
+  world.fail.databricks_volume_files = "PermissionError: [WinError 5] Access is denied: 'C:\\\\Users\\\\you\\\\AppData\\\\Local\\\\FabricDesktop\\\\volumes\\\\main\\\\sales\\\\landing'";
+  await page().evaluate(() => { dbxVol.volume = "sales.landing"; });
+  app.calls.length = 0;
+  await page().evaluate(() => { go("home"); go("databricks_volumes"); });
+  const detail = view().locator(".dbx-vol-detail");
+  await detail.getByText("couldn't be listed").waitFor();
+  assert.match(await detail.locator("p.muted-text").innerText(), /^\/Volumes\/main\/sales\/landing couldn't be listed\. Try again$/);
+  assert.match(await toastText(), /^Couldn't list \/Volumes\/main\/sales\/landing: This PC didn't allow access to C:\\Users\\you\\AppData\\Local\\FabricDesktop\\volumes\\main\\sales\\landing\./);
+  assert.strictEqual(await detail.locator("table").count(), 0);
+  assert.deepStrictEqual(await axeFindings(page(), "#view .dbx-vol"), []);
+  delete world.fail.databricks_volume_files;
+  await detail.getByRole("button", { name: "Try again" }).click();
+  await view().locator(".dbx-vol-detail table.dbx-vol-files").waitFor();
+  assert.strictEqual(await view().locator(".dbx-vol-detail tbody tr").count(), 3);
+  assert.deepStrictEqual(calls("databricks_volume_files"), [{ path: "/Volumes/main/sales/landing" }, { path: "/Volumes/main/sales/landing" }]);
+
+  // The volumes themselves: the list and the files wait for Try again.
+  world.fail.databricks_volumes = "PermissionError: [WinError 5] Access is denied: 'C:\\\\Users\\\\you\\\\AppData\\\\Local\\\\FabricDesktop\\\\volumes\\\\main'";
+  app.calls.length = 0;
+  await page().evaluate(() => { go("home"); go("databricks_volumes"); });
+  await view().getByText("The volumes on this PC couldn't be read.").waitFor();
+  assert.match(await toastText(), /^Couldn't read the volumes on this PC: This PC didn't allow access to /);
+  assert.strictEqual(await view().locator(".dbx-vol-split").count(), 0);
+  assert.deepStrictEqual(calls("databricks_volume_files"), []);
+  delete world.fail.databricks_volumes;
+  await view().getByRole("button", { name: "Try again" }).click();
+  await view().locator(".dbx-vol-detail table.dbx-vol-files").waitFor();
+  assert.deepStrictEqual(await view().locator(".dbx-vol-tree li").allInnerTexts(),
+    ["main.finance", "raw\n12 items", "main.sales", "exports\n0 items", "landing\n3 items"]);
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("a download the engine refuses (OneDrive, the app's own data folder) shows why and changes nothing else", { skip }, async () => {
+  reset();
+  await page().evaluate(() => { dbxVol.volume = "sales.landing"; });
+  app.calls.length = 0;
+  await page().evaluate(() => { go("home"); go("databricks_volumes"); });
+  const detail = view().locator(".dbx-vol-detail");
+  await detail.locator("table").waitFor();
+  await detail.getByLabel("Select customers.csv").check();
+  const before = await detail.innerText();
+  const cases = [
+    ["C:\\Users\\you\\OneDrive - Contoso\\Documents\\customers.csv",
+      "ValueError: Volumes on this PC: C:\\Users\\you\\OneDrive - Contoso\\Documents\\customers.csv is in OneDrive (C:\\Users\\you\\OneDrive - Contoso), "
+      + "so a file downloaded from a volume can't be kept there. OneDrive would upload the same files the app reads and writes, and its sync can lock them. "
+      + "Pick a folder on this PC outside OneDrive, such as C:\\Users\\you\\Downloads.",
+      /^Couldn't download the file: Volumes on this PC: C:\\Users\\you\\OneDrive - Contoso\\Documents\\customers\.csv is in OneDrive .*so a file downloaded from a volume can't be kept there\..*Pick a folder on this PC outside OneDrive/],
+    ["C:\\Users\\you\\AppData\\Local\\FabricDesktop\\settings.json",
+      "ValueError: Volumes on this PC: C:\\Users\\you\\AppData\\Local\\FabricDesktop\\settings.json is inside this app's own data folder, so nothing was saved there. "
+      + "Pick a folder outside it, such as Downloads.",
+      /^Couldn't download the file: Volumes on this PC: C:\\Users\\you\\AppData\\Local\\FabricDesktop\\settings\.json is inside this app's own data folder, so nothing was saved there\. Pick a folder outside it, such as Downloads\./],
+  ];
+  for (const [target, refusal, shown] of cases) {
+    world.fail.databricks_volume_download = refusal;
+    await page().evaluate((t) => { window.__fdPicked = t; }, target);
+    app.calls.length = 0;
+    await detail.getByRole("button", { name: "Download", exact: true }).click();
+    await page().locator("#toast.error").waitFor();
+    assert.match(await toastText(), shown);
+    assert.strictEqual(await page().locator("#toast").getAttribute("role"), "alert");
+    await settle();
+    // Only the refused call: no Saved toast, no dialog, nothing read again, the file still ticked.
+    assert.deepStrictEqual(engineCalls(), ["databricks_volume_download"]);
+    assert.deepStrictEqual(calls("databricks_volume_download"), [{ path: "dbfs:/Volumes/main/sales/landing/customers.csv", save_to: target, overwrite: true }]);
+    assert.doesNotMatch(await toastText(), /Saved/);
+    assert.strictEqual(await dialog().count(), 0);
+    assert.strictEqual(await detail.innerText(), before);
+    assert.ok(await detail.getByLabel("Select customers.csv").isChecked());
+    await page().evaluate(() => toastClose());
+  }
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("an upload that fails says so, and the files listed stay as they were", { skip }, async () => {
+  // The engine copies through a .part file and swaps it in only when whole, so a copy cut short leaves nothing
+  // (test_upload_cut_short_leaves_no_file_and_no_part in sidecar/tests/test_databricks_volumes_service.py).
+  reset();
+  world.uploadExists = false;
+  world.fail.databricks_volume_upload = "The disk is full (1.2 MB free on C:), so this wasn't saved. Free some space, then try again. "
+    + "On a shared or virtual desktop, ask IT to make your profile disk bigger. (OSError: [Errno 28] No space left on device)";
+  await page().evaluate(() => { dbxVol.volume = "sales.landing"; window.__fdPicked = "C:\\Data\\orders.csv"; });
+  app.calls.length = 0;
+  await page().evaluate(() => { go("home"); go("databricks_volumes"); });
+  const detail = view().locator(".dbx-vol-detail");
+  await detail.locator("table").waitFor();
+  const before = await detail.innerText();
+  app.calls.length = 0;
+  await detail.getByRole("button", { name: "Upload" }).click();
+  await page().locator("#toast.error").waitFor();
+  assert.match(await toastText(), /^Couldn't upload the file: The disk is full \(1\.2 MB free on C:\), so this wasn't saved\. Free some space, then try again\./);
+  await settle();
+  assert.deepStrictEqual(engineCalls(), ["databricks_volume_upload"]);
+  assert.deepStrictEqual(calls("databricks_volume_upload"), [{ source: "C:\\Data\\orders.csv", path: "/Volumes/main/sales/landing" }]);
+  assert.doesNotMatch(await toastText(), /Uploaded/);
+  assert.strictEqual(await dialog().count(), 0);
+  assert.strictEqual(await detail.innerText(), before);
+  await page().evaluate(() => toastClose());
+  assert.deepStrictEqual(app.errors, []);
 });

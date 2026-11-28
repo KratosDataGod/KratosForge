@@ -598,7 +598,7 @@ Databricks, and nothing here reaches cloud storage. They are made and used from 
   its folder on this PC. The volume's own folder can't be removed or moved with them: use `DROP VOLUME`.
   `spark.read...load('/Volumes/...')` and `df.write...save('/Volumes/...')` read and write files in a
   volume as they do any folder on this PC. Python's own `open()` and `os` calls don't map `/Volumes` paths
-  yet.
+  yet. For those files, use `dbutils.fs` or the Volumes on this PC screen.
 - **Refused by name:** external volumes (`CREATE EXTERNAL VOLUME`, `LOCATION`), `ALTER VOLUME ... OWNER TO`,
   `SET TAGS` and `UNSET TAGS`, `UNDROP VOLUME`, `LIST ... WITH (CREDENTIAL ...)`, `LIST` or `read_files` of
   any other URL, and `PUT INTO`, `GET` and `REMOVE` (Databricks runs those only through its SQL connectors).

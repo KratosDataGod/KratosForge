@@ -516,7 +516,7 @@ function cellResults(cell) {
       `Output hidden (${cell.outputs.length} item${cell.outputs.length === 1 ? "" : "s"}). Click to show.`));
   } else if (cell.meta?.scrolled) {
     // tabindex: the arrow keys and Page Up/Down scroll it once it has focus.
-    parts.push(h("div", { class: "out-scroll", role: "region", tabindex: "0", "aria-label": "Cell output, scrolls" },
+    parts.push(h("div", { class: "out-scroll", role: "region", tabindex: "0", "aria-label": "Scrolling cell output" },
       cell.outputs.map((o) => renderOutput(o, cell))));
   } else {
     cell.outputs.forEach((o) => parts.push(renderOutput(o, cell)));
@@ -547,7 +547,7 @@ function cellMenu(cell) {
     // A checkbox item (menuNode in app.js): the output area keeps a fixed height and scrolls, as JupyterLab's
     // "Enable scrolling for outputs"; saved as the cell's metadata.scrolled, as JupyterLab saves it.
     items.push(btn("Scroll output", "panel", () => setMeta(cell, "scrolled", !cell.meta?.scrolled), "tool",
-      { "aria-pressed": String(!!cell.meta?.scrolled), title: "Keep this cell's output to a fixed height and scroll it" }));
+      { "aria-pressed": String(!!cell.meta?.scrolled), title: "Keep this cell's output to a fixed height, with a scroll bar" }));
     items.push({ label: "Clear output", icon: "clear", action: () => { cell.outputs = []; cell.status = null; updateCell(cell); } });
     items.push({ label: "Format cell", icon: "code", action: () => formatCells([cell]) });  // nbformat.js
     if (dbgOn()) {  // debugging.js; where cells can't pause, these say so instead of running

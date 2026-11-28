@@ -39,7 +39,7 @@ test("Scroll output in a cell's ... menu caps its output, scrolls from the keybo
   assert.strictEqual(await item.getAttribute("aria-checked"), "false");
   await item.click();
   await page().waitForFunction(() => state.notebook.cells[0].meta.scrolled === true);
-  const region = page().getByRole("region", { name: "Cell output, scrolls" });
+  const region = page().getByRole("region", { name: "Scrolling cell output" });
   await region.waitFor();
   const box = await region.evaluate((e) => ({ h: e.clientHeight, sh: e.scrollHeight, tab: e.tabIndex }));
   assert.ok(box.h <= 400 && box.sh > box.h, `capped and scrollable: ${JSON.stringify(box)}`);
@@ -65,7 +65,7 @@ test("a cell saved with metadata.scrolled opens scrolled; Markdown cells don't o
     state.notebook.cells[0].outputs = [{ type: "stream", text }];
     go("notebook");
   }, LONG);
-  await page().getByRole("region", { name: "Cell output, scrolls" }).waitFor();
+  await page().getByRole("region", { name: "Scrolling cell output" }).waitFor();
   const md = page().locator(".cell").nth(1);
   await md.hover();
   await md.getByRole("button", { name: "More cell actions" }).click();

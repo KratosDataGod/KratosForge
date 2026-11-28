@@ -57,6 +57,9 @@ SKIP_DIRS = {"engine", "onelake-cache", "EBWebView", "fabric-view", "logs", "sch
 # link-port and editor-port: this run's link listener token and VS Code pairing hello.
 SKIP_FILES = {"msal_cache.bin", "fabric-view-signin.bin", "link-port", "editor-port"}
 SKIP_SUFFIXES = {".log", ".tmp", ".lock", ".pyc"}
+# keys/: this PC's own keys (keyed_fingerprint's). A restore makes new ones, so fingerprints change after it.
+KEY_DIRS = {"keys"}
+KEYS_REASON = "tokens and this PC's keys are never backed up"
 SQLITE_SUFFIXES = {".sqlite", ".sqlite3", ".db"}
 SQLITE_HEADER = b"SQLite format 3\x00"
 # A manifest lists each file's path, size and SHA-256: a few hundred bytes a file. Its size is checked
@@ -81,6 +84,8 @@ class BackupError(ValueError):
 
 
 def _skipped(rel: PurePosixPath) -> str | None:
+    if len(rel.parts) > 1 and rel.parts[0] in KEY_DIRS:
+        return KEYS_REASON
     if (len(rel.parts) > 1 and rel.parts[0] in SKIP_DIRS) or "__pycache__" in rel.parts:
         return "rebuilt by the app"
     if rel.name in SKIP_FILES:
@@ -109,6 +114,8 @@ _FOLDED_FILES = {f.casefold() for f in SKIP_FILES}
 def _skipped_any_case(rel: PurePosixPath) -> str | None:
     """:func:`_skipped` with names compared as Windows compares them, ignoring case."""
     parts = tuple(part.casefold() for part in rel.parts)
+    if len(parts) > 1 and parts[0] in KEY_DIRS:
+        return KEYS_REASON
     if (len(parts) > 1 and parts[0] in _FOLDED_DIRS) or "__pycache__" in parts:
         return "rebuilt by the app"
     if parts[-1] in _FOLDED_FILES:

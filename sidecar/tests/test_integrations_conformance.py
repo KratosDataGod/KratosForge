@@ -16,6 +16,7 @@ import socket
 import sys
 import threading
 import time
+from pathlib import Path
 
 import anyio
 import httpx2
@@ -26,6 +27,7 @@ from mcp import Client, StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 
+import fabric_desktop
 from fabric_desktop import __version__
 from fabric_desktop.integrations import prompts
 from fabric_desktop.integrations.capabilities import register_core
@@ -35,6 +37,10 @@ from fabric_desktop.integrations.permissions import PermissionAuthorizer
 from fabric_desktop.integrations.registry import ID_PATTERN, Registry
 from fabric_desktop.integrations.store import IntegrationStore
 from fabric_desktop.service import Service
+
+# The engine's own folder, for a child process. Not all of sys.path: other tests add project folders
+# to it, and on Windows a variable longer than 32,767 characters stops the child starting.
+ENGINE = str(Path(fabric_desktop.__file__).resolve().parent.parent)
 
 TRANSPORTS = ["memory", "stdio", "http"]
 MODES = {"legacy": "2025-11-25", "auto": "2026-07-28"}
@@ -85,7 +91,7 @@ async def connect(transport, env, mode, port=None):
         target = build_server(env["registry"], lambda: env["service"], env["client"]["id"])
     elif transport == "stdio":
         process_env = dict(os.environ, LOCALAPPDATA=str(env["tmp"]), HOME=str(env["tmp"]),
-                           ProgramData=str(env["tmp"] / "programdata"), PYTHONPATH=os.pathsep.join(sys.path))
+                           ProgramData=str(env["tmp"] / "programdata"), PYTHONPATH=ENGINE)
         target = StdioServerParameters(command=sys.executable, env=process_env,
                                        args=["-m", "fabric_desktop.cli", "mcp", "--client", env["client"]["id"]])
     else:
@@ -280,7 +286,6 @@ def test_rest_follows_its_openapi_document(env, http_server):
 
 def test_capability_ids_in_docs_are_real():
     """The client checklist names tools to try; they must exist."""
-    from pathlib import Path
     from fabric_desktop.integrations.registry import default_registry
     page = (Path(__file__).resolve().parents[2] / "docs" / "product" / "ai-integration-client-checklist.md").read_text(encoding="utf-8")
     real = {c.id for c in default_registry().all()}

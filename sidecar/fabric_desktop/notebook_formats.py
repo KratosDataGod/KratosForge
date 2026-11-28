@@ -133,6 +133,9 @@ def to_fabric_py(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None =
                                  "export as .ipynb.")
             out += [FABRIC_MARKDOWN, ""] + lines
             continue
+        # The blank lines before the code don't read back (see _magic_first and _trim in _parse_fabric),
+        # so the breakpoints are written as lines of the code that does.
+        blank = next((i for i, ln in enumerate(_lines(source)) if ln.strip()), 0)
         source = _magic_first(source)
         magic = _magic(source)
         language = _FABRIC_LANGUAGE.get(magic or "", "python")
@@ -140,9 +143,13 @@ def to_fabric_py(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None =
         lines = _lines(source)
         # A Python cell that would read back wrong is written as # MAGIC lines too, as a magic
         # cell is; its METADATA still says Python, so it reads back as the same code.
-        out += _prefixed("# MAGIC", lines) if magic or _misread(lines, _FABRIC_MARKERS) else lines
+        misread = not magic and _misread(lines, _FABRIC_MARKERS)
+        out += _prefixed("# MAGIC", lines) if magic or misread else lines
+        if misread:
+            blank = 0  # as # MAGIC lines its blank lines read back too
         cell_meta: dict[str, Any] = {"language": language, "language_group": "synapse_pyspark"}
-        breakpoints = breakpoints_meta((c.get("meta") or {}).get("breakpoints"))
+        breakpoints = breakpoints_meta([max(b - blank, 1) for b in
+                                        breakpoints_meta((c.get("meta") or {}).get("breakpoints"))])
         if breakpoints:  # KratosForge's own key in the cell's METADATA, read back by _parse_fabric
             cell_meta["fabric_desktop"] = {"breakpoints": breakpoints}
         out += [""] + _meta_block(cell_meta)

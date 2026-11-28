@@ -94,3 +94,36 @@ def test_a_table_listed_twice_is_reported_once():
     )
     [o] = out["overlaps"]
     assert o["entities"] == ["x"]
+
+
+# Run as keeps the first record when heartbeats tie or neither can be read; overlap lets the later one win.
+@pytest.mark.parametrize("beat", ["2027-01-15T07:59:30Z", "not a time"])
+def test_run_as_keeps_the_first_record_when_heartbeats_tie_or_cant_be_read(beat):
+    first = agent("a", beat=beat, identity="user")
+    second = agent("a", beat=beat, identity="managed_identity")
+    rows = run_as.build("", {"prod": [first, second]}, [], {}, NOW)["rows"]
+    [row] = [r for r in rows if r["place"]["kind"] == "agent"]
+    assert row["runs_as"]["kind"] == "user"
+
+
+@pytest.mark.parametrize("beat", ["2027-01-15T07:59:30Z", "not a time"])
+def test_overlap_takes_the_later_record_when_heartbeats_tie_or_cant_be_read(beat):
+    first = agent("a", [{"id": "first", "entities": ["x"]}], beat=beat)
+    second = agent("a", [{"id": "second", "entities": ["x"]}], beat=beat)
+    known, _ = overlap.placements({"prod": [first, second]}, [], NOW)
+    assert [k["schedule"] for k in known] == ["second"]
+
+
+def test_a_table_listed_twice_in_a_pc_schedule_is_reported_once():
+    pc = [
+        {
+            "id": "p",
+            "enabled": True,
+            "target": {"kind": "meta", "env": "prod", "entities": ["x", "x"]},
+        }
+    ]
+    out = overlap.overlaps(
+        {"prod": [agent("b", [{"id": "t", "entities": []}])]}, pc, NOW
+    )
+    [o] = out["overlaps"]
+    assert o["entities"] == ["x"]

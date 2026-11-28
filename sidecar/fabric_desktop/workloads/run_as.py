@@ -89,7 +89,7 @@ def agent_rows(by_env: dict[str, list[dict[str, Any]]], now: dt.datetime) -> lis
             held = newest.get(name)
             envs = held[1] if held else []
             envs = envs if env in envs else envs + [env]
-            if newer(r, held[0] if held else None):
+            if held is None or newer(r, held[0]):
                 newest[name] = (r, envs)
             else:
                 newest[name] = (held[0], envs)

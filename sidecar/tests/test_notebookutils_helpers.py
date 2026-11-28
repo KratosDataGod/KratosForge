@@ -109,7 +109,7 @@ class FakeNotebooks(FakeClient):
     def get_item_definition(self, ws, item, fmt=None):
         FakeClient.calls.append(("definition", ws, item, fmt))
         payload = base64.b64encode(b'{"cells": [], "nbformat": 4}').decode()
-        return {"definition": {"parts": [{"path": "notebook-content.ipynb", "payload": payload}, {"path": ".platform"}]}}
+        return {"definition": {"parts": [{"path": "notebook-content.ipynb", "payload": payload}, {"path": ".platform", "payload": ""}]}}
 
 
 def test_notebook_items_read_as_you(k, monkeypatch):

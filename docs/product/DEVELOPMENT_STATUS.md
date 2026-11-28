@@ -3,10 +3,45 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-20 23:42 UTC, main ea988e99.** Covers the PRs merged from #135 to #3161.
+**Product check of 2026-11-26 11:42 UTC, main 046f9d3e.** Covers the PRs merged from #135 to #3351.
 
 ## Summary
 
+- Morning check, 2026-11-26: 7 PRs merged after 9ea9dfde. 1 was product data, and the other 6 were linked. Ossie
+  work dominated (PB-110). The Direct Lake model builder now writes through the one TMDL writer (OSSIE-007a), and
+  Ossie gained a fixture corpus, a converter-upgrade check, large-model scale tests, stricter writers and speed-ups.
+  The SQL translator matches substring edges and sub-second timestamps across T-SQL, Spark and Snowflake (#3238,
+  PB-120). No item changed state.
+- Evening check, 2026-11-25: 15 PRs merged after b4bc548d. 2 were product data, and the other 13 were linked.
+  Direct Lake fallback risk shipped in Preview with one verdict per model, a growth forecast and a SKU what-if
+  (#3343, PB-110), and Ossie gained a compatibility matrix and a Snowflake export profile (engine only). Notebooks
+  gained Present mode (N49, #3338, Preview) and a measured budget for 2,000-cell notebooks (WR-134, PB-103). The
+  local API takes the caller's address from the socket only (#3342, PB-095). No item changed state.
+- Morning check, 2026-11-25: 11 PRs merged after 84a36dd6, all linked. Databricks Unity Catalog volumes work on this
+  PC with a Volumes screen (#3323, Preview, PB-120), and Markdown cells have a toolbar and preview (N23, #3329,
+  Preview, PB-103). Command-line restore is audited (WR-418, PB-124). Five test-stability PRs landed, and no test
+  reaches the network (#3311, PB-101). No item changed state.
+- Evening check, 2026-11-24: 30 PRs merged after a73ebb71. 3 were product data and a docs accuracy sweep, and the
+  other 27 were linked. A failed critical control now caps the Excellence rating below Exemplary (#3305, PB-138), and
+  Warehouse controls joined it (FEA-303). Command-line pipeline runs go through the audited, fail-closed call (WR-416)
+  and governance errors name the setting (WR-414, PB-124). A Databricks Asset Bundle can be checked on this PC
+  (WR-321, Preview, PB-120). Notebooks merge by cell across VS Code and the app (#3306, Preview, PB-109), and class
+  achievement cards sit above the skill trees (#3277, Preview, PB-134). No item changed state.
+- Morning check, 2026-11-24: 38 PRs merged after 293fb38d. 3 were the weekly review, docs audit 26 and a docs
+  accuracy sweep, and the other 35 were linked. Every Prod, approve, confirm and typed-name action is now proven to
+  fail closed (WR-410), and delete-my-data is proven to remove every inventoried store (WR-412, PB-124). Academy
+  practice exams gained new question types with partial credit (PB-128). The Excellence Assessment records accepted
+  risks and exceptions (FEA-404, PB-138). Browser tests now cover 77 pages and panels. No item changed state.
+- Evening check, 2026-11-23: 16 PRs merged after 0fdeb4d7. 1 was a product data PR, and the other 15 were linked.
+  The semantic model Best practices check card shipped in Preview from the approved mockup (#3210, PB-115). Databricks
+  SQL cells on this PC read Unity Catalog names (WR-316, PB-120). Parity cases now have a local runner and run records
+  (PAR-002, PB-140). Regular expressions answer as each platform does or stop by name (WR-257). No item changed state.
+- Check, 2026-11-23 (main didn't move between 11-20 and 11-23, so the weekend checks had nothing to refresh): 42
+  PRs merged after ea988e99. 2 were product data and docs PRs, and the other 40 were linked. PB-115 moved to In
+  progress: the live test can run the semantic model best practices check (#2913), and the product owner typed 'yes, run
+  it' for the live run on 11-20; it waits on his Allow on his PC. Profile > Skill trees shows the developer classes as talent trees in Preview (#2955,
+  PB-134). A read-only Snowflake SQL warehouse engine is in Preview (SF-003, PB-140). Every notebook cell write path
+  now waits for a Prod workspace's name (WR-131, PB-124).
 - Evening check, 2026-11-20: 23 PRs merged after bdb6f251. 2 were product data and docs audit PRs, and the other 21
   were linked. Settings > Environment shows the KratosForge Environment with Upgrade's plan and confirm (CP-010), and
   the environment's own cost is kept apart from savings (CP-011, PB-139). Each table can choose its Delta features at
@@ -309,7 +344,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 128 items (7 P0, 33 P1, 60 P2, 28 P3). 14 are Proposed, 33 In progress, 2 In review and 79 Accepted.
+- Backlog: 128 items (7 P0, 33 P1, 60 P2, 28 P3). 13 are Proposed, 34 In progress, 2 In review and 79 Accepted.
 - PB-125 (Learn ranks and profile pictures) and PB-126 (Learn curriculum content batches) are new and Proposed, from the
   product owner's ask of 2026-11-02; they build once the rank ladder is approved.
 - PB-124 (new, In progress, P0 like PB-101): the enterprise audit's EA remediation backlog (docs/audits/), tracked as its own item.

@@ -1,6 +1,6 @@
 # Metadata framework guide
 
-The metadata framework builds and runs your medallion layers (Bronze, Silver, Gold, or any 2 to 10 layers you choose) from configuration instead of one-off notebooks. You describe each table once in a small file: where its data comes from, its columns, how to clean and check it, and how to load it. KratosForge runs every table the same way, checks it, writes it to its layer's lakehouse, and logs what happened.
+The metadata framework builds and runs your medallion layers (Bronze, Silver, Gold, or any 1 to 10 layers you choose) from configuration instead of one-off notebooks. You describe each table once in a small file: where its data comes from, its columns, how to clean and check it, and how to load it. KratosForge runs every table the same way, checks it, writes it to its layer's lakehouse, and logs what happened.
 
 This guide goes from an empty folder to Prod. The [reference](#reference) at the end lists every setting.
 
@@ -62,12 +62,13 @@ When you're ready to use Fabric for Dev, assign it a workspace (step 7) and swit
 | Column | What it sets |
 | --- | --- |
 | **Layer** | The name. The lakehouse is `LH_<Name>` in every environment. |
+| **Workspace** | Which workspace of each environment holds the layer's lakehouse: **Environment's own**, or a workspace set in Data mesh > Domains > This project (Preview). |
 | **Can read from** | **Any earlier layer**, or **Only** one earlier layer. The first layer reads files and sources. |
 | **Schema drift** | What happens when a source has a column the contract doesn't: **Keep new columns**, **Ignore new columns**, or **Stop on new columns**. An entity can override this. |
 | **Required checks** | **Key not null** and **Key unique**: every table in the layer must have these checks on its key. |
 | **Surrogate keys: Required** | Every table in the layer must take its surrogate keys from the environment's key tables ([section 8](#8-surrogate-keys)). |
 | **Keep history** | How many days back a table can be restored (at least 7). VACUUM keeps files this long. |
-| **↑ ↓** and **Remove** | Reorder, or remove a layer with no entities. |
+| **↑ ↓** and **Remove** | Reorder, or remove a layer with no entities. A project keeps at least one layer. |
 
 **Add layer** adds one at the end (up to 10). Reordering is refused if a table would end up reading a later layer.
 
@@ -338,6 +339,8 @@ Promote to a Fabric workspace is in Preview: it is tested against local stores a
 
 Below the cards are **Promote Dev to Test** and **Promote Test to Prod**. Each shows whether the promote gate passes and, if not, what to do first. It also lists the tables whose logic differs from what last ran in the target, each with **Compare**, so you see what a promote does to the numbers before you press it. Under each table it lists what changed in its settings since the version promoted there, by meaning rather than by line: *column channel added (string)*, *check returns_are_negative changed on_fail from quarantine to stop*. Comments, spacing and the order of settings don't count.
 
+**Delta table features at publish** (Preview), below the promote buttons, lists each table with the Delta features a run may leave on it when it publishes it. A choice that one of the table's readers can't read asks you to type the table's name first. The choice is kept in the entity file, so it reaches Test and Prod with the next promote. See [Each table's own choice](delta-reader-matrix.md#each-tables-own-choice-preview).
+
 **Promote to Test** (or Prod):
 
 1. Checks the gate: the project passes the save gate, the tests pass, and every table's last run in the source environment is green on this exact metadata version.
@@ -490,7 +493,7 @@ To manage tables that already exist in a lakehouse, use **Adopt** on the lakehou
 
 ## 12. Run on a schedule or a server
 
-- **On this PC or in Fabric:** **Schedule** at the top of Metadata, or **Schedules** on an environment card (Preview). Listed in **Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules**.
+- **On this PC or in Fabric:** **Schedule** at the top of Data mesh, or **Schedules** on an environment card (Preview). Listed in **Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules**.
 - **On a server, unattended:** the [headless agent](agent.md) runs the same engine on Windows or Linux as a service principal or managed identity, with a durable queue and retries. It hasn't yet run against a live tenant.
 
 ## Reference
@@ -552,8 +555,9 @@ business_key = "order_id"
 | Section | Key | Meaning |
 | --- | --- | --- |
 | top level | `name`, `owner`, `description` | The entity's name (`layer.table`), who owns it, and what it is |
+| | `delta_features`, `delta_readers`, `delta_accepted` | The Delta table features a run may leave on the table when it publishes it, the readers they're checked against, and the readers you allowed with a typed confirm (Preview; [Each table's own choice](delta-reader-matrix.md#each-tables-own-choice-preview)) |
 | `[source]` | `files` | A file pattern under the layer's lakehouse `Files` |
-| | `entity` | Another entity it reads |
+| | `entity` | One other entity it reads, by name (to combine tables, see [Where custom logic goes](#where-custom-logic-goes)) |
 | | `table` | An existing Delta table, by OneLake URI (adopted tables) |
 | | `rename` | Source column names mapped to the contract's names |
 | | `new_files_only` | `false` makes an incremental or dimension load read every file each run ([Loads from files](#loads-from-files-read-only-new-files)) |
@@ -579,8 +583,8 @@ business_key = "order_id"
 | `[[lookup]]` | `dim`, `on`, `as`, `at` | A dimension's surrogate key as of the fact's date |
 | `[scd]` | `surrogate_key`, `tracked`, `type1` | Dimension settings |
 | `[model]` | `date_column` | Makes the dimension the semantic model's date table (see [section 10](#10-semantic-model-preview)) |
-| `[hooks]` | `after_clean`, `before_write`, `reads`, `adds`, `owner`, `test` | Your Python at a fixed point |
-| `[step]` | `custom`, `reads`, `owner`, `test` | Your Python replaces the transform |
+| `[hooks]` | `after_clean`, `before_write`, `reads`, `adds`, `owner`, `test` | Your Python at a fixed point. `reads` is a list of the entity names it may read, like `reads = ["silver.customers"]` |
+| `[step]` | `custom`, `reads`, `owner`, `test` | Your Python replaces the transform. `reads` is a list of the entity names it may read |
 | `[params]` | any | Values your code reads from `ctx.params` |
 | `[freshness]` | `within_hours`, `by`, `envs` | When a successful run is due |
 | `[objectives]` | `criticality`, `success_rate`, `runs`, `envs` | How often runs must succeed (Preview) |

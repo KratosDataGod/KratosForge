@@ -1,0 +1,166 @@
+{
+  "_about": "One entry per alerting need. Each need has a list of setups. Set each setup's tool to one of the tools listed and fill in only the fields that tool uses (see fields). The pipeline's activities and its conditions are listed under pipeline.",
+  "tools": [
+    "Outlook activity",
+    "Teams activity",
+    "Refresh failure email",
+    "Activator alert on a Power BI visual",
+    "Activator alert on a KQL queryset"
+  ],
+  "fields": {
+    "Outlook activity": [
+      "attached_to",
+      "condition",
+      "to"
+    ],
+    "Teams activity": [
+      "attached_to",
+      "condition",
+      "post_in",
+      "to"
+    ],
+    "Refresh failure email": [
+      "model",
+      "email_owner",
+      "email_these_contacts"
+    ],
+    "Activator alert on a Power BI visual": [
+      "item",
+      "condition",
+      "actions"
+    ],
+    "Activator alert on a KQL queryset": [
+      "item",
+      "run_every_minutes",
+      "condition",
+      "actions"
+    ]
+  },
+  "alert_conditions": {
+    "kinds": [
+      "Becomes",
+      "Changes",
+      "On each event when"
+    ],
+    "operators": [
+      "greater than",
+      "less than",
+      "equal to"
+    ]
+  },
+  "alert_actions": [
+    "Email",
+    "Teams",
+    "Run pipeline"
+  ],
+  "pipeline": {
+    "name": "Nightly sales",
+    "activities": [
+      "Copy orders",
+      "Copy returns",
+      "Load warehouse"
+    ],
+    "flow": "Copy orders and Copy returns run side by side. Load warehouse runs when both succeed.",
+    "conditions": [
+      "On success",
+      "On failure",
+      "On completion",
+      "On skip"
+    ]
+  },
+  "alerts": {
+    "copy_failed": {
+      "needs": "If Copy orders fails, or Copy returns fails, email oncall@contoso.example. Either failure alone must send an email.",
+      "setups": [
+        {
+          "tool": "Outlook activity",
+          "attached_to": [
+            "Copy orders"
+          ],
+          "condition": "On failure",
+          "to": "oncall@contoso.example"
+        },
+        {
+          "tool": "Outlook activity",
+          "attached_to": [
+            "Copy returns"
+          ],
+          "condition": "On failure",
+          "to": "oncall@contoso.example"
+        }
+      ]
+    },
+    "run_summary": {
+      "needs": "Whenever Load warehouse runs, post its result in the Data team channel in Teams, whether it succeeds or fails.",
+      "setups": [
+        {
+          "tool": "Teams activity",
+          "attached_to": [
+            "Load warehouse"
+          ],
+          "condition": "On completion",
+          "post_in": "Channel",
+          "to": "Data team"
+        }
+      ]
+    },
+    "refresh_failed": {
+      "needs": "When a scheduled refresh of the Sales model fails, email the model's owner and bi-team@contoso.example.",
+      "setups": [
+        {
+          "tool": "Refresh failure email",
+          "model": "Sales model",
+          "email_owner": true,
+          "email_these_contacts": [
+            "bi-team@contoso.example"
+          ]
+        }
+      ]
+    },
+    "store_revenue": {
+      "needs": "The Daily sales report has a table visual of revenue per store per day. When a store's revenue becomes less than 5000, send the store managers a Teams message once. Don't repeat it while the revenue stays low.",
+      "setups": [
+        {
+          "tool": "Activator alert on a Power BI visual",
+          "item": "Daily sales report",
+          "condition": {
+            "kind": "Becomes",
+            "operator": "less than",
+            "value": 5000
+          },
+          "actions": [
+            {
+              "type": "Teams",
+              "to": "Store managers"
+            }
+          ]
+        }
+      ]
+    },
+    "error_spike": {
+      "needs": "App logs land in an eventhouse table. Every 15 minutes, count the errors of the last 15 minutes. When the count is greater than 100, start the Restart service pipeline and email ops@contoso.example.",
+      "setups": [
+        {
+          "tool": "Activator alert on a KQL queryset",
+          "item": "App errors queryset",
+          "run_every_minutes": 15,
+          "condition": {
+            "kind": "On each event when",
+            "operator": "greater than",
+            "value": 100
+          },
+          "actions": [
+            {
+              "type": "Run pipeline",
+              "to": "Restart service"
+            },
+            {
+              "type": "Email",
+              "to": "ops@contoso.example"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

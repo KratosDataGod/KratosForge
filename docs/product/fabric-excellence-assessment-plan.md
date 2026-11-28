@@ -1,6 +1,6 @@
 # Fabric Excellence Assessment: plan, gaps, risks and stories
 
-Status: plan (2026-11-17). Built so far: FEA-101 to FEA-104, the pure engine, with the methodology in [excellence-assessment.md](../optimize/excellence-assessment.md) (#2941), and FEA-105 with its first 10 controls and the read-only `excellence_assess` call (#2957). FEA-109 adds the scorecard on Optimize > Assessment > Excellence, in Preview (#2990). FEA-203 (architecture controls, #3010), FEA-301 and FEA-302 (notebook and pipeline controls, #3013), FEA-202 (capacity controls, #3085) and FEA-304 (semantic model controls, #3066) are built too. Owner: Fabric Excellence Assessment thread. Requested by Chris (master
+Status: plan (2026-11-17). Built so far: FEA-101 to FEA-104, the pure engine, with the methodology in [excellence-assessment.md](../optimize/excellence-assessment.md) (#2941), and FEA-105 with its first 10 controls and the read-only `excellence_assess` call (#2957). FEA-109 adds the scorecard on Optimize > Assessment > Excellence, in Preview (#2990). FEA-203 (architecture controls, #3010), FEA-301 and FEA-302 (notebook and pipeline controls, #3013), FEA-202 (capacity controls, #3085) and FEA-304 (semantic model controls, #3066) are built too. FEA-302 adds retry, timeout and failure-path controls (#3162), and FEA-305 is built in part with the Git controls (#3165). Owner: Fabric Excellence Assessment thread. Requested by Chris (master
 implementation prompt, 2026-11-17). Shared standards: the KratosForge mission prompt and its hard gates in
 `KratosDataGod/ai-commons` (`prompts/kratosforge/mission-and-engineering-philosophy.md`).
 
@@ -317,15 +317,15 @@ coverage and Critical Risk flag built from evidence the app already reads.
 
 - **FEA-301 Notebooks**: **Built** in part (#3013): NB001, NB002, NB009, NB012 and NB020 as controls, not yet weighted by run time. NB rules as controls (error handling, parameterization, hard-coded
   paths, secrets, overwrite without replaceWhere), weighted by measured run time.
-- **FEA-302 Pipelines**: **Built** in part (#3013): deactivated activities and hard-coded workspace ids; retry, timeout and failure paths aren't checked yet. retry and timeout settings, failure paths, parameterization, overlapping
+- **FEA-302 Pipelines**: **Built** in part (#3013, #3162): deactivated activities, hard-coded workspace ids, and retry, timeout and failure paths (FEA-REL-004 to FEA-REL-006); parameterization and overlapping schedules aren't checked yet. retry and timeout settings, failure paths, parameterization, overlapping
   schedules (OE-011).
 - **FEA-303 Lakehouses and Warehouses**: schema-enabled, table maintenance, SQ rules on stored
   procedures and views, warehouse query insights where enabled.
 - **FEA-304 Semantic models**: **Built** in part (#3066): bidirectional relationships, RLS presence, Direct Lake fallback, and BPA rules SM001, SM002 and SM004 from stored results. Definition-only BPA rules, Direct Lake fallback and guardrails,
   bidirectional filters, high-cardinality columns, RLS presence. Full BPA (VertiPaq) only as an
   explicit action with a typed "yes, run it".
-- **FEA-305 DevOps**: Git connection, uncommitted changes, deployment pipeline stages and drift.
-- **FEA-306 Coverage per item type**: every Fabric item type the workspace holds gets inspected,
+- **FEA-305 DevOps**: **Built** in part (#3165): Git connection and changes on either side (FEA-DEVOPS-003 to FEA-DEVOPS-005); deployment pipeline stages and drift aren't checked yet. Git connection, uncommitted changes, deployment pipeline stages and drift.
+- **FEA-306 Coverage per item type**: **Built** in the engine (`type_coverage`), but not shown on screen yet. Every Fabric item type the workspace holds gets inspected,
   not inspected (why) or unsupported in the result and on screen.
 - **FEA-308 / FEA-309** artifact drill-in mockup and build.
 

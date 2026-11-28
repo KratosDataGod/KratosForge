@@ -428,7 +428,14 @@ function kfeAdopt(el) {
   const a = kfe.adopt;
   const nameBox = h("input", { value: kfe.adoptName, maxlength: "120", oninput: (e) => {
     kfe.adoptName = e.target.value;
-    if (kfe.adopt?.token) { kfe.adopt = null; kfeDraw(el); el.querySelector(".kfe-adopt-name input")?.focus(); return; }
+    if (kfe.adopt?.token) {
+      const at = e.target.selectionStart;
+      kfe.adopt = null;
+      kfeDraw(el);
+      const box = el.querySelector(".kfe-adopt-name input");
+      if (box) { box.focus(); box.setSelectionRange(at, at); }
+      return;
+    }
     const show = el.querySelector(".kfe-show-manifest");
     if (show) show.disabled = !kfe.adoptName.trim();
   } });
@@ -451,7 +458,7 @@ function kfeAdopt(el) {
         h("dt", {}, "provider"), h("dd", {}, m.provider),
         h("dt", {}, "workspace_id"), h("dd", {}, ids(m.namespace.workspace_id, m.namespace.display_name)),
         h("dt", {}, "lakehouse_id"), h("dd", {}, ids(m.analytical_store.lakehouse_id, m.analytical_store.display_name)),
-        h("dt", {}, "operational_store"), h("dd", {}, m.operational_store ? m.operational_store.display_name || "Linked" : "none"),
+        h("dt", {}, "operational_store"), h("dd", {}, m.operational_store ? `${m.operational_store.display_name || "Linked"}${a.operational_prod ? " (Prod)" : ""}` : "none"),
         m.services?.length ? [h("dt", {}, "services"), h("dd", {}, m.services.join(", "))] : null,
         h("dt", {}, "owner"), h("dd", {}, m.owner ? "your Entra object id" : "none")),
       h("p", { class: "small muted-text" }, "Ids and versions only. No secret, email or name of a person.")] : null,
@@ -477,10 +484,13 @@ async function kfeAdoptRun(el) {
   const a = kfe.adopt;
   const where = a.environment.lakehouse_name || "this lakehouse";
   const typed = a.typed_name;
+  const prodStore = a.operational_prod
+    ? ` Adopting also links your Prod Platform's database as the environment's operational store. Only the database's ids are recorded, and nothing is written to it.`
+    : "";
   const ok = typed
-    ? await confirmDialog(`Adopt ${where}?`, `${typed} is a Prod workspace, so this runs only after you type its name exactly to confirm. This writes Files/_kratosforge/environment.json in ${where} and connects this PC to ${a.environment.name}. No table is created or changed.`,
+    ? await confirmDialog(`Adopt ${where}?`, `${typed} is a Prod workspace, so this runs only after you type its name exactly to confirm. This writes Files/_kratosforge/environment.json in ${where} and connects this PC to ${a.environment.name}. No table is created or changed.${prodStore}`,
       "Adopt", { typeToConfirm: typed })
-    : await confirmDialog(`Adopt ${where}?`, `This writes Files/_kratosforge/environment.json in ${where} and connects this PC to ${a.environment.name}. No table is created or changed.`, "Adopt");
+    : await confirmDialog(`Adopt ${where}?`, `This writes Files/_kratosforge/environment.json in ${where} and connects this PC to ${a.environment.name}. No table is created or changed.${prodStore}`, "Adopt");
   if (!ok) return;
   try {
     const out = await rpc("cp_adopt", { token: a.token, confirmed: true, confirm_name: typed || "" });
@@ -601,7 +611,7 @@ async function kfeDisconnect(el, e) {
 function kfePolicyOff(el) {
   const active = kfe.status.active;
   return h("section", { class: "card pad kfe-card" },
-    kfeStatusLine("neu", "Turned off", "Your organization has turned off KratosForge Environments (allow_central_environment in its policy). Ask IT if you need them."),
+    kfeStatusLine("neu", "Turned off", "Your organization has turned off KratosForge Environments. Ask IT to change allow_central_environment in Group Policy or the policy file if you need them."),
     h("p", { class: "small muted-text" }, "Work still runs on this PC. ",
       active ? btn("Disconnect this PC...", null, () => kfeDisconnect(el, active), "tool outline small") : null));
 }

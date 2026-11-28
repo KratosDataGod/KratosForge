@@ -40,6 +40,7 @@ from .duckdb_rows import keep_try_cast
 from . import spark_hash, spark_time_zone
 from .spark_complex import spark_complex_types
 from .spark_decimals import spark_decimal_types
+from .spark_branch_types import spark_branch_types
 from .spark_text_compare import spark_text_comparisons
 from . import trees
 
@@ -468,6 +469,8 @@ class LakehouseWriter:
         if given is not None and path is not None:  # Spark refuses both too, rather than pick one
             raise ValueError("There's a path option and a path given to save(). Give the path once.")
         path = given if path is None else path
+        if path is not None and (volume := _volume_path(path, write=True)) is not None:
+            path = str(volume)  # the volume's folder on this PC (databricks_volumes)
         fmt = format or self._format
         rel = lakehouse.relative_path(path) if path else None
         if fmt == "delta" and rel and rel.startswith("Tables/"):
@@ -1050,8 +1053,24 @@ def read_option_refusal(fmt: str, options: list[tuple[str, Any]], has_schema: bo
     return None
 
 
+def _volume_path(path: Any, write: bool = False) -> Any:
+    """The file or folder on this PC that a /Volumes path names (a Unity Catalog volume here, databricks_volumes),
+    or None for any other path. A read of a folder holding a link is refused (what it points at may be outside the
+    volume), and so is a read of a path that isn't there, as Spark's PATH_NOT_FOUND."""
+    from . import databricks_volumes
+    if not databricks_volumes.is_volume_path(path):
+        return None
+    local = databricks_volumes.local_path(str(path))
+    shown = databricks_volumes.parse(str(path)).uc_path()
+    if not write and not local.exists():
+        raise FileNotFoundError(f"[PATH_NOT_FOUND] Path does not exist: {shown}.")
+    if local.is_dir():
+        databricks_volumes.check_tree(local, shown)
+    return local
+
+
 class LakehouseReader:
-    """``spark.read``: tables and files of the attached lakehouse, or files on this PC."""
+    """``spark.read``: tables and files of the attached lakehouse, files on this PC, or a /Volumes path."""
 
     def __init__(self, session: LocalSparkSession):
         self._session = session
@@ -1084,8 +1103,11 @@ class LakehouseReader:
         """Applied after reading: CSV columns take the schema's names and types by position, other
         formats by name (a missing column is null). A value that doesn't fit is null, as in Spark's
         default PERMISSIVE mode."""
-        if isinstance(schema, str) or not hasattr(schema, "fields"):
-            raise NotImplementedError("On this PC, give read.schema() a StructType. A DDL string isn't supported.")
+        if isinstance(schema, str):
+            schema = ddl_schema(schema)  # "id INT, name STRING", as Spark takes it
+        if not hasattr(schema, "fields"):
+            raise NotImplementedError("On this PC, give read.schema() a StructType or a DDL string such as "
+                                      "'id INT, name STRING'.")
         self._schema = schema
         return self
 
@@ -1145,7 +1167,7 @@ class LakehouseReader:
     def _local(self, path: str) -> str | list[str]:
         """A local path for ``path``; a folder is its data files, as Spark reads one: every file below
         it except those (and folders) whose names start with _ or . (_SUCCESS, .crc files)."""
-        local = str(lakehouse.local_path(path))
+        local = str(_volume_path(path) or lakehouse.local_path(path))
         if not os.path.isdir(local):
             return local
         self._root = local
@@ -1154,9 +1176,17 @@ class LakehouseReader:
             dirs[:] = sorted(d for d in dirs if not d.startswith(("_", ".")))
             found += [os.path.join(root, f) for f in sorted(files) if not f.startswith(("_", "."))]
         if not found:
-            raise ValueError(f"[UNABLE_TO_INFER_SCHEMA] {path} is a folder with no data files, so there's no "
+            raise _NoDataFiles(f"[UNABLE_TO_INFER_SCHEMA] {path} is a folder with no data files, so there's no "
                              "schema to read. Write data there first, or give a file.")
         return found
+
+    def _empty(self, exc: "_NoDataFiles") -> DataFrame:
+        """A folder with no data files read with a schema: no rows, with the schema's columns, as in Spark.
+        Without a schema there is nothing to infer, so the error stands."""
+        schema = getattr(self, "_schema", None)
+        if schema is None:
+            raise exc
+        return self._session.createDataFrame([], schema)
 
     def _hive(self, files: str | list[str]) -> dict[str, Any]:
         """Partition columns from the name=value folders below the folder read, as Spark reads a
@@ -1185,7 +1215,7 @@ class LakehouseReader:
             if rel and rel.startswith("Tables/"):
                 return self.table(".".join(p for p in rel.split("/")[1:] if p))
             from deltalake import DeltaTable
-            opened = DeltaTable(path)
+            opened = DeltaTable(str(_volume_path(path) or path))
             from . import delta_cdf
             if delta_cdf.asked(self._options):
                 return self._session._from_arrow_dataset(delta_cdf.read(opened, path, self._options,
@@ -1233,7 +1263,10 @@ class LakehouseReader:
                 extra[arg] = str(given[name])
         mode = str(given.get("mode", "PERMISSIVE")).upper()
         header = _true(given.get("header", False))
-        files = self._local(path)
+        try:
+            files = self._local(path)
+        except _NoDataFiles as exc:
+            return self._empty(exc)
         rel = self._session.conn.read_csv(files, header=header, **extra, **self._hive(files))  # type: ignore[arg-type]  # a list of files too
         if not header:  # Spark names a file's columns _c0, _c1... (DuckDB: column0, column1...)
             rel = rel.project(", ".join(f'"{c.replace(chr(34), chr(34) * 2)}" AS "_c{i}"' for i, c in enumerate(rel.columns)))
@@ -1256,7 +1289,12 @@ class LakehouseReader:
             raise ValueError("Give parquet a path: a Tables/ or Files/ path, or a file or folder on this PC.")
         files: list[str] = []
         for p in paths:
-            local = self._local(p)
+            try:
+                local = self._local(p)
+            except _NoDataFiles as exc:
+                if len(paths) == 1:
+                    return self._empty(exc)
+                raise
             files += local if isinstance(local, list) else [local]
         rel = self._session.conn.read_parquet(files if len(files) > 1 else files[0],
                                               union_by_name=_true(given.get("mergeschema", False)),
@@ -1275,7 +1313,10 @@ class LakehouseReader:
             # A malformed line is a row of nulls, as in Spark (which also has no _corrupt_record column
             # unless the schema asks for one, and this PC refuses that option).
             extra.update(format="newline_delimited", ignore_errors=True)
-        files = self._local(path)
+        try:
+            files = self._local(path)
+        except _NoDataFiles as exc:
+            return self._empty(exc)
         rel = self._session.conn.read_json(files, **extra, **self._hive(files))  # type: ignore[arg-type]  # a list of files too
         return self._apply(DataFrame(rel, self._session), False)
 
@@ -1291,8 +1332,12 @@ class LakehouseReader:
                                  "\"value\", StringType())]).")
             name = fields[0].name
         conn = self._session.conn
+        try:
+            local = self._local(path)
+        except _NoDataFiles as exc:
+            return self._empty(exc)
         rel = conn.sql("SELECT line AS \"" + name.replace('"', '""') + "\" FROM read_csv(?, columns={'line': 'VARCHAR'}, "
-                       "header=false, delim=chr(1), quote='', escape='')", params=[self._local(path)])
+                       "header=false, delim=chr(1), quote='', escape='')", params=[local])
         return DataFrame(rel, self._session)
 
 
@@ -1583,7 +1628,9 @@ class LocalSparkSession(SparkSession):
                 name = _sql.table_name(target)  # with its catalog: main.dbo.t is refused, never written to dbo.t
                 query = statement.expression.copy()
                 self._bind(query)
-                data = self.conn.sql(_sql.duckdb_sql(spark_complex_types(spark_decimal_types(spark_text_comparisons(query, self.conn), self.conn), self.conn)))
+                data = self.conn.sql(_sql.duckdb_sql(_using_star(spark_complex_types(spark_decimal_types(
+                    spark_text_comparisons(spark_branch_types(query, self.conn), self.conn), self.conn), self.conn),
+                    self.conn)))
                 insert = isinstance(statement, exp.Insert)
                 mode = "append" if insert and not statement.args.get("overwrite") else "overwrite"
                 if insert and (statement.find(exp.Partition) or statement.args.get("where")):
@@ -1614,8 +1661,8 @@ class LocalSparkSession(SparkSession):
                     print(lakehouse.write_table(arrow, name, mode=mode))
                 return None
         self._bind(statement)
-        statement = spark_complex_types(spark_decimal_types(spark_text_comparisons(statement, self.conn), self.conn),
-                                        self.conn)
+        statement = _using_star(spark_complex_types(spark_decimal_types(spark_text_comparisons(
+            spark_branch_types(statement, self.conn), self.conn), self.conn), self.conn), self.conn)
         text = _sql.duckdb_sql(statement)
         if isinstance(statement, (exp.Query, exp.Select, exp.Describe, exp.Show)) or text.upper().startswith(("SELECT", "WITH", "FROM", "VALUES", "DESCRIBE", "SHOW")):
             return DataFrame(self.conn.sql(text), self)
@@ -1715,6 +1762,15 @@ class LocalSparkSession(SparkSession):
         inferred = schema is None or (isinstance(schema, (list, tuple)) and all(isinstance(n, str) for n in schema))
         return self._ints_as_long(df) if inferred and isinstance(data, (list, tuple)) else df
 
+    def _createDataFrameFromPandas(self, data: Any, types: Any, names: Any) -> DataFrame:  # noqa: N802
+        """DuckDB 1.x casts a pandas frame's columns to the schema's types as ``name::TYPE as name``
+        with the names unquoted, so a column called left, order or select is a ParserException there,
+        where Spark takes any name. The frame's columns are given plain positional names for that cast;
+        the schema's names come back after it, quoted."""
+        if types and names and len(data.columns) == len(names):
+            data = data.set_axis([f"_fd_col{i}" for i in range(len(data.columns))], axis=1)
+        return super()._createDataFrameFromPandas(data, types, names)
+
     def _ints_as_long(self, df: DataFrame) -> DataFrame:
         """Spark infers every Python int as bigint (LongType); DuckDB 1.x makes an int that fits INTEGER,
         so a column of them (or of lists of them) says int where Spark says bigint. DuckDB 2.0 says bigint."""
@@ -1727,6 +1783,83 @@ class LocalSparkSession(SparkSession):
             changed |= wanted != text
             exprs.append(f"CAST({quoted} AS {wanted}) AS {quoted}" if wanted != text else quoted)
         return DataFrame(rel.project(", ".join(exprs)), self) if changed else df
+
+
+_JOIN_SOURCES = ("Table", "Subquery", "Values")
+
+
+def _source_columns(source: Any, ctes: list[Any], conn: Any) -> list[tuple[str, Any]]:
+    """Each column of a FROM or JOIN source, as its name and a reference qualified by the source's name."""
+    from sqlglot import exp
+    probe = exp.select("*").from_(source.copy()).limit(0)
+    if ctes:
+        probe.set("with_", exp.With(expressions=[c.copy() for c in ctes]))
+    return [(n, exp.column(n, table=source.alias_or_name, quoted=True))
+            for n in conn.sql(_sql.duckdb_sql(probe)).columns]
+
+
+def _using_star(statement: Any, conn: Any) -> Any:
+    """``SELECT *`` over a JOIN ... USING (k) or a NATURAL JOIN in Spark 3.5's order: the join keys first,
+    then the rest of the left's columns, then the right's (the key the left's for an inner or left join, the
+    right's for a right join, either side's for a full join); DuckDB keeps the left's order. Each such ``*``
+    is written out as the columns it stands for, each side's read from DuckDB with no rows. A semi or anti
+    join's is the left's keys, then the rest of the left's columns (as Spark 3.5's analyzer writes it, read
+    from its source, not run against Spark). ``ta.*`` is left as it is; so is any select this can't read
+    (an unnamed or lateral source), which DuckDB then answers in its own order."""
+    from sqlglot import exp
+    for select in reversed(list(statement.find_all(exp.Select))):  # the innermost first: an outer * reads it
+        joins = select.args.get("joins") or []
+        if not any(j.args.get("using") or j.method == "NATURAL" for j in joins):
+            continue
+        if not any(isinstance(e, exp.Star) and not any(e.args.values()) for e in select.expressions):
+            continue
+        sources = [select.args["from_"].this, *(j.this for j in joins)] if select.args.get("from_") else []
+        if not sources or any(type(s).__name__ not in _JOIN_SOURCES or not s.alias_or_name or s.args.get("pivots")
+                              for s in sources):
+            continue
+        ctes: list[Any] = []
+        node = select
+        while node is not None:  # the CTEs a source may name, the outermost first
+            if (w := node.args.get("with_")) is not None:
+                ctes[:0] = w.expressions
+            node = node.parent
+        try:
+            out = _source_columns(sources[0], ctes, conn)
+            for join in joins:
+                right = _source_columns(join.this, ctes, conn)
+                existence = str(join.kind).upper() in ("SEMI", "ANTI")  # the left's columns only
+                if join.method == "NATURAL":
+                    keys = [n for n, _ in out if n.lower() in {r.lower() for r, _ in right}]
+                elif join.args.get("using"):
+                    keys = [k.name for k in join.args["using"]]
+                else:
+                    out += [] if existence else right
+                    continue
+                side = "LEFT" if existence else str(join.side).upper()
+                merged = []
+                for key in keys:
+                    lhs = [c for c in out if c[0].lower() == key.lower()]
+                    rhs = [c for c in right if c[0].lower() == key.lower()]
+                    if len(lhs) != 1 or len(rhs) != 1:
+                        raise LookupError(key)  # DuckDB reports a missing or ambiguous key itself
+                    if side == "FULL":
+                        # an earlier full join's key is already COALESCE(...) AS k: coalesce what it holds
+                        left_key, right_key = (c[0][1].this if isinstance(c[0][1], exp.Alias) else c[0][1]
+                                               for c in (lhs, rhs))
+                        merged.append((lhs[0][0], exp.alias_(exp.func("COALESCE", left_key, right_key), lhs[0][0],
+                                                             quoted=True)))
+                    else:
+                        merged.append((rhs if side == "RIGHT" else lhs)[0])
+                lowered = {k.lower() for k in keys}
+                out = merged + [c for c in out if c[0].lower() not in lowered] + \
+                    ([] if existence else [c for c in right if c[0].lower() not in lowered])
+        except (duckdb.Error, LookupError):  # silent-ok: DuckDB answers (or reports) the query as written
+            continue
+        projections: list[Any] = []
+        for e in select.expressions:
+            projections += [c[1].copy() for c in out] if isinstance(e, exp.Star) and not any(e.args.values()) else [e]
+        select.set("expressions", projections)
+    return statement
 
 
 def _atomic_schema(data: Any, schema: Any) -> tuple[Any, Any]:
@@ -1832,6 +1965,10 @@ def _ddl_type(text: str) -> Any:
 
 _NOT_NULL = re.compile(r"\s+NOT\s+NULL\s*$", re.I)
 _COMMENT = re.compile(r"\s+COMMENT\s+(?:'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")\s*$", re.I | re.S)
+
+
+class _NoDataFiles(ValueError):
+    """A folder read has no data files: Spark gives no rows when a schema is given, and an error otherwise."""
 
 
 def ddl_schema(text: str) -> Any:

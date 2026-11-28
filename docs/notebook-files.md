@@ -26,7 +26,7 @@ When you already have a notebook with the file's name, a free name is suggested.
 
 ## Save a copy
 
-**Save a copy** on the notebook's **Home** tab, or on All notebooks, saves the notebook under a new name, in the place you pick. The copy has the same cells, lakehouse, parameters and publish workspace; the original stays as it is. The copy isn't published: its first **Publish** makes a new Fabric item under the copy's name. The original keeps its Fabric item, its schedules and its Prove history.
+**Save a copy**, under **Share** on the notebook's **Home** tab or in a row's **⋯** menu on All notebooks, saves the notebook under a new name, in the place you pick. The copy has the same cells, lakehouse, parameters and publish workspace; the original stays as it is. The copy isn't published: its first **Publish** makes a new Fabric item under the copy's name. The original keeps its Fabric item, its schedules and its Prove history.
 
 ## Edit the same notebook in VS Code or another program
 

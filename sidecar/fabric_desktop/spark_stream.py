@@ -31,6 +31,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, cast
+from urllib.parse import unquote
 
 import pyarrow as pa
 from duckdb.experimental.spark.sql.dataframe import DataFrame
@@ -89,8 +90,10 @@ class _Source:
         import pyarrow.dataset as pads  # here, not at the top: it and the pandas it loads cost 0.2 s of notebook start
 
         dataset = dt.to_pyarrow_dataset()
-        # By path, so a file appended and then compacted away before this run still gives its rows.
-        fragments = [dataset.format.make_fragment(path, dataset.filesystem, partition_expression=_partition(values))
+        # By path, so a file appended and then compacted away before this run still gives its rows. The log's
+        # path is percent-encoded once over the file's name (region=North%2520America for the folder
+        # region=North%20America): decoded, as a reader of the log does.
+        fragments = [dataset.format.make_fragment(unquote(path), dataset.filesystem, partition_expression=_partition(values))
                      for path, values in sorted(new.items())]
         data = pads.FileSystemDataset(fragments, dataset.schema, dataset.format, dataset.filesystem).to_table() \
             if fragments else dataset.schema.empty_table()
@@ -235,6 +238,10 @@ class StreamReader:
         return self
 
     def schema(self, schema: Any) -> StreamReader:
+        """A StructType or a DDL string such as ``"a INT, b STRING"``, as in Spark."""
+        if isinstance(schema, str):
+            from .spark_local import ddl_schema
+            schema = ddl_schema(schema)
         self._reader.schema(schema)
         return self
 

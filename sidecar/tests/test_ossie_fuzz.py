@@ -83,7 +83,9 @@ def test_random_wrong_types_in_an_ossie_file_are_converted_or_refused_by_name():
                 _plain(exc, case)
                 continue
             converted += 1
-    assert converted > 80  # most damage still converts: the loop isn't only refusals
+    # Damage that only empties a part still converts: the loop isn't only refusals. A part of the wrong type (a
+    # non-object item of a list, which the converter used to skip) is refused by path since the shape check.
+    assert converted > 50
 
 
 @pytest.mark.parametrize("seed", [1, 2])

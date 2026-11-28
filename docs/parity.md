@@ -99,11 +99,11 @@ Notes:
 | --- | --- | --- | --- | --- | --- |
 | Sign-in, roles and warehouses | Partial | Missing | Partial | · | · |
 | SQL worksheets | Partial | Missing | Partial | Partial | · |
-| Databases, schemas and object browser | Partial | Missing | · | · | · |
-| Snowpark | Partial | Missing | · | Missing | · |
+| Databases, schemas and object browser | Partial | Missing | Partial | · | · |
+| Snowpark | Partial | Missing | · | Partial | · |
 | Stages and data loading | Partial | Missing | · | · | · |
 | Streams, tasks and dynamic tables | Partial | Missing | · | Partial | · |
-| Query history, profiling and credits | Partial | Missing | · | · | · |
+| Query history, profiling and credits | Partial | Missing | Partial | · | · |
 
 Notes:
 
@@ -111,7 +111,10 @@ Notes:
 - **Sign-in, roles and warehouses, Cloud API integration:** Key-pair and programmatic access token sign-in, and a connection check of role, database, schema and warehouse through the SQL API (Preview), without resuming a warehouse. Browser sign-in and Snowflake CLI connections aren't supported yet. Against fakes, no live run yet.
 - **SQL worksheets, Cloud API integration:** The Snowflake SQL warehouse engine (Preview) runs read-only statements (SELECT, WITH, SHOW, DESCRIBE, EXPLAIN) through the SQL API after a confirm, and refuses anything else before it is sent. Not in the notebook's engine picker yet. Against fakes, no live run yet.
 - **SQL worksheets, Local execution:** Validation and translation only: Snowflake SQL runs on DuckDB with a label per statement. Not a Snowflake runtime. docs/snowflake-functions.md says for every function whether it runs, differs, is refused or fails.
+- **Databases, schemas and object browser, Cloud API integration:** The engine lists databases, schemas, tables and views, and a table's or view's columns, with SHOW as the connection's role and without a warehouse, a capped page at a time (Preview). No screen shows them yet. Against fakes, no live run yet.
+- **Snowpark, Local execution:** Compatibility checks only (Preview). The Snowpark engine on this PC executes cells simulated by Snowflake's local testing framework (Snowpark Python 1.58, its own runtime folder, no network, telemetry off); session.sql and calls the framework doesn't implement are refused. The API compatibility check reads a cell's Snowpark calls, methods and keywords against 1.58.0's signatures and flags Cortex, external access, stages and pandas on Snowflake. Tested against a fake of Snowpark; no result has been compared with Snowflake. Not a Snowflake runtime.
 - **Streams, tasks and dynamic tables, Local execution:** Validation only: CREATE TASK, CREATE STREAM and CREATE DYNAMIC TABLE statements are checked on this PC against Snowflake's documented syntax and rules, with task graphs across statements (Preview, no screen yet). Nothing runs or refreshes here, and nothing is deployed to Snowflake.
+- **Query history, profiling and credits, Cloud API integration:** The engine reads your own recent queries (QUERY_HISTORY_BY_USER) with their status, run time, warehouse and rows, and credits used per warehouse per day from ACCOUNT_USAGE's WAREHOUSE_METERING_HISTORY (up to 3 hours behind), each after a confirm, because each runs on a warehouse (Preview). Credits only, never money. No screen or query profile yet. Against fakes, no live run yet.
 <!-- END GENERATED: parity -->
 
 Areas marked · are the parity backlog: each gets assessed against the platform's current
@@ -150,9 +153,45 @@ and it never raises a status. This table is generated from `PLANS` in the same m
 | Azure Databricks | Cost and DBU | G Monitoring, cost and optimization | P1 | Cloud only | DBX-006 | Optimization engine |
 | Snowflake | Sign-in, roles and warehouses | A Authentication and connectivity | P0 | Cloud only | SF-001, SF-002, PAR-003 | Platform parity |
 | Snowflake | SQL worksheets | B SQL development | P0 | Local and cloud | SF-003, PAR-002 | Platform parity |
-| Snowflake | Databases, schemas and object browser | D Data storage and catalog | P1 | Not built yet | SF-004 | Platform parity |
-| Snowflake | Snowpark | C Notebooks and distributed compute | P2 | Not built yet | SF-007 | unassigned |
+| Snowflake | Databases, schemas and object browser | D Data storage and catalog | P1 | Cloud only | SF-004 | Platform parity |
+| Snowflake | Snowpark | C Notebooks and distributed compute | P2 | Simulated or validated on this PC | SF-007 | unassigned |
 | Snowflake | Stages and data loading | D Data storage and catalog | P2 | Not built yet | SF-009 | unassigned |
 | Snowflake | Streams, tasks and dynamic tables | E Orchestration and transformation | P2 | Simulated or validated on this PC | SF-008 | unassigned |
-| Snowflake | Query history, profiling and credits | G Monitoring, cost and optimization | P1 | Not built yet | SF-005, SF-006 | Platform parity |
+| Snowflake | Query history, profiling and credits | G Monitoring, cost and optimization | P1 | Cloud only | SF-005, SF-006 | Platform parity |
 <!-- END GENERATED: parity-plan -->
+
+## Checking cases on this PC
+
+A parity case is a small table, one statement per SQL dialect, and the answer each platform's own
+documentation gives for it. The cases live in `sidecar/fabric_desktop/parity_cases.json`. Run them
+with
+
+```
+fabric-desktop parity-check
+fabric-desktop parity-check --case decimal_division --dialect snowflake --out runs
+```
+
+Each statement runs on this PC through the engines KratosForge already has. DuckDB runs DuckDB SQL,
+and the Spark, Databricks and Snowflake SQL translations that cells use. T-SQL goes through the local
+data engine's T-SQL translation. Nothing connects to a platform, and nothing leaves this PC.
+
+Each case and dialect gets one outcome.
+
+| Outcome | Means |
+| --- | --- |
+| match | This PC gave the documented answer, with the same column names, types and rows. |
+| unconfirmed | This PC agrees with the case, but the platform's documentation doesn't state that answer. It is never counted as a match. |
+| differs | The schema or the values aren't the documented ones. The record lists each difference with both values. |
+| refused | The local engine refused the statement and said why. |
+| error | The statement failed on this PC. |
+
+Results are compared with the rules of [comparing two engines](engines.md#comparing-two-engines-answers-engine-only-no-screen-yet) (`verify.py`). Numbers are compared exactly, and
+timestamps to the microsecond. A case may name a normalization from a fixed list (`row_order`, `column_name_case`,
+`integer_width`, `decimal_scale_display`). Nothing else is ever smoothed over, so a decimal with the
+wrong scale or a NULL where a value belongs is reported as differs.
+
+With `--out`, the run records are written to that folder as JSON. Each one carries the platform
+(`local`), the engine, the DuckDB, sqlglot and Python versions, the case, the date in UTC, where it
+ran (`this_pc`), the expected and actual answers, the outcome and its evidence level. A run on this
+PC is local evidence. It can't mark an area Verified. Only a matching run on the platform itself can,
+once live runs are part of the harness.

@@ -226,8 +226,9 @@ def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
                 f"Logs are the last {LOG_LINES} lines."]
     files["CONTENTS.txt"] = "\n".join(contents) + "\n"
     # Values dbutils.secrets read are remembered by the kernel process that read them, which redacts its
-    # own output and stderr before sidecar.log gets it (kernel_host.py). This engine remembers only
-    # what a kernel running inside it read, so here it is a second pass, not the protection.
+    # own output and stderr before sidecar.log gets it (kernel_host.py). This engine remembers what a
+    # kernel running inside it read and what a kernel process passed it, so here it is a second pass,
+    # not the protection.
     return {name: secret_redaction.redact(for_support(_plain(text))) for name, text in files.items()}
 
 

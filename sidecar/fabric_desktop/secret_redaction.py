@@ -8,9 +8,10 @@ one or two character value would garble every output, and it is no secret at tha
 
 Values are remembered in the process that read them, so the kernel process is where they are
 redacted. Its stderr, which reaches sidecar.log, goes through ``RedactedStream``, so a value a cell's
-background thread prints, or a log line holding one, is replaced before the engine keeps it. The
-engine's own stderr goes through it too, but the engine knows only the values a kernel running
-inside it read.
+background thread prints, or a log line holding one, is replaced before the engine keeps it. A
+kernel in a process of its own (kernel_host.py) also passes each value it remembers to the engine,
+over the pipe between them only (``forward_to``, ``wire`` and ``remember_wire``), so the engine's
+stderr and its receipt exports replace it too. The value is never written to a file or a log.
 
 A value is also redacted as its repr, ``ascii()`` and its UTF-8 bytes' repr print it (escaped), as
 JSON writes it (``\\u`` escapes or not) and percent-encoded as in a URL (either hex case). In the
@@ -21,11 +22,13 @@ it, splits it, encodes it another way) prints what it made.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import io
 import json
 import re
 import threading
-from typing import IO, Any
+from typing import IO, Any, Callable
 from urllib.parse import quote
 
 REDACTED = "[REDACTED]"
@@ -43,6 +46,8 @@ _MOD = (1 << 61) - 1
 _BASE = 1_000_003
 _JSON_U = re.compile(r"\\u[0-9a-f]{4}")
 _PERCENT = re.compile(r"%[0-9A-F]{2}")
+# Set in a kernel's own process (kernel_host.main): passes each newly remembered value to the engine.
+_forward: Callable[[Any], None] | None = None
 
 
 def _text_forms(value: str) -> set[str]:
@@ -97,6 +102,43 @@ def remember(value: Any) -> None:
             _powers.append(_powers[-1] * _BASE % _MOD)
         # Longest first, so a value that holds another is replaced whole.
         _pattern = re.compile("|".join(re.escape(v) for v in sorted(_values, key=len, reverse=True)))
+    forward = _forward
+    if forward is not None:
+        # Before remember returns, so the engine has the value before any output that follows it.
+        try:
+            forward(value)
+        except Exception:  # noqa: BLE001, S110 - an engine that is gone has nothing left to mask
+            pass
+
+
+def forward_to(send: Callable[[Any], None] | None) -> None:
+    """From now on, pass each value ``remember`` learns (not one it knew) to ``send``: a kernel's own
+    process passes it to the engine this way. None stops it."""
+    global _forward
+    _forward = send
+
+
+def wire(value: Any) -> dict[str, str] | None:
+    """``value`` (text or bytes) as a JSON object for the pipe to the engine; None for anything else."""
+    if isinstance(value, str):
+        return {"text": value}
+    if isinstance(value, (bytes, bytearray)):
+        return {"bytes": base64.b64encode(bytes(value)).decode("ascii")}
+    return None
+
+
+def remember_wire(message: Any) -> None:
+    """Remember the value a kernel's process sent (``wire``); anything malformed is ignored."""
+    if not isinstance(message, dict):
+        return
+    text, data = message.get("text"), message.get("bytes")
+    if isinstance(text, str):
+        remember(text)
+    elif isinstance(data, str):
+        try:
+            remember(base64.b64decode(data, validate=True))
+        except (binascii.Error, ValueError):
+            return
 
 
 def active() -> bool:
@@ -231,7 +273,8 @@ def redact_output(value: Any) -> Any:
 
 
 def forget_all() -> None:
-    """For tests, and a kernel restart starts clean anyway."""
+    """For tests, and a kernel restart starts clean anyway. The engine keeps the values a kernel's
+    process passed it for as long as it runs."""
     global _pattern, _longest
     with _lock:
         _values.clear()

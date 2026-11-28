@@ -12,7 +12,8 @@ content under an id that exists is refused. Reading checks the content still mat
 
 Exports (Markdown, HTML) are rendered from a receipt with redaction chosen at export time: the
 receipt itself keeps everything, the export leaves out what the person chose to hide. A secret value
-the engine remembers (secret_redaction.py: one a kernel running inside it read) shows as
+the engine remembers (secret_redaction.py: one a kernel read, inside the engine or in a process of
+its own) shows as
 ``[REDACTED]`` anywhere in an export: in parameters, results, notes, limitations and every other
 text it shows, escaped or encoded forms included.
 """

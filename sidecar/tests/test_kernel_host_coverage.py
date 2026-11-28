@@ -599,6 +599,7 @@ def process(monkeypatch, fake_kernel):
     monkeypatch.setattr(sys, "stdout", sys.stdout)
     monkeypatch.setattr(sys, "stdin", sys.stdin)
     monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.setattr(secret_redaction, "_forward", None)  # main() sets it to the test's pipe
     trusted: list = []
     monkeypatch.setattr(net_trust, "use_system_store", lambda: trusted.append("trust"))
     monkeypatch.setattr(cpu_cap, "from_env", lambda: trusted.append("cap"))

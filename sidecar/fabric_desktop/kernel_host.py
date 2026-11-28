@@ -12,6 +12,10 @@ The kernel asks the engine for what only the engine has (a token from the person
 another notebook's cells, a variable library, whether a table is managed by the metadata
 framework) with ``{"id", "call", "args"}``, answered with ``{"id", "result"}`` or ``{"id", "error"}``.
 
+Each secret value the kernel remembers (secret_redaction.remember) goes to the engine as
+``{"secret": {"text"}}`` or ``{"secret": {"bytes"}}`` (base64), with no answer, so the engine masks it
+too (its log, receipt exports). It is never logged on either side.
+
 The protocol has stdout to itself: anything else written to file descriptor 1 (print from a
 background thread, a native library) goes to stderr, which the engine logs.
 """
@@ -236,11 +240,19 @@ def main() -> None:
     # Both reach the engine's sidecar.log as they are (kernel_proc starts this process with the engine's
     # stderr), so what isn't a cell's output (a background thread's print, a log line) is redacted here:
     # credential-shaped text and the values dbutils.secrets read.
+    from . import secret_redaction
     from .secret_redaction import RedactedStream
     sys.stdout = RedactedStream(os.fdopen(1, "w", encoding="utf-8", errors="replace", buffering=1))
     sys.stderr = RedactedStream(sys.stderr)
     sys.stdin = open(os.devnull, encoding="utf-8")  # noqa: SIM115 - for the life of the process
     channel = Channel(proto_in, proto_out)
+
+    def to_engine(value: Any) -> None:
+        message = secret_redaction.wire(value)
+        if message is not None:
+            channel.send({"secret": message})
+
+    secret_redaction.forward_to(to_engine)
     host = Host(channel)
     channel.send({"id": "ready", "result": host.ping()})
     for line in proto_in:

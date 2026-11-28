@@ -34,7 +34,7 @@ import weakref
 from pathlib import Path
 from typing import Any, Callable, Iterator, cast
 
-from . import cpu_cap, lakehouse, notebook
+from . import cpu_cap, lakehouse, notebook, secret_redaction
 from .awake_timer import awake_monotonic
 from .frames import GONE, FrameGone
 
@@ -273,10 +273,17 @@ class ProcessKernel:
                 message = json.loads(line)
             except ValueError:
                 continue
+            if not isinstance(message, dict):
+                continue
+            if "secret" in message:
+                # A value the kernel remembered: masked in the engine too (its log, receipt exports),
+                # here on the reader thread so it is known before any answer that follows it.
+                secret_redaction.remember_wire(message["secret"])
+                continue
             if "call" in message:
                 threading.Thread(target=self._answer_call, args=(proc, message), daemon=True, name="kernel-call").start()
                 continue
-            slot = self._waiting.get(message.get("id"))
+            slot = self._waiting.get(message.get("id", ""))
             if slot is not None:
                 slot.update({k: v for k, v in message.items() if k in ("result", "error")})
                 slot["done"].set()

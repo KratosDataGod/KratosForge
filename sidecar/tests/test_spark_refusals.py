@@ -51,7 +51,7 @@ def test_every_listed_refusal_but_the_settings_one_has_a_notebook_here():
 
 
 @pytest.mark.parametrize(("source", "words"), [
-    ("df.withWatermark('ts', '10 minutes').groupBy('k').count()", "watermark"),
+    ("s = spark.readStream.parquet('Files/in').withWatermark('ts', '10 minutes')", "watermark"),
     ("df.dropDuplicatesWithinWatermark(['k'])", "watermark"),
     ("psdf = df.pandas_api()", "pandas-on-Spark"),
     ("psdf = df.to_koalas()", "pandas-on-Spark"),
@@ -60,6 +60,11 @@ def test_what_other_modules_refuse_by_name_is_blocked_on_this_pc(source, words):
     local = check(source)["local"]
     assert local["status"] == "blocked" and not local["ok"], local
     assert words in local["reasons"][0]["text"], local["reasons"][0]["text"]
+
+
+def test_a_watermark_on_a_batch_frame_is_not_blocked():
+    local = check("df.withWatermark('ts', '10 minutes').groupBy('k').count()")["local"]
+    assert not any("watermark" in r["text"] for r in local.get("reasons", [])), local
 
 
 @pytest.mark.parametrize("site", sorted(BLOCKED))

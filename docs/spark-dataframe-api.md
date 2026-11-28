@@ -20,9 +20,9 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 153 |
+| Runs | 154 |
 | Differs | 10 |
-| Refused | 24 |
+| Refused | 23 |
 | Fails | 0 |
 | Not checked | 0 |
 | **All** | **187** |
@@ -133,7 +133,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `withColumns` | Runs |  |
 | `withColumnsRenamed` | Runs |  |
 | `withMetadata` | Runs |  |
-| `withWatermark` | Refused | `df.withWatermark("time", "10 minutes").count()`: NotImplementedError: withWatermark runs in Fabric: a stream on this PC runs each batch on its own, with no event-time watermark or state kept between batches. |
+| `withWatermark` | Runs |  |
 | `write` | Differs | `df.write.saveAsTable("tab2")`: {"printed": "Wrote 2 rows to dbo.tab2 (Delta version 0). New table: re here, {} in Spark |
 | `writeStream` | Differs | `query = df.writeStream.toTable("streamed", checkpointLoca...`: {"printed": "Wrote 2 rows to dbo.streamed (Delta version 0). New table here, {} in Spark |
 | `writeTo` | Differs | `df.writeTo("written_to").create()`: {"printed": "Wrote 3 rows to dbo.written_to (Delta version 0). New tab here, {} in Spark |
@@ -198,7 +198,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | --- | --- | --- |
 | `csv` | Runs |  |
 | `format` | Runs |  |
-| `jdbc` | Refused | `spark.read.jdbc(url, "SYSIBM.SYSDUMMY1")`: NotImplementedError: JDBC runs in Fabric: this PC's Spark has no Java database drivers. Read or write the database table in Fabric, or copy it into the lakehous |
+| `jdbc` | Refused | `spark.read.jdbc(url, "SYSIBM.SYSDUMMY1")`: NotImplementedError: JDBC runs in Fabric, because this PC's Spark has no Java database drivers. Read or write the database table in Fabric, or copy it into the  |
 | `json` | Runs |  |
 | `load` | Runs |  |
 | `option` | Runs |  |
@@ -217,7 +217,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `csv` | Runs |  |
 | `format` | Runs |  |
 | `insertInto` | Differs | `df.write.saveAsTable("tblA")`: {"printed": "Wrote 3 rows to dbo.tblA (Delta version 0). New table: re here, {} in Spark |
-| `jdbc` | Refused | `df.write.jdbc(url, "people")`: NotImplementedError: JDBC runs in Fabric: this PC's Spark has no Java database drivers. Read or write the database table in Fabric, or copy it into the lakehous |
+| `jdbc` | Refused | `df.write.jdbc(url, "people")`: NotImplementedError: JDBC runs in Fabric, because this PC's Spark has no Java database drivers. Read or write the database table in Fabric, or copy it into the  |
 | `json` | Runs |  |
 | `mode` | Runs |  |
 | `option` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: NotImplementedError: The nullvalue option isn't supported when writing csv files on this PC. Leave it out, or run the cell in Fabric. |

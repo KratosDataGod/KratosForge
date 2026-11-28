@@ -147,7 +147,6 @@ def test_pandas_on_spark_is_refused_by_name():
 @pytest.mark.parametrize(("code", "words"), [
     ("spark.range(1).to_koalas()", "toPandas()"),
     ("spark.range(1).sql_ctx", "df.sparkSession"),
-    ("spark.range(1).withWatermark('id', '1 minute')", "watermark"),
     ("spark.range(1).dropDuplicatesWithinWatermark()", "watermark"),
     ("spark.read.jdbc('jdbc:sqlserver://db', 'dbo.t')", "JDBC"),
     ("spark.range(1).write.jdbc('jdbc:sqlserver://db', 'dbo.t')", "JDBC"),
@@ -157,3 +156,20 @@ def test_what_runs_only_in_fabric_is_refused_by_name(code, words):
     result = Kernel().run(code)
     error = next(o for o in result["outputs"] if o.get("type") == "error")
     assert error["ename"] == "NotImplementedError" and words in error["evalue"], error
+
+
+def test_a_watermark_on_a_batch_frame_is_dropped_and_on_a_stream_refused(tmp_path):
+    """As Spark: EliminateEventTimeWatermark drops a batch frame's watermark; a stream here keeps no state."""
+    from fabric_desktop.notebook import Kernel
+    k = Kernel()
+    result = k.run("from pyspark.sql import functions as F\n"
+                   "df = spark.range(3).withColumn('t', F.current_timestamp())\n"
+                   "print(df.withWatermark('t', '10 minutes').count())")
+    assert result["status"] == "ok" and any("3" in o.get("text", "") for o in result["outputs"]), result
+    folder = (tmp_path / "in").as_posix()
+    result = k.run(f"spark.range(2).write.parquet({folder!r})\n"
+                   "from pyspark.sql.types import StructType, StructField, LongType\n"
+                   f"s = spark.readStream.schema(StructType([StructField('id', LongType())])).parquet({folder!r})\n"
+                   "s.withWatermark('id', '1 minute')")
+    error = next(o for o in result["outputs"] if o.get("type") == "error")
+    assert error["ename"] == "NotImplementedError" and "withWatermark runs in Fabric" in error["evalue"], error

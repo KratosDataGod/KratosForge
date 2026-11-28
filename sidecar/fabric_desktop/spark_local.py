@@ -664,10 +664,11 @@ REFUSED_CODE: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\binput_file_name\s*\("),
      "calls input_file_name(), which this PC's Spark refuses: it doesn't track the file each row came from"),
     (re.compile(r"\.(?:read|write)\b[^\n]*?\.jdbc\("),
-     "reads or writes a database over JDBC, which this PC's Spark refuses: it has no Java database drivers"),
+     "reads or writes a database over JDBC, which this PC's Spark refuses because it has no Java database drivers"),
     # Refused by name in spark_stream.py and spark_df_more.py.
-    (re.compile(r"\.(?:withWatermark|dropDuplicatesWithinWatermark)\s*\("),
-     "sets an event-time watermark, which this PC's Spark refuses: its streams keep no state between batches"),
+    # withWatermark on a batch DataFrame runs (Spark drops it); a stream's is refused when it runs.
+    (re.compile(r"\.dropDuplicatesWithinWatermark\s*\(|\breadStream\b[^\n]*?\.withWatermark\s*\("),
+     "sets an event-time watermark, which this PC's Spark refuses because its streams keep no state between batches"),
     (re.compile(r"\.(?:pandas_api|to_pandas_on_spark|to_koalas)\s*\("),
      "makes a pandas-on-Spark DataFrame, which this PC's Spark refuses (use toPandas())"),
     (re.compile(r"\.applyInPandasWithState\s*\("),
@@ -1066,7 +1067,7 @@ def read_option_refusal(fmt: str, options: list[tuple[str, Any]], has_schema: bo
 
 def jdbc(*_a: Any, **_kw: Any) -> NoReturn:
     """``read.jdbc`` and ``write.jdbc``: refused by name."""
-    raise NotImplementedError("JDBC runs in Fabric: this PC's Spark has no Java database drivers. Read or write "
+    raise NotImplementedError("JDBC runs in Fabric, because this PC's Spark has no Java database drivers. Read or write "
                               "the database table in Fabric, or copy it into the lakehouse.")
 
 

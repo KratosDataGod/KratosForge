@@ -5,14 +5,14 @@
 
 Rules: axe-core 4.10.2 with the WCAG 2.1 A and AA and WCAG 2.2 AA tags (wcag2a, wcag2aa, wcag21a, wcag21aa, wcag22aa), color contrast and target size (24 by 24 px, or spaced apart) among them. Keyboard: everything with a pointer cursor must be a Tab stop or inside one, and pressing Tab from the top must reach every Tab stop without looping (Escape then Tab leaves a code editor). Focus: each Tab stop on the page must show an outline or ring. Each page is checked in light and dark (the window's color scheme); the app has one theme, so dark is checked to show nothing breaks when Windows is set to dark. At 200% (the 1440x940 window laid out as 720x470) no page may scroll sideways as a whole, and each Tab stop must be on screen and not under something when it has focus. In a Windows contrast theme (forced colors) the theme picks the colors, so axe's contrast rule is off there; where the app keeps its own colors (forced-color-adjust: none, as on a selected tab or choice), the text must still reach 4.5:1 against what it sits on (3:1 for large text), measured with the theme's colors. Each Tab stop must still show a ring there too (the theme removes rings drawn as box shadows). The keyboard walk runs in light, at 200% and in the contrast theme. Every page is opened with reduced motion asked for, as Windows asks when Show animations is off: nothing may still be moving once it has drawn (a loop, or an animation longer than the stylesheet's cap), and no script may start an animation, unless the person chose motion anyway in Settings. A button or link that shows only an icon or a symbol must be named in words (aria-label, aria-labelledby or title). With text spacing raised as WCAG 1.4.12 asks (line height 1.5, paragraphs 2 em apart, letters 0.12 em and words 0.16 em apart), no box may cut off its words, unless it shortens them on purpose with an ellipsis or a line clamp. Dialogs opened from buttons are checked the same way in `a11y-dialogs.test.cjs`.
 
-The pages are opened signed in with test data (two workspaces, one lakehouse, two notebooks), so lists show rows where they can. Screens that need a live tenant to fill are audited in their empty or signed-in state. Part 2 (Narrator and keyboard on Windows) is a separate pass.
+Each tab a page has is audited as a page of its own (Profile > Journey), sub-tabs too (Optimize > Assessment > Gaps): every tablist on every page, found when the audit runs. The pages are opened signed in with test data (two workspaces, one lakehouse, two notebooks), so lists show rows where they can. Screens that need a live tenant to fill are audited in their empty or signed-in state. Part 2 (Narrator and keyboard on Windows) is a separate pass.
 
 | Page | Scheme | Rules passed | Violations (serious + critical) | Needs a look | Tab stops | Unreachable | No focus ring |
 |---|---|---|---|---|---|---|---|
-| Home | light | 16 | 0 (0) | color-contrast (5) | 21 | 0 | 0 |
-| Home | dark | 16 | 0 (0) | color-contrast (5) | 0 | 0 | 0 |
-| Home | zoom-200 | 16 | 0 (0) | color-contrast (3) | 21 | 0 | 0 |
-| Home | high-contrast | 15 | 0 (0) | none | 21 | 0 | 0 |
+| Home | light | 21 | 0 (0) | color-contrast (5) | 23 | 0 | 0 |
+| Home | dark | 21 | 0 (0) | color-contrast (5) | 0 | 0 | 0 |
+| Home | zoom-200 | 20 | 0 (0) | color-contrast (3) | 23 | 0 | 0 |
+| Home | high-contrast | 20 | 0 (0) | none | 23 | 0 | 0 |
 | Create | light | 10 | 0 (0) | color-contrast (2) | 8 | 0 | 0 |
 | Create | dark | 10 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
 | Create | zoom-200 | 11 | 0 (0) | color-contrast (1) | 8 | 0 | 0 |
@@ -21,26 +21,26 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 | Workspaces | dark | 18 | 0 (0) | color-contrast (3) | 0 | 0 | 0 |
 | Workspaces | zoom-200 | 19 | 0 (0) | color-contrast (2) | 17 | 0 | 0 |
 | Workspaces | high-contrast | 17 | 0 (0) | none | 17 | 0 | 0 |
-| OneLake | light | 18 | 0 (0) | none | 8 | 0 | 0 |
-| OneLake | dark | 18 | 0 (0) | none | 0 | 0 | 0 |
-| OneLake | zoom-200 | 18 | 0 (0) | none | 8 | 0 | 0 |
-| OneLake | high-contrast | 17 | 0 (0) | none | 8 | 0 | 0 |
-| Data mesh | light | 15 | 0 (0) | color-contrast (1) | 9 | 0 | 0 |
+| OneLake | light | 16 | 0 (0) | none | 8 | 0 | 0 |
+| OneLake | dark | 16 | 0 (0) | none | 0 | 0 | 0 |
+| OneLake | zoom-200 | 16 | 0 (0) | none | 8 | 0 | 0 |
+| OneLake | high-contrast | 15 | 0 (0) | none | 8 | 0 | 0 |
+| Data mesh | light | 15 | 0 (0) | color-contrast (1) | 7 | 0 | 0 |
 | Data mesh | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Data mesh | zoom-200 | 15 | 0 (0) | none | 9 | 0 | 0 |
-| Data mesh | high-contrast | 14 | 0 (0) | none | 9 | 0 | 0 |
-| Platform | light | 15 | 0 (0) | color-contrast (1) | 8 | 0 | 0 |
+| Data mesh | zoom-200 | 15 | 0 (0) | none | 7 | 0 | 0 |
+| Data mesh | high-contrast | 14 | 0 (0) | none | 7 | 0 | 0 |
+| Platform | light | 15 | 0 (0) | color-contrast (1) | 5 | 0 | 0 |
 | Platform | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Platform | zoom-200 | 15 | 0 (0) | none | 8 | 0 | 0 |
-| Platform | high-contrast | 14 | 0 (0) | none | 8 | 0 | 0 |
-| Optimize | light | 15 | 0 (0) | color-contrast (1) | 6 | 0 | 0 |
+| Platform | zoom-200 | 15 | 0 (0) | none | 5 | 0 | 0 |
+| Platform | high-contrast | 14 | 0 (0) | none | 5 | 0 | 0 |
+| Optimize | light | 15 | 0 (0) | color-contrast (1) | 10 | 0 | 0 |
 | Optimize | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Optimize | zoom-200 | 16 | 0 (0) | none | 6 | 0 | 0 |
-| Optimize | high-contrast | 14 | 0 (0) | none | 6 | 0 | 0 |
-| Monitor | light | 19 | 0 (0) | color-contrast (3) | 18 | 0 | 0 |
-| Monitor | dark | 19 | 0 (0) | color-contrast (3) | 0 | 0 | 0 |
-| Monitor | zoom-200 | 19 | 0 (0) | color-contrast (3) | 18 | 0 | 0 |
-| Monitor | high-contrast | 18 | 0 (0) | none | 18 | 0 | 0 |
+| Optimize | zoom-200 | 16 | 0 (0) | none | 10 | 0 | 0 |
+| Optimize | high-contrast | 14 | 0 (0) | none | 10 | 0 | 0 |
+| Monitor | light | 17 | 0 (0) | color-contrast (1) | 6 | 0 | 0 |
+| Monitor | dark | 17 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Monitor | zoom-200 | 17 | 0 (0) | none | 6 | 0 | 0 |
+| Monitor | high-contrast | 16 | 0 (0) | none | 6 | 0 | 0 |
 | Academy | light | 15 | 0 (0) | color-contrast (1) | 7 | 0 | 0 |
 | Academy | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
 | Academy | zoom-200 | 15 | 0 (0) | none | 7 | 0 | 0 |
@@ -49,130 +49,30 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 | Source control | dark | 13 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
 | Source control | zoom-200 | 13 | 0 (0) | none | 1 | 0 | 0 |
 | Source control | high-contrast | 12 | 0 (0) | none | 1 | 0 | 0 |
-| Settings | light | 23 | 0 (0) | color-contrast (1) | 55 | 0 | 0 |
-| Settings | dark | 23 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Settings | zoom-200 | 23 | 0 (0) | none | 55 | 0 | 0 |
-| Settings | high-contrast | 22 | 0 (0) | none | 55 | 0 | 0 |
-| Workspaces > Fabric portal | light | 15 | 0 (0) | none | 12 | 0 | 0 |
-| Workspaces > Fabric portal | dark | 15 | 0 (0) | none | 0 | 0 | 0 |
-| Workspaces > Fabric portal | zoom-200 | 15 | 0 (0) | none | 12 | 0 | 0 |
-| Workspaces > Fabric portal | high-contrast | 14 | 0 (0) | none | 12 | 0 | 0 |
-| Workspaces > Power BI | light | 20 | 0 (0) | color-contrast (2) | 18 | 0 | 0 |
-| Workspaces > Power BI | dark | 20 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
-| Workspaces > Power BI | zoom-200 | 21 | 0 (0) | color-contrast (2) | 18 | 0 | 0 |
-| Workspaces > Power BI | high-contrast | 19 | 0 (0) | none | 18 | 0 | 0 |
-| Workspaces > Databricks | light | 14 | 0 (0) | none | 7 | 0 | 0 |
-| Workspaces > Databricks | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
-| Workspaces > Databricks | zoom-200 | 15 | 0 (0) | none | 7 | 0 | 0 |
-| Workspaces > Databricks | high-contrast | 13 | 0 (0) | none | 7 | 0 | 0 |
-| OneLake > Shortcuts | light | 17 | 0 (0) | none | 6 | 0 | 0 |
-| OneLake > Shortcuts | dark | 17 | 0 (0) | none | 0 | 0 | 0 |
-| OneLake > Shortcuts | zoom-200 | 17 | 0 (0) | none | 6 | 0 | 0 |
-| OneLake > Shortcuts | high-contrast | 16 | 0 (0) | none | 6 | 0 | 0 |
-| OneLake > Access | light | 16 | 0 (0) | none | 8 | 0 | 0 |
-| OneLake > Access | dark | 16 | 0 (0) | none | 0 | 0 | 0 |
-| OneLake > Access | zoom-200 | 16 | 0 (0) | none | 8 | 0 | 0 |
-| OneLake > Access | high-contrast | 15 | 0 (0) | none | 8 | 0 | 0 |
-| Data mesh > Products | light | 15 | 0 (0) | color-contrast (1) | 6 | 0 | 0 |
-| Data mesh > Products | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Data mesh > Products | zoom-200 | 15 | 0 (0) | none | 6 | 0 | 0 |
-| Data mesh > Products | high-contrast | 14 | 0 (0) | none | 6 | 0 | 0 |
-| Data mesh > Requests | light | 15 | 0 (0) | color-contrast (1) | 6 | 0 | 0 |
-| Data mesh > Requests | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Data mesh > Requests | zoom-200 | 15 | 0 (0) | none | 6 | 0 | 0 |
-| Data mesh > Requests | high-contrast | 14 | 0 (0) | none | 6 | 0 | 0 |
-| Data mesh > Domains | light | 15 | 0 (0) | color-contrast (1) | 7 | 0 | 0 |
-| Data mesh > Domains | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Data mesh > Domains | zoom-200 | 15 | 0 (0) | none | 7 | 0 | 0 |
-| Data mesh > Domains | high-contrast | 14 | 0 (0) | none | 7 | 0 | 0 |
-| Platform > Set up | light | 15 | 0 (0) | color-contrast (1) | 11 | 0 | 0 |
-| Platform > Set up | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Platform > Set up | zoom-200 | 15 | 0 (0) | none | 11 | 0 | 0 |
-| Platform > Set up | high-contrast | 14 | 0 (0) | none | 11 | 0 | 0 |
-| Platform > Govern | light | 15 | 0 (0) | color-contrast (1) | 7 | 0 | 0 |
-| Platform > Govern | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Platform > Govern | zoom-200 | 15 | 0 (0) | none | 7 | 0 | 0 |
-| Platform > Govern | high-contrast | 14 | 0 (0) | none | 7 | 0 | 0 |
-| Platform > Settings | light | 15 | 0 (0) | color-contrast (1) | 5 | 0 | 0 |
-| Platform > Settings | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Platform > Settings | zoom-200 | 15 | 0 (0) | none | 5 | 0 | 0 |
-| Platform > Settings | high-contrast | 14 | 0 (0) | none | 5 | 0 | 0 |
-| Optimize > Opportunities | light | 15 | 0 (0) | color-contrast (1) | 6 | 0 | 0 |
-| Optimize > Opportunities | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Optimize > Opportunities | zoom-200 | 15 | 0 (0) | none | 6 | 0 | 0 |
-| Optimize > Opportunities | high-contrast | 14 | 0 (0) | none | 6 | 0 | 0 |
-| Optimize > Assessment | light | 20 | 0 (0) | color-contrast (1) | 14 | 0 | 0 |
-| Optimize > Assessment | dark | 20 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Optimize > Assessment | zoom-200 | 20 | 0 (0) | none | 14 | 0 | 0 |
-| Optimize > Assessment | high-contrast | 18 | 0 (0) | none | 14 | 0 | 0 |
-| Optimize > Cost and savings | light | 15 | 0 (0) | color-contrast (1) | 6 | 0 | 0 |
-| Optimize > Cost and savings | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Optimize > Cost and savings | zoom-200 | 16 | 0 (0) | none | 6 | 0 | 0 |
-| Optimize > Cost and savings | high-contrast | 14 | 0 (0) | none | 6 | 0 | 0 |
-| Optimize > Settings history | light | 15 | 0 (0) | color-contrast (1) | 6 | 0 | 0 |
-| Optimize > Settings history | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Optimize > Settings history | zoom-200 | 15 | 0 (0) | none | 6 | 0 | 0 |
-| Optimize > Settings history | high-contrast | 14 | 0 (0) | none | 6 | 0 | 0 |
-| Monitor > Fabric | light | 17 | 0 (0) | none | 11 | 0 | 0 |
-| Monitor > Fabric | dark | 17 | 0 (0) | none | 0 | 0 | 0 |
-| Monitor > Fabric | zoom-200 | 17 | 0 (0) | none | 11 | 0 | 0 |
-| Monitor > Fabric | high-contrast | 16 | 0 (0) | none | 11 | 0 | 0 |
-| Monitor > Databricks | light | 17 | 0 (0) | color-contrast (1) | 6 | 0 | 0 |
-| Monitor > Databricks | dark | 17 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Monitor > Databricks | zoom-200 | 17 | 0 (0) | none | 6 | 0 | 0 |
-| Monitor > Databricks | high-contrast | 16 | 0 (0) | none | 6 | 0 | 0 |
-| Academy > Path | light | 15 | 0 (0) | color-contrast (1) | 7 | 0 | 0 |
-| Academy > Path | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Academy > Path | zoom-200 | 15 | 0 (0) | none | 7 | 0 | 0 |
-| Academy > Path | high-contrast | 14 | 0 (0) | none | 7 | 0 | 0 |
-| Academy > Practice | light | 15 | 0 (0) | color-contrast (1) | 7 | 0 | 0 |
-| Academy > Practice | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Academy > Practice | zoom-200 | 15 | 0 (0) | none | 7 | 0 | 0 |
-| Academy > Practice | high-contrast | 14 | 0 (0) | none | 7 | 0 | 0 |
-| Academy > Assessments | light | 15 | 0 (0) | color-contrast (1) | 6 | 0 | 0 |
-| Academy > Assessments | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Academy > Assessments | zoom-200 | 15 | 0 (0) | none | 6 | 0 | 0 |
-| Academy > Assessments | high-contrast | 14 | 0 (0) | none | 6 | 0 | 0 |
-| Academy > Readiness | light | 15 | 0 (0) | color-contrast (1) | 7 | 0 | 0 |
-| Academy > Readiness | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Academy > Readiness | zoom-200 | 15 | 0 (0) | none | 7 | 0 | 0 |
-| Academy > Readiness | high-contrast | 14 | 0 (0) | none | 7 | 0 | 0 |
-| Academy > Portfolio | light | 15 | 0 (0) | color-contrast (1) | 7 | 0 | 0 |
-| Academy > Portfolio | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Academy > Portfolio | zoom-200 | 15 | 0 (0) | none | 7 | 0 | 0 |
-| Academy > Portfolio | high-contrast | 14 | 0 (0) | none | 7 | 0 | 0 |
-| Settings > Connections | light | 15 | 0 (0) | color-contrast (1) | 5 | 0 | 0 |
-| Settings > Connections | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Settings > Connections | zoom-200 | 15 | 0 (0) | none | 5 | 0 | 0 |
-| Settings > Connections | high-contrast | 14 | 0 (0) | none | 5 | 0 | 0 |
-| Settings > Environment | light | 15 | 0 (0) | color-contrast (1) | 5 | 0 | 0 |
-| Settings > Environment | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Settings > Environment | zoom-200 | 15 | 0 (0) | none | 5 | 0 | 0 |
-| Settings > Environment | high-contrast | 14 | 0 (0) | none | 5 | 0 | 0 |
-| Settings > Integrations | light | 22 | 0 (0) | color-contrast (1) | 8 | 0 | 0 |
-| Settings > Integrations | dark | 22 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
-| Settings > Integrations | zoom-200 | 22 | 0 (0) | none | 8 | 0 | 0 |
-| Settings > Integrations | high-contrast | 21 | 0 (0) | none | 8 | 0 | 0 |
-| Notebook | light | 19 | 0 (0) | color-contrast (2) | 38 | 0 | 0 |
+| Settings | light | 15 | 0 (0) | color-contrast (1) | 5 | 0 | 0 |
+| Settings | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Settings | zoom-200 | 15 | 0 (0) | none | 5 | 0 | 0 |
+| Settings | high-contrast | 14 | 0 (0) | none | 5 | 0 | 0 |
+| Notebook | light | 19 | 0 (0) | color-contrast (2) | 36 | 0 | 0 |
 | Notebook | dark | 19 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
-| Notebook | zoom-200 | 20 | 0 (0) | color-contrast (4) | 38 | 0 | 0 |
-| Notebook | high-contrast | 18 | 0 (0) | none | 38 | 0 | 0 |
-| SQL query | light | 23 | 0 (0) | none | 31 | 0 | 0 |
+| Notebook | zoom-200 | 20 | 0 (0) | color-contrast (3) | 36 | 0 | 0 |
+| Notebook | high-contrast | 18 | 0 (0) | none | 36 | 0 | 0 |
+| SQL query | light | 23 | 0 (0) | none | 32 | 0 | 0 |
 | SQL query | dark | 23 | 0 (0) | none | 0 | 0 | 0 |
 | SQL query | zoom-200 | 23 | 0 (0) | none | 26 | 0 | 0 |
-| SQL query | high-contrast | 22 | 0 (0) | none | 31 | 0 | 0 |
-| Command bar (Ctrl+K) | light | 18 | 0 (0) | none | 110 | 0 | 0 |
+| SQL query | high-contrast | 22 | 0 (0) | none | 32 | 0 | 0 |
+| Command bar (Ctrl+K) | light | 18 | 0 (0) | none | 116 | 0 | 0 |
 | Command bar (Ctrl+K) | dark | 18 | 0 (0) | none | 0 | 0 | 0 |
-| Command bar (Ctrl+K) | zoom-200 | 18 | 0 (0) | none | 110 | 0 | 0 |
-| Command bar (Ctrl+K) | high-contrast | 17 | 0 (0) | none | 110 | 0 | 0 |
+| Command bar (Ctrl+K) | zoom-200 | 18 | 0 (0) | none | 116 | 0 | 0 |
+| Command bar (Ctrl+K) | high-contrast | 17 | 0 (0) | none | 116 | 0 | 0 |
 | Data mesh entity | light | 16 | 0 (0) | color-contrast (5) | 15 | 0 | 0 |
 | Data mesh entity | dark | 16 | 0 (0) | color-contrast (5) | 0 | 0 | 0 |
 | Data mesh entity | zoom-200 | 16 | 0 (0) | color-contrast (4) | 15 | 0 | 0 |
 | Data mesh entity | high-contrast | 15 | 0 (0) | none | 15 | 0 | 0 |
-| Shell (top bar and rail) | light | 14 | 0 (0) | none | 19 | 0 | 0 |
+| Shell (top bar and rail) | light | 14 | 0 (0) | none | 21 | 0 | 0 |
 | Shell (top bar and rail) | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
-| Shell (top bar and rail) | zoom-200 | 14 | 0 (0) | none | 19 | 0 | 0 |
-| Shell (top bar and rail) | high-contrast | 13 | 0 (0) | none | 19 | 0 | 0 |
+| Shell (top bar and rail) | zoom-200 | 15 | 0 (0) | none | 21 | 0 | 0 |
+| Shell (top bar and rail) | high-contrast | 13 | 0 (0) | none | 21 | 0 | 0 |
 | Confirm dialog | light | 14 | 0 (0) | none | 3 | 0 | 0 |
 | Confirm dialog | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
 | Confirm dialog | zoom-200 | 14 | 0 (0) | none | 3 | 0 | 0 |
@@ -181,6 +81,10 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 | Profile | dark | 20 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
 | Profile | zoom-200 | 20 | 0 (0) | color-contrast (1) | 13 | 0 | 0 |
 | Profile | high-contrast | 19 | 0 (0) | none | 13 | 0 | 0 |
+| Profile > Skill trees | light | 24 | 0 (0) | color-contrast (5) | 26 | 0 | 0 |
+| Profile > Skill trees | dark | 24 | 0 (0) | color-contrast (5) | 0 | 0 | 0 |
+| Profile > Skill trees | zoom-200 | 23 | 0 (0) | color-contrast (5) | 26 | 0 | 0 |
+| Profile > Skill trees | high-contrast | 23 | 0 (0) | none | 26 | 0 | 0 |
 | Learn lab | light | 17 | 0 (0) | color-contrast (1) | 8 | 0 | 0 |
 | Learn lab | dark | 17 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
 | Learn lab | zoom-200 | 17 | 0 (0) | none | 8 | 0 | 0 |
@@ -265,6 +169,206 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 | Learn | dark | 20 | 0 (0) | none | 0 | 0 | 0 |
 | Learn | zoom-200 | 20 | 0 (0) | none | 22 | 0 | 0 |
 | Learn | high-contrast | 19 | 0 (0) | none | 22 | 0 | 0 |
+| OneLake > Shortcuts | light | 17 | 0 (0) | none | 6 | 0 | 0 |
+| OneLake > Shortcuts | dark | 17 | 0 (0) | none | 0 | 0 | 0 |
+| OneLake > Shortcuts | zoom-200 | 17 | 0 (0) | none | 6 | 0 | 0 |
+| OneLake > Shortcuts | high-contrast | 16 | 0 (0) | none | 6 | 0 | 0 |
+| OneLake > Access | light | 16 | 0 (0) | none | 8 | 0 | 0 |
+| OneLake > Access | dark | 16 | 0 (0) | none | 0 | 0 | 0 |
+| OneLake > Access | zoom-200 | 16 | 0 (0) | none | 8 | 0 | 0 |
+| OneLake > Access | high-contrast | 15 | 0 (0) | none | 8 | 0 | 0 |
+| Data mesh > Products | light | 15 | 0 (0) | color-contrast (1) | 6 | 0 | 0 |
+| Data mesh > Products | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Data mesh > Products | zoom-200 | 15 | 0 (0) | none | 6 | 0 | 0 |
+| Data mesh > Products | high-contrast | 14 | 0 (0) | none | 6 | 0 | 0 |
+| Data mesh > Requests | light | 15 | 0 (0) | color-contrast (1) | 6 | 0 | 0 |
+| Data mesh > Requests | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Data mesh > Requests | zoom-200 | 15 | 0 (0) | none | 6 | 0 | 0 |
+| Data mesh > Requests | high-contrast | 14 | 0 (0) | none | 6 | 0 | 0 |
+| Data mesh > Domains | light | 15 | 0 (0) | color-contrast (1) | 7 | 0 | 0 |
+| Data mesh > Domains | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Data mesh > Domains | zoom-200 | 15 | 0 (0) | none | 7 | 0 | 0 |
+| Data mesh > Domains | high-contrast | 14 | 0 (0) | none | 7 | 0 | 0 |
+| Platform > Set up | light | 15 | 0 (0) | color-contrast (1) | 11 | 0 | 0 |
+| Platform > Set up | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Platform > Set up | zoom-200 | 15 | 0 (0) | none | 11 | 0 | 0 |
+| Platform > Set up | high-contrast | 14 | 0 (0) | none | 11 | 0 | 0 |
+| Platform > Govern | light | 15 | 0 (0) | color-contrast (1) | 7 | 0 | 0 |
+| Platform > Govern | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Platform > Govern | zoom-200 | 15 | 0 (0) | none | 7 | 0 | 0 |
+| Platform > Govern | high-contrast | 14 | 0 (0) | none | 7 | 0 | 0 |
+| Platform > Settings | light | 15 | 0 (0) | color-contrast (1) | 5 | 0 | 0 |
+| Platform > Settings | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Platform > Settings | zoom-200 | 15 | 0 (0) | none | 5 | 0 | 0 |
+| Platform > Settings | high-contrast | 14 | 0 (0) | none | 5 | 0 | 0 |
+| Optimize > Opportunities | light | 15 | 0 (0) | color-contrast (1) | 6 | 0 | 0 |
+| Optimize > Opportunities | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Optimize > Opportunities | zoom-200 | 15 | 0 (0) | none | 6 | 0 | 0 |
+| Optimize > Opportunities | high-contrast | 14 | 0 (0) | none | 6 | 0 | 0 |
+| Optimize > Assessment | light | 15 | 0 (0) | color-contrast (1) | 10 | 0 | 0 |
+| Optimize > Assessment | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Optimize > Assessment | zoom-200 | 16 | 0 (0) | none | 10 | 0 | 0 |
+| Optimize > Assessment | high-contrast | 14 | 0 (0) | none | 10 | 0 | 0 |
+| Optimize > Cost and savings | light | 15 | 0 (0) | color-contrast (1) | 7 | 0 | 0 |
+| Optimize > Cost and savings | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Optimize > Cost and savings | zoom-200 | 16 | 0 (0) | none | 7 | 0 | 0 |
+| Optimize > Cost and savings | high-contrast | 14 | 0 (0) | none | 7 | 0 | 0 |
+| Optimize > Settings history | light | 15 | 0 (0) | color-contrast (1) | 6 | 0 | 0 |
+| Optimize > Settings history | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Optimize > Settings history | zoom-200 | 15 | 0 (0) | none | 6 | 0 | 0 |
+| Optimize > Settings history | high-contrast | 14 | 0 (0) | none | 6 | 0 | 0 |
+| Monitor > Fabric | light | 17 | 0 (0) | none | 11 | 0 | 0 |
+| Monitor > Fabric | dark | 17 | 0 (0) | none | 0 | 0 | 0 |
+| Monitor > Fabric | zoom-200 | 17 | 0 (0) | none | 11 | 0 | 0 |
+| Monitor > Fabric | high-contrast | 16 | 0 (0) | none | 11 | 0 | 0 |
+| Monitor > Databricks | light | 17 | 0 (0) | color-contrast (1) | 6 | 0 | 0 |
+| Monitor > Databricks | dark | 17 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Monitor > Databricks | zoom-200 | 17 | 0 (0) | none | 6 | 0 | 0 |
+| Monitor > Databricks | high-contrast | 16 | 0 (0) | none | 6 | 0 | 0 |
+| Academy > Path | light | 15 | 0 (0) | color-contrast (1) | 7 | 0 | 0 |
+| Academy > Path | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Academy > Path | zoom-200 | 15 | 0 (0) | none | 7 | 0 | 0 |
+| Academy > Path | high-contrast | 14 | 0 (0) | none | 7 | 0 | 0 |
+| Academy > Practice | light | 15 | 0 (0) | color-contrast (1) | 7 | 0 | 0 |
+| Academy > Practice | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Academy > Practice | zoom-200 | 15 | 0 (0) | none | 7 | 0 | 0 |
+| Academy > Practice | high-contrast | 14 | 0 (0) | none | 7 | 0 | 0 |
+| Academy > Assessments | light | 15 | 0 (0) | color-contrast (1) | 6 | 0 | 0 |
+| Academy > Assessments | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Academy > Assessments | zoom-200 | 15 | 0 (0) | none | 6 | 0 | 0 |
+| Academy > Assessments | high-contrast | 14 | 0 (0) | none | 6 | 0 | 0 |
+| Academy > Readiness | light | 15 | 0 (0) | color-contrast (1) | 7 | 0 | 0 |
+| Academy > Readiness | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Academy > Readiness | zoom-200 | 15 | 0 (0) | none | 7 | 0 | 0 |
+| Academy > Readiness | high-contrast | 14 | 0 (0) | none | 7 | 0 | 0 |
+| Academy > Portfolio | light | 15 | 0 (0) | color-contrast (1) | 7 | 0 | 0 |
+| Academy > Portfolio | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Academy > Portfolio | zoom-200 | 15 | 0 (0) | none | 7 | 0 | 0 |
+| Academy > Portfolio | high-contrast | 14 | 0 (0) | none | 7 | 0 | 0 |
+| Settings > Connections | light | 15 | 0 (0) | color-contrast (1) | 5 | 0 | 0 |
+| Settings > Connections | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Settings > Connections | zoom-200 | 15 | 0 (0) | none | 5 | 0 | 0 |
+| Settings > Connections | high-contrast | 14 | 0 (0) | none | 5 | 0 | 0 |
+| Settings > Environment | light | 15 | 0 (0) | color-contrast (1) | 5 | 0 | 0 |
+| Settings > Environment | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Settings > Environment | zoom-200 | 15 | 0 (0) | none | 5 | 0 | 0 |
+| Settings > Environment | high-contrast | 14 | 0 (0) | none | 5 | 0 | 0 |
+| Notebook > Edit | light | 19 | 0 (0) | color-contrast (2) | 36 | 0 | 0 |
+| Notebook > Edit | dark | 19 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| Notebook > Edit | zoom-200 | 20 | 0 (0) | color-contrast (3) | 36 | 0 | 0 |
+| Notebook > Edit | high-contrast | 18 | 0 (0) | none | 36 | 0 | 0 |
+| Notebook > Run | light | 19 | 0 (0) | color-contrast (2) | 39 | 0 | 0 |
+| Notebook > Run | dark | 19 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| Notebook > Run | zoom-200 | 20 | 0 (0) | color-contrast (5) | 39 | 0 | 0 |
+| Notebook > Run | high-contrast | 18 | 0 (0) | none | 39 | 0 | 0 |
+| Notebook > View | light | 19 | 0 (0) | color-contrast (2) | 39 | 0 | 0 |
+| Notebook > View | dark | 19 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| Notebook > View | zoom-200 | 20 | 0 (0) | color-contrast (3) | 39 | 0 | 0 |
+| Notebook > View | high-contrast | 18 | 0 (0) | none | 39 | 0 | 0 |
+| Notebook > Outline | light | 19 | 0 (0) | color-contrast (2) | 34 | 0 | 0 |
+| Notebook > Outline | dark | 19 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| Notebook > Outline | zoom-200 | 20 | 0 (0) | color-contrast (1) | 34 | 0 | 0 |
+| Notebook > Outline | high-contrast | 18 | 0 (0) | none | 34 | 0 | 0 |
+| Notebook > Resources | light | 20 | 0 (0) | color-contrast (3) | 50 | 0 | 0 |
+| Notebook > Resources | dark | 20 | 0 (0) | color-contrast (3) | 0 | 0 | 0 |
+| Notebook > Resources | zoom-200 | 20 | 0 (0) | color-contrast (5) | 50 | 0 | 0 |
+| Notebook > Resources | high-contrast | 19 | 0 (0) | none | 50 | 0 | 0 |
+| Notebook > Notebooks | light | 19 | 0 (0) | color-contrast (2) | 36 | 0 | 0 |
+| Notebook > Notebooks | dark | 19 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| Notebook > Notebooks | zoom-200 | 20 | 0 (0) | color-contrast (3) | 36 | 0 | 0 |
+| Notebook > Notebooks | high-contrast | 18 | 0 (0) | none | 36 | 0 | 0 |
+| SQL query > Messages | light | 23 | 0 (0) | none | 32 | 0 | 0 |
+| SQL query > Messages | dark | 23 | 0 (0) | none | 0 | 0 | 0 |
+| SQL query > Messages | zoom-200 | 23 | 0 (0) | none | 26 | 0 | 0 |
+| SQL query > Messages | high-contrast | 22 | 0 (0) | none | 32 | 0 | 0 |
+| SQL query > Chart | light | 23 | 0 (0) | none | 32 | 0 | 0 |
+| SQL query > Chart | dark | 23 | 0 (0) | none | 0 | 0 | 0 |
+| SQL query > Chart | zoom-200 | 23 | 0 (0) | none | 26 | 0 | 0 |
+| SQL query > Chart | high-contrast | 22 | 0 (0) | none | 32 | 0 | 0 |
+| SQL query > Plan | light | 23 | 0 (0) | none | 33 | 0 | 0 |
+| SQL query > Plan | dark | 23 | 0 (0) | none | 0 | 0 | 0 |
+| SQL query > Plan | zoom-200 | 23 | 0 (0) | none | 27 | 0 | 0 |
+| SQL query > Plan | high-contrast | 22 | 0 (0) | none | 33 | 0 | 0 |
+| SQL query > Profile | light | 23 | 0 (0) | none | 33 | 0 | 0 |
+| SQL query > Profile | dark | 23 | 0 (0) | none | 0 | 0 | 0 |
+| SQL query > Profile | zoom-200 | 23 | 0 (0) | none | 27 | 0 | 0 |
+| SQL query > Profile | high-contrast | 22 | 0 (0) | none | 33 | 0 | 0 |
+| SQL query > History | light | 23 | 0 (0) | none | 32 | 0 | 0 |
+| SQL query > History | dark | 23 | 0 (0) | none | 0 | 0 | 0 |
+| SQL query > History | zoom-200 | 23 | 0 (0) | none | 26 | 0 | 0 |
+| SQL query > History | high-contrast | 22 | 0 (0) | none | 32 | 0 | 0 |
+| Profile > Journey | light | 19 | 0 (0) | color-contrast (2) | 11 | 0 | 0 |
+| Profile > Journey | dark | 19 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| Profile > Journey | zoom-200 | 19 | 0 (0) | color-contrast (1) | 11 | 0 | 0 |
+| Profile > Journey | high-contrast | 18 | 0 (0) | none | 11 | 0 | 0 |
+| Profile > Ranks | light | 18 | 0 (0) | none | 24 | 0 | 0 |
+| Profile > Ranks | dark | 18 | 0 (0) | none | 0 | 0 | 0 |
+| Profile > Ranks | zoom-200 | 18 | 0 (0) | none | 24 | 0 | 0 |
+| Profile > Ranks | high-contrast | 17 | 0 (0) | none | 24 | 0 | 0 |
+| Profile > Achievements | light | 18 | 0 (0) | color-contrast (2) | 11 | 0 | 0 |
+| Profile > Achievements | dark | 18 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| Profile > Achievements | zoom-200 | 18 | 0 (0) | color-contrast (1) | 11 | 0 | 0 |
+| Profile > Achievements | high-contrast | 17 | 0 (0) | none | 11 | 0 | 0 |
+| Profile > Impact | light | 17 | 0 (0) | color-contrast (2) | 11 | 0 | 0 |
+| Profile > Impact | dark | 17 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| Profile > Impact | zoom-200 | 18 | 0 (0) | color-contrast (1) | 11 | 0 | 0 |
+| Profile > Impact | high-contrast | 16 | 0 (0) | none | 11 | 0 | 0 |
+| Profile > Goals | light | 20 | 0 (0) | color-contrast (2) | 71 | 0 | 0 |
+| Profile > Goals | dark | 20 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| Profile > Goals | zoom-200 | 20 | 0 (0) | color-contrast (1) | 71 | 0 | 0 |
+| Profile > Goals | high-contrast | 19 | 0 (0) | none | 71 | 0 | 0 |
+| Profile > Professional report | light | 21 | 0 (0) | color-contrast (3) | 18 | 0 | 0 |
+| Profile > Professional report | dark | 21 | 0 (0) | color-contrast (3) | 0 | 0 | 0 |
+| Profile > Professional report | zoom-200 | 21 | 0 (0) | color-contrast (1) | 18 | 0 | 0 |
+| Profile > Professional report | high-contrast | 20 | 0 (0) | none | 18 | 0 | 0 |
+| Profile > Settings | light | 20 | 0 (0) | color-contrast (2) | 17 | 0 | 0 |
+| Profile > Settings | dark | 20 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| Profile > Settings | zoom-200 | 20 | 0 (0) | color-contrast (1) | 17 | 0 | 0 |
+| Profile > Settings | high-contrast | 19 | 0 (0) | none | 17 | 0 | 0 |
+| Profile > Skill trees > Delta Smith 0/10 | light | 24 | 0 (0) | color-contrast (5) | 26 | 0 | 0 |
+| Profile > Skill trees > Delta Smith 0/10 | dark | 24 | 0 (0) | color-contrast (5) | 0 | 0 | 0 |
+| Profile > Skill trees > Delta Smith 0/10 | zoom-200 | 23 | 0 (0) | color-contrast (5) | 26 | 0 | 0 |
+| Profile > Skill trees > Delta Smith 0/10 | high-contrast | 23 | 0 (0) | none | 26 | 0 | 0 |
+| Profile > Skill trees > Steadfast Loader 0/10 | light | 24 | 0 (0) | color-contrast (5) | 26 | 0 | 0 |
+| Profile > Skill trees > Steadfast Loader 0/10 | dark | 24 | 0 (0) | color-contrast (5) | 0 | 0 | 0 |
+| Profile > Skill trees > Steadfast Loader 0/10 | zoom-200 | 23 | 0 (0) | color-contrast (5) | 26 | 0 | 0 |
+| Profile > Skill trees > Steadfast Loader 0/10 | high-contrast | 23 | 0 (0) | none | 26 | 0 | 0 |
+| Embed Studio > Regions | light | 17 | 0 (0) | none | 8 | 0 | 0 |
+| Embed Studio > Regions | dark | 17 | 0 (0) | none | 0 | 0 | 0 |
+| Embed Studio > Regions | zoom-200 | 18 | 0 (0) | none | 8 | 0 | 0 |
+| Embed Studio > Regions | high-contrast | 16 | 0 (0) | none | 8 | 0 | 0 |
+| A pipeline > Copy jobs | light | 17 | 0 (0) | none | 5 | 0 | 0 |
+| A pipeline > Copy jobs | dark | 17 | 0 (0) | none | 0 | 0 | 0 |
+| A pipeline > Copy jobs | zoom-200 | 17 | 0 (0) | none | 5 | 0 | 0 |
+| A pipeline > Copy jobs | high-contrast | 16 | 0 (0) | none | 5 | 0 | 0 |
+| A pipeline > Dataflows | light | 17 | 0 (0) | none | 5 | 0 | 0 |
+| A pipeline > Dataflows | dark | 17 | 0 (0) | none | 0 | 0 | 0 |
+| A pipeline > Dataflows | zoom-200 | 17 | 0 (0) | none | 5 | 0 | 0 |
+| A pipeline > Dataflows | high-contrast | 16 | 0 (0) | none | 5 | 0 | 0 |
+| A pipeline > Connections | light | 15 | 0 (0) | none | 6 | 0 | 0 |
+| A pipeline > Connections | dark | 15 | 0 (0) | none | 0 | 0 | 0 |
+| A pipeline > Connections | zoom-200 | 15 | 0 (0) | none | 6 | 0 | 0 |
+| A pipeline > Connections | high-contrast | 14 | 0 (0) | none | 6 | 0 | 0 |
+| Learn > Paths | light | 22 | 0 (0) | none | 53 | 0 | 0 |
+| Learn > Paths | dark | 22 | 0 (0) | none | 0 | 0 | 0 |
+| Learn > Paths | zoom-200 | 22 | 0 (0) | none | 53 | 0 | 0 |
+| Learn > Paths | high-contrast | 21 | 0 (0) | none | 53 | 0 | 0 |
+| Learn > Labs | light | 17 | 0 (0) | none | 18 | 0 | 0 |
+| Learn > Labs | dark | 17 | 0 (0) | none | 0 | 0 | 0 |
+| Learn > Labs | zoom-200 | 18 | 0 (0) | none | 18 | 0 | 0 |
+| Learn > Labs | high-contrast | 16 | 0 (0) | none | 18 | 0 | 0 |
+| Learn > Best practices | light | 17 | 0 (0) | none | 5 | 0 | 0 |
+| Learn > Best practices | dark | 17 | 0 (0) | none | 0 | 0 | 0 |
+| Learn > Best practices | zoom-200 | 17 | 0 (0) | none | 5 | 0 | 0 |
+| Learn > Best practices | high-contrast | 16 | 0 (0) | none | 5 | 0 | 0 |
+| Optimize > Assessment > Opportunities | light | 20 | 0 (0) | color-contrast (1) | 16 | 0 | 0 |
+| Optimize > Assessment > Opportunities | dark | 20 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Optimize > Assessment > Opportunities | zoom-200 | 20 | 0 (0) | none | 16 | 0 | 0 |
+| Optimize > Assessment > Opportunities | high-contrast | 19 | 0 (0) | none | 16 | 0 | 0 |
+| Optimize > Assessment > Gaps | light | 15 | 0 (0) | color-contrast (1) | 10 | 0 | 0 |
+| Optimize > Assessment > Gaps | dark | 15 | 0 (0) | color-contrast (1) | 0 | 0 | 0 |
+| Optimize > Assessment > Gaps | zoom-200 | 16 | 0 (0) | none | 10 | 0 | 0 |
+| Optimize > Assessment > Gaps | high-contrast | 14 | 0 (0) | none | 10 | 0 | 0 |
 
 ## Findings
 
@@ -282,11 +386,22 @@ Checks axe couldn't decide by itself (for example a glyph, a line number, or tex
 - **Data mesh**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
 - **Platform**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
 - **Optimize**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
-- **Monitor**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.forge-title`, `.forge-title > span`, `.forge-sub`. Pass: on the Forge band's navy gradient (#000f22 to #0a2a4b, lightest taken), the title is #ffffff, 14.5:1, its state word at least 6.6:1 (#f8991c active, #7fd99b done 8.5:1, #ff9e9e failed 7.4:1, #c9d6ea quiet 9.9:1), the line under it #e6ecf5, 12.2:1, and the link to the table #ffcf8a, 10.1:1 (axe can't measure text on a gradient).
+- **Monitor**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
 - **Academy**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
 - **Source control**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
 - **Settings**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
+- **Notebook**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.markdown > .gutter > .cell-grip[draggable="true"][title="Drag to move this cell"]`, `span[title="Fold line"]`. Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard. Pass: the fold marker is #616161 on white, 6.2:1.
+- **Data mesh entity**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.arrow[aria-hidden="true"]:nth-child(2)`, `.arrow[aria-hidden="true"]:nth-child(4)`, `.arrow[aria-hidden="true"]:nth-child(6)`, `.arrow[aria-hidden="true"]:nth-child(8)`, `#entity-toml`. Pass: the step arrows are #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa, and hidden from assistive tech (the steps' order is in the text). Pass: the entity file's text is #242424 on #fafafa, 14.9:1 (axe sees the box as partly covered).
+- **Profile**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`, `.outline`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
+- **Profile > Skill trees**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h2`, `.tree-sub`, `.tree-lore`, `.tree-pick`, `.tree-achs-head > h3`. Pass: the Skill trees band is a radial gradient from #12264a to #0b1730 (lightest taken): the class name, the line under it and the Class achievements heading are #eef2f8, 13.3:1, and the lore and the Class label #b4c0d4, 8.2:1 (axe can't measure text on a gradient).
+- **Learn lab**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.learn-mark`. Pass: an exercise check's mark is #242424 on white, 15.5:1 (passed is #1f7a4a, 5.3:1), and hidden from assistive tech (the check's text says it).
+- **Settings > Integrations**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
+- **Report a problem dialog**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `textarea[rows="3"]`, `.mono`. Pass: What happened is #242424 on white, 15.5:1, and its placeholder #757575, 4.6:1. Pass: the diagnostics are #424242 on #fafafa, 9.6:1.
+- **Keyboard shortcuts dialog**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.text:nth-child(6) > .learn-more[href="#"]`. Pass: in both runs the notebook guide link is #1b3664 on the dialog's white, 12.0:1, and the line it sits in is #616161, 6.2:1 (axe sees the list's last lines, which scroll under the dialog's buttons, as partly covered).
+- **Engine picker's How to choose dialog**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `p:nth-child(10)`, `p:nth-child(10) > .md-link-off:nth-child(1)`, `p:nth-child(10) > .md-link-off:nth-child(2)`, `.scroll > b`. Pass: in both runs the decision pattern's text, links (a link that won't open is plain text with a dotted underline), headings and Copy example are #242424 on the dialog's white, 15.5:1, and the note beside Copy example is #616161, 6.2:1 (axe sees lines that scroll under the dialog's buttons as partly covered).
+- **Workspaces > Databricks > Volumes on this PC**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.small`. Pass: the volume's More actions button is the glyph ⋯ in #242424 on the card's white, 15.5:1 (axe can't measure a glyph it takes for an icon); its aria-label names it in words.
 - **Workspaces > Power BI**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `tr:nth-child(1) > td:nth-child(1) > .star[aria-label="Favorite Sales performance"][title="Add to favorites"]`, `tr:nth-child(2) > td:nth-child(1) > .star[aria-label="Favorite Sales performance"][title="Add to favorites"]`. Pass: the favorite star is #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa (3:1 needed for a control's graphic); its button is named.
+- **All notebooks**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.foldable:nth-child(6) > .fold-head > .fold-toggle[title="Hide"] > .chev`, `.foldable:nth-child(7) > .fold-head > .fold-toggle[title="Hide"] > .chev`. Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic), and hidden from assistive tech (its button is named).
 - **Data mesh > Products**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
 - **Data mesh > Requests**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
 - **Data mesh > Domains**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
@@ -305,15 +420,19 @@ Checks axe couldn't decide by itself (for example a glyph, a line number, or tex
 - **Academy > Portfolio**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
 - **Settings > Connections**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
 - **Settings > Environment**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
-- **Settings > Integrations**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
-- **Notebook**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.markdown > .gutter > .cell-grip[draggable="true"][title="Drag to move this cell"]`, `span[title="Fold line"]`. Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard. Pass: the fold marker is #616161 on white, 6.2:1.
-- **Data mesh entity**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.arrow[aria-hidden="true"]:nth-child(2)`, `.arrow[aria-hidden="true"]:nth-child(4)`, `.arrow[aria-hidden="true"]:nth-child(6)`, `.arrow[aria-hidden="true"]:nth-child(8)`, `#entity-toml`. Pass: the step arrows are #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa, and hidden from assistive tech (the steps' order is in the text). Pass: the entity file's text is #242424 on #fafafa, 14.9:1 (axe sees the box as partly covered).
-- **Profile**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`, `.outline`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
-- **Learn lab**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.learn-mark`. Pass: an exercise check's mark is #242424 on white, 15.5:1 (passed is #1f7a4a, 5.3:1), and hidden from assistive tech (the check's text says it).
-- **Settings > Integrations**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
-- **Report a problem dialog**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `textarea[rows="3"]`, `.mono`. Pass: What happened is #242424 on white, 15.5:1, and its placeholder #757575, 4.6:1. Pass: the diagnostics are #424242 on #fafafa, 9.6:1.
-- **Keyboard shortcuts dialog**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.text:nth-child(6) > .learn-more[href="#"]`. Pass: in both runs the notebook guide link is #1b3664 on the dialog's white, 12.0:1, and the line it sits in is #616161, 6.2:1 (axe sees the list's last lines, which scroll under the dialog's buttons, as partly covered).
-- **Engine picker's How to choose dialog**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `p:nth-child(10)`, `p:nth-child(10) > .md-link-off:nth-child(1)`, `p:nth-child(10) > .md-link-off:nth-child(2)`, `.scroll > b`. Pass: in both runs the decision pattern's text, links (a link that won't open is plain text with a dotted underline), headings and Copy example are #242424 on the dialog's white, 15.5:1, and the note beside Copy example is #616161, 6.2:1 (axe sees lines that scroll under the dialog's buttons as partly covered).
-- **Workspaces > Databricks > Volumes on this PC**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.small`. Pass: the volume's More actions button is the glyph ⋯ in #242424 on the card's white, 15.5:1 (axe can't measure a glyph it takes for an icon); its aria-label names it in words.
-- **Workspaces > Power BI**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `tr:nth-child(1) > td:nth-child(1) > .star[aria-label="Favorite Sales performance"][title="Add to favorites"]`, `tr:nth-child(2) > td:nth-child(1) > .star[aria-label="Favorite Sales performance"][title="Add to favorites"]`. Pass: the favorite star is #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa (3:1 needed for a control's graphic); its button is named.
-- **All notebooks**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.foldable:nth-child(6) > .fold-head > .fold-toggle[title="Hide"] > .chev`, `.foldable:nth-child(7) > .fold-head > .fold-toggle[title="Hide"] > .chev`. Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic), and hidden from assistive tech (its button is named).
+- **Notebook > Edit**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.markdown > .gutter > .cell-grip[draggable="true"][title="Drag to move this cell"]`, `span[title="Fold line"]`. Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard. Pass: the fold marker is #616161 on white, 6.2:1.
+- **Notebook > Run**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.markdown > .gutter > .cell-grip[draggable="true"][title="Drag to move this cell"]`, `span[title="Fold line"]`. Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard. Pass: the fold marker is #616161 on white, 6.2:1.
+- **Notebook > View**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.markdown > .gutter > .cell-grip[draggable="true"][title="Drag to move this cell"]`, `span[title="Fold line"]`. Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard. Pass: the fold marker is #616161 on white, 6.2:1.
+- **Notebook > Outline**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.markdown > .gutter > .cell-grip[draggable="true"][title="Drag to move this cell"]`, `span[title="Fold line"]`. Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard. Pass: the fold marker is #616161 on white, 6.2:1.
+- **Notebook > Resources**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.chev`, `.markdown > .gutter > .cell-grip[draggable="true"][title="Drag to move this cell"]`, `span[title="Fold line"]`. Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic), and hidden from assistive tech (its button is named). Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard. Pass: the fold marker is #616161 on white, 6.2:1.
+- **Notebook > Notebooks**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.markdown > .gutter > .cell-grip[draggable="true"][title="Drag to move this cell"]`, `span[title="Fold line"]`. Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard. Pass: the fold marker is #616161 on white, 6.2:1.
+- **Profile > Journey**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`, `.tool`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture). Pass: on Profile's other tabs the header's Edit profile button is the same outline button on the navy sky as on Overview (see the page header's verdict): its #ffffff label is 13.9:1 at worst.
+- **Profile > Achievements**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`, `.tool`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture). Pass: on Profile's other tabs the header's Edit profile button is the same outline button on the navy sky as on Overview (see the page header's verdict): its #ffffff label is 13.9:1 at worst.
+- **Profile > Impact**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`, `.tool`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture). Pass: on Profile's other tabs the header's Edit profile button is the same outline button on the navy sky as on Overview (see the page header's verdict): its #ffffff label is 13.9:1 at worst.
+- **Profile > Goals**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`, `.home-hero-actions > .outline.tool`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
+- **Profile > Professional report**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`, `.home-hero-actions > .outline.tool`, `textarea`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture). Pass: the report summary is #242424 on white, 15.5:1, and its placeholder #757575, 4.6:1.
+- **Profile > Settings**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`, `.home-hero-actions > .tool.outline`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
+- **Profile > Skill trees > Delta Smith 0/10**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h2`, `.tree-sub`, `.tree-lore`, `.tree-pick`, `.tree-achs-head > h3`. Pass: the Skill trees band is a radial gradient from #12264a to #0b1730 (lightest taken): the class name, the line under it and the Class achievements heading are #eef2f8, 13.3:1, and the lore and the Class label #b4c0d4, 8.2:1 (axe can't measure text on a gradient).
+- **Profile > Skill trees > Steadfast Loader 0/10**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h2`, `.tree-sub`, `.tree-lore`, `.tree-pick`, `.tree-achs-head > h3`. Pass: the Skill trees band is a radial gradient from #12264a to #0b1730 (lightest taken): the class name, the line under it and the Class achievements heading are #eef2f8, 13.3:1, and the lore and the Class label #b4c0d4, 8.2:1 (axe can't measure text on a gradient).
+- **Optimize > Assessment > Opportunities**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).
+- **Optimize > Assessment > Gaps**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `h1`. Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture).

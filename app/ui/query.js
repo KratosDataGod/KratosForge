@@ -928,6 +928,14 @@ function renderQuery() {
       renderQuery();
     }
   }
+  // S34 (Preview): Compare data, A and B each a table of this lakehouse or a query (sqlcompare.js).
+  function openCompare(a) {
+    if (!runsHere()) { toast(`${SQL_DIALECTS[tab.dialect].label} can't run on this PC. Pick Spark SQL or DuckDB to compare data.`, true); return; }
+    const tables = Object.entries(p.tables || {}).flatMap(([schema, names]) => names.map((n) => sqlTableName(schema, n, tab.dialect)));
+    const provider = lakehouseSqlProvider(p, ref, () => {});
+    const byName = new Map(Object.entries(p.tables || {}).flatMap(([schema, names]) => names.map((n) => [sqlTableName(schema, n, tab.dialect), { schema, name: n }])));
+    sqlCompareDialog({ ref, dialect: tab.dialect, tables, a, columns: (name) => byName.has(name) ? provider.columns(byName.get(name)) : Promise.resolve([]) });
+  }
   async function toggleColumns(t, name) {
     p.open[name] = !p.open[name];
     if (p.open[name] && !p.cols[name]) {
@@ -1052,7 +1060,9 @@ function renderQuery() {
     const rows = [];
     if (previewShown() && Object.values(p.tables).some((names) => names.length)) {
       rows.push(h("div", { class: "sql-explorer-actions" }, btn("Diagram", "flowchart", openDiagram, "tool outline small",
-        { title: "The tables of a schema and how their columns link, guessed from names. Read only." })));
+        { title: "The tables of a schema and how their columns link, guessed from names. Read only." }),
+      PREVIEW_FEATURES.sqlCompare ? btn("Compare data", "branchCompare", () => openCompare(), "tool outline small",
+        { title: "Compare the rows of two tables or queries on this PC. Read only." }) : null));
     }
     for (const [schema, names] of Object.entries(p.tables)) {
       const qualify = Object.keys(p.tables).length > 1 || schema !== "dbo";
@@ -1064,7 +1074,12 @@ function renderQuery() {
         rows.push(h("div", { class: "sql-table-row" },
           h("button", { class: "tree-row chev", "aria-label": open ? `Hide columns of ${t}` : `Show columns of ${t}`,
             style: `padding-left:${qualify ? 22 : 6}px`, onclick: () => toggleColumns({ schema, name: t }, name) }, chevron(open)),
-          h("button", { class: "tree-row", title: `Query ${name}`, onclick: () => queryTable(sqlTableName(schema, t, tab.dialect)) },
+          h("button", { class: "tree-row", title: `Query ${name}`, onclick: () => queryTable(sqlTableName(schema, t, tab.dialect)),
+            // S34: the table's menu (right-click, or the menu key or Shift+F10) has Compare with.
+            oncontextmenu: previewShown() && PREVIEW_FEATURES.sqlCompare ? (e) => {
+              e.preventDefault();
+              showMenu(e.currentTarget, [{ label: "Compare with…", icon: "branchCompare", action: () => openCompare(sqlTableName(schema, t, tab.dialect)) }]);
+            } : null },
             icon("table", 15), h("span", { class: "label" }, t))));
         if (open) {
           if (!p.cols[name]) rows.push(h("div", { class: "tree-row muted", style: "padding-left:52px" }, "Loading..."));

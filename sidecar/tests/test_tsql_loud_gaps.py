@@ -291,6 +291,8 @@ REFUSED_IN_THE_DOCS = {
     "REGEXP_SUBSTR": "SELECT REGEXP_SUBSTR('abc', 'b')",
     "GET_BIT": "SELECT GET_BIT(3, 0)",
     "SET_BIT": "SELECT SET_BIT(0, 1)",
+    "STRING_AGG": "SELECT STRING_AGG(CAST(id AS VARCHAR(5)), CAST(boxes AS VARCHAR(5))) FROM dbo.orders",  # WR-270
+    "ROUND": "SELECT ROUND(CAST(id AS DECIMAL(5, 2)), boxes) FROM dbo.orders",
     "DECLARE": "DECLARE @n INT = 1",
     "@x": "SELECT @x",
     "@@ROWCOUNT": "SELECT @@ROWCOUNT",

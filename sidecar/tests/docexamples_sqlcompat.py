@@ -97,6 +97,13 @@ CLAIMS: list[Claim] = [
     _ts("DATEADD(month, 1, '2024-01-31')"),
     _ts("DATEADD(year, 1, '2024-02-29')"),
     _ts("DATEDIFF(year, '2023-12-31', '2024-01-01')"),
+    # WR-270: DATENAME's parts, and a NULL argument
+    _ts("DATENAME(hour, '2024-02-29 13:04:05')"),
+    _ts("DATENAME(month, '2024-02-29')"),
+    _ts("DATEPART(hour, NULL)"),
+    _ts("DATEDIFF(day, NULL, '2024-01-01')"),
+    _ts("DATEADD(day, 1, NULL)"),
+    _ts("LEFT('abc', NULL)"),
     _ts("DATEDIFF(week, Saturday, Sunday)", query="SELECT DATEDIFF(week, '2024-03-02', '2024-03-03')"),
     _ts("EOMONTH('2024-01-31', 1)"),
     _ts("datetime2(6)", query="SELECT CAST(CAST('2024-02-29 13:04:05' AS datetime2(6)) AS varchar(30))"),

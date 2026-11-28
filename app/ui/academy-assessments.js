@@ -217,23 +217,48 @@ function assessHome() {
   const diagnostic = h("section", { class: "card pad assess-card" },
     h("h2", {}, "Domain diagnostic"),
     h("p", {}, `${home.diagnostic_per_objective} questions per objective in one domain, to see which objectives need work.`),
-    h("div", { class: "assess-meta" }, "Untimed · pick a domain"),
-    btn("Choose domain", null, () => { assess.pick = assess.pick === "domain" ? null : "domain"; assessDraw(); }, "tool outline",
-      { "aria-expanded": assess.pick === "domain" ? "true" : "false" }),
-    assess.pick === "domain" ? h("div", { class: "assess-pick", role: "group", "aria-label": "Domains" },
-      home.domains.map((d) => btn(`${d.id} ${d.title}`, null, () => assessStart({ kind: "diagnostic", domain: d.id }), "tool outline"))) : null);
+    h("div", { class: "assess-meta" }, "Untimed · one domain or all of them"),
+    btn("Choose a diagnostic", null, () => { Object.assign(assess, { pick: "diagnostic", fromHome: false }); assessDraw(); }, "tool outline"));
   const drill = h("section", { class: "card pad assess-card" },
     h("h2", {}, "Objective drill"),
     h("p", {}, "Every question for the objectives you pick, with the answer and why after each one."),
     h("div", { class: "assess-meta" }, "Untimed · 4 or more questions per objective"),
     btn("Pick objectives", null, () => { assess.pick = assess.pick === "objectives" ? null : "objectives"; assessDraw(); }, "tool outline",
       { "aria-expanded": assess.pick === "objectives" ? "true" : "false" }));
+  if (assess.pick === "diagnostic") return [assessNotice(home.notice), assessDiagnostic(home)];
   return [
     assessNotice(home.notice),
     h("div", { class: "assess-cards" }, practice, diagnostic, drill),
     assess.pick === "objectives" ? assessObjectivePicker(home) : null,
     assessHistory(home),
   ];
+}
+
+// Board 6 of the Academy mockup: one diagnostic screen, reached from Academy Home's "Take a diagnostic" or
+// from the Domain diagnostic card. Each domain, or all of them, with its size, about how long it takes (at
+// the practice exam's pace) and the last time it was finished on this PC.
+function assessDiagnostic(home) {
+  const code = home.certification.code || home.certification.id.toUpperCase();
+  const choices = [...home.domains.map((d) => ({ id: d.id, title: `${d.id} ${d.title}`, ...d.diagnostic })),
+    { id: "all", title: `All of ${code}`, ...home.diagnostic_all }].filter((c) => c.questions);
+  if (!choices.some((c) => c.id === assess.diagPick)) assess.diagPick = choices[0]?.id;
+  const meta = (c) => [`${c.questions} questions`, c.minutes ? `about ${c.minutes} min` : null,
+    c.last ? `last finished ${assessWhen(c.last.finished_at)}, ${c.last.correct} of ${c.last.total} right` : "not taken yet"].filter(Boolean).join(" · ");
+  const back = () => {
+    assess.pick = null;
+    if (assess.fromHome && typeof academyPage !== "undefined") { assess.fromHome = false; academyPage.tab = "home"; render(); } else assessDraw();
+  };
+  return h("section", { class: "card pad assess-diag", "aria-labelledby": "assess-diag-h" },
+    h("h2", { id: "assess-diag-h" }, "Diagnostic"),
+    h("p", {}, `${ASSESS_COUNT_WORDS[home.diagnostic_per_objective] || home.diagnostic_per_objective} questions per objective, to find what you already know and which objectives need work. It isn't timed, so you can stop and come back, and it isn't an exam.`.replace(/^./, (c) => c.toUpperCase())),
+    h("fieldset", { class: "assess-diag-choices" }, h("legend", {}, `Which part of ${code}?`),
+      choices.map((c) => h("label", { class: "assess-diag-choice" },
+        h("input", { type: "radio", name: "assess-diag", value: c.id, checked: assess.diagPick === c.id, onchange: () => { assess.diagPick = c.id; } }),
+        h("span", {}, h("b", {}, c.title), h("span", { class: "assess-meta" }, meta(c)))))),
+    h("p", { class: "assess-diag-note" }, "Right answers count toward Knowledge in Readiness, and nothing else. Exercises are still needed to prove an objective. ",
+      h("span", { class: "academy-pill knowledge_only" }, "KNOWLEDGE ONLY")),
+    h("div", { class: "row" }, btn("Start the diagnostic", null, () => choices.length && assessStart({ kind: "diagnostic", domain: assess.diagPick }), "tool primary"),
+      btn(assess.fromHome ? "Back to Home" : "Back", null, back, "tool outline")));
 }
 
 function assessObjectivePicker(home) {
@@ -274,6 +299,8 @@ function assessHistory(home) {
 
 function assessKindName(s, home) {
   const code = home.certification.code || home.certification.id.toUpperCase();
+  if (s.kind === "diagnostic" && s.domain === "all") return `Diagnostic: all of ${code}`;
+  if (s.kind === "diagnostic" && s.domain) return `Domain diagnostic: ${s.domain}`;
   return { practice: `${code} practice exam`, diagnostic: "Domain diagnostic", drill: "Objective drill" }[s.kind] || s.kind;
 }
 

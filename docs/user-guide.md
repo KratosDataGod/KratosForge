@@ -612,6 +612,10 @@ For an incident about a metadata table, the incident page shows **Who's affected
 
 **Numbers, priorities and SLAs**: how priorities are set, the default SLA targets, and how IT sets its own, are in [Incidents and your service desk](incidents.md).
 
+#### SLA reports (Preview)
+
+**Reports**, beside **Board** on the view row, is the SLA report: pick the environment and the last 7, 30 or 90 days. The summary shows how many incidents opened, were resolved and are still open, and the share that met the acknowledge and resolve SLAs. Below it is one row per priority with time to acknowledge and time to resolve (median and 90th percentile) and SLAs met, missed and breached. Nothing is estimated: an incident without the times a measure needs is left out of it, so counts can differ between columns, and a priority with no target says **No target**. It needs the central lakehouse (**Settings > Optimize lakehouses**) and copies new incident changes there before it measures. The first time, it asks before setting up the incident tables. Details in [SLA reports](incidents.md#sla-reports-preview).
+
 ### Agents (Preview)
 
 An [agent](agent.md) is KratosForge running on your own server. Every minute or so it writes a status record to each environment it serves, in that environment's `LH_Meta`. Monitor > KratosForge > Operations > Agents reads those records. It never reaches the agent's server, and nothing on it starts, stops or changes an agent.
@@ -722,7 +726,7 @@ Anything your organization has set shows "Set by your organization's policy" and
 - **Status** names the environment, its workspace and lakehouse, and one status with the next step: Connected, Working offline, Synchronizing, Upgrade required, Limited permissions or Connection failed. It also says how many results wait on this PC. **Validate connection** checks again.
 - **Create an environment...** shows what will happen before anything is made: each step with the permission it needs, what it may cost and a note. A step that can't go ahead says why, and **Create environment...** stays off until nothing is blocked. Creating asks you to confirm. In a workspace this PC knows as Prod, you type its name exactly.
 - **Connect to one...** lists the workspaces you can open. **Look inside** shows the environments in one, central lakehouses this PC can adopt, and lakehouses it couldn't read, with the reason. Reading changes nothing.
-- **Adopt this PC's central lakehouse...** turns the lakehouse Optimize already uses into an environment. It shows the manifest first, then writes only that file after you confirm. No table is created or changed.
+- **Adopt this PC's central lakehouse...** turns the lakehouse Optimize already uses into an environment. It shows the manifest first, then writes only that file after you confirm. No table is created or changed. When this PC uses a Platform in Fabric, its Prod database is linked as the environment's operational database, by its ids.
 - **Upgrade...** appears when the shared tables use an older version. It shows a plan and asks you to confirm, as Create does, and keeps every record. KratosForge on other PCs can only read the tables until it's updated.
 - **Switch or disconnect...** lists the environments this PC knows. **Switch to it** makes another one active. **Disconnect...** makes this PC forget one. Nothing in Fabric is changed or deleted, and results waiting on this PC stay there.
 

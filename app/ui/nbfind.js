@@ -410,6 +410,9 @@ function nbFindBar() {
         btn("Undo replace all", "undo", undoReplaceAll, "tool small nb-find-undo", { hidden: true }))));
     nbFind.bar = bar;
   }
+  // The bar is kept after it closes: Ctrl+H reopening a bar closed without its replace row shows the row.
+  nbFind.bar.classList.toggle("with-replace", nbFind.replace);
+  nbFind.bar.querySelector("[aria-expanded]")?.setAttribute("aria-expanded", String(nbFind.replace));
   if (nbFind.bar.contains(document.activeElement)) {
     const el = document.activeElement;
     queueMicrotask(() => el.focus({ preventScroll: true }));

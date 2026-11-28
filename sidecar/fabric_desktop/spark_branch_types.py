@@ -275,7 +275,8 @@ def _set_types(node: exp.SetOperation, copies: dict[int, exp.Expr]) -> None:
     """Spark's widened type for each column of a UNION, INTERSECT or EXCEPT (WidenSetOperationTypes): each
     side's column is cast to it, as Spark casts it, before the two sides meet. Innermost first (``sets`` is
     in walk order, outer first, so the inner ones are typed by the time ``_columns`` reads them)."""
-    for inner in [n for n in (node.left, node.right) if isinstance(n, _SETS)]:
+    sides = [n.this if isinstance(n, exp.Subquery) else n for n in (node.left, node.right)]
+    for inner in [n for n in sides if isinstance(n, _SETS)]:
         if inner.meta.get(_KEY) is None:
             _set_types(inner, copies)
     left, right = _columns(node.left, copies), _columns(node.right, copies)

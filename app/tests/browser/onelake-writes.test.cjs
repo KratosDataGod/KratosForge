@@ -37,7 +37,7 @@ test("Engine offers the notebook's own OneLake writes choice", { skip }, async (
   await page().locator(".engine-btn").first().click();
   const menu = page().locator("#menu");
   await menu.getByText("Table writes to OneLake from this PC.").waitFor();
-  assert.match(await menu.innerText(), /Same as Settings \(Write here, then upload\)/);
+  assert.match(await menu.innerText(), /Same as Settings \(Write here, then upload in the background\)/);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "onelake-writes-menu.png") });
   await menu.getByRole("menuitem", { name: /Straight to OneLake/ }).click();
   await page().getByText("TPC-H data now writes straight to OneLake.", { exact: false }).waitFor();

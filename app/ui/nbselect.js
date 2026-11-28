@@ -4,7 +4,7 @@
 // on all of them. Ctrl+Shift+Enter while editing runs only the selected text, or the line the
 // cursor is on, in the cell's language.
 
-const nbSel = { anchor: null, ids: new Set() };
+const nbSel = { anchor: null, ids: new Set(), lastD: 0 };
 
 // The selected cells in notebook order; one cell when nothing else is selected.
 function selectedCells() {
@@ -304,13 +304,16 @@ document.addEventListener("keydown", (e) => {
   if (!t.closest?.(".cells") && t !== document.body && t.id !== "view") return;
   const key = e.key;
   const ctrl = e.ctrlKey || e.metaKey;
-  // Keys from Settings > Editor > Change keys (editorprefs.js); "" is the first of two keys (D of D D).
+  // Keys from Settings > Editor > Change keys (editorprefs.js); a command whose key hasn't changed keeps
+  // its test below. cmd "" is the first of a changed command's two keys.
   const cmd = notebookCommandFor(e);
-  const move = ((key === "ArrowUp" || key === "ArrowDown") && !e.shiftKey) || cmd === "nb_select_above" || cmd === "nb_select_below";
+  const is = (id, was) => notebookKeyIs(e, id, was);
+  const move = ((key === "ArrowUp" || key === "ArrowDown") && !e.shiftKey)
+    || is("nb_select_above", () => key === "k" && !e.shiftKey) || is("nb_select_below", () => key === "j" && !e.shiftKey);
   let handled = true;
-  if ((e.shiftKey && !ctrl && !e.altKey && key === "ArrowUp") || cmd === "nb_extend_above") extendSelection(-1);
-  else if ((e.shiftKey && !ctrl && !e.altKey && key === "ArrowDown") || cmd === "nb_extend_below") extendSelection(1);
-  else if (cmd === "nb_merge") mergeSelected();
+  if ((e.shiftKey && !ctrl && !e.altKey && key === "ArrowUp") || is("nb_extend_above", () => e.shiftKey && !ctrl && !e.altKey && key === "K")) extendSelection(-1);
+  else if ((e.shiftKey && !ctrl && !e.altKey && key === "ArrowDown") || is("nb_extend_below", () => e.shiftKey && !ctrl && !e.altKey && key === "J")) extendSelection(1);
+  else if (is("nb_merge", () => e.shiftKey && !ctrl && key === "M")) mergeSelected();
   else if (ctrl && !e.shiftKey && key.toLowerCase() === "a") selectAllCells();
   else if (!multiSelected()) {
     // Plain keys with one cell: notebook.js handles them; a plain move ends a range.
@@ -318,16 +321,20 @@ document.addEventListener("keydown", (e) => {
     handled = false;
   } else if (key === "Escape") clearSelection();
   else if (key === "Enter" && (ctrl || e.shiftKey)) runSelectedCells();
-  else if (cmd === "nb_delete" || key === "Delete") deleteSelected();
+  else if (is("nb_delete", () => key === "d" && !ctrl && !e.shiftKey)) {
+    if (notebookKeyChanged("nb_delete")) deleteSelected();
+    else if (Date.now() - nbSel.lastD < 600) { nbSel.lastD = 0; deleteSelected(); } else nbSel.lastD = Date.now();
+  } else if (key === "Delete") deleteSelected();
   else if (cmd === "") { /* waiting for the second key */ }
-  else if (cmd === "nb_copy" || (ctrl && !e.shiftKey && key.toLowerCase() === "c")) copySelected();
-  else if (cmd === "nb_cut") copySelected(true);
+  else if (is("nb_copy", () => key === "c" && !e.shiftKey) || (ctrl && !e.shiftKey && key === "c")) copySelected();
+  else if (is("nb_cut", () => key === "x" && !e.shiftKey && !ctrl)) copySelected(true);
   else if (key === "ArrowUp" && e.altKey) moveSelected(-1);
   else if (key === "ArrowDown" && e.altKey) moveSelected(1);
   else if (move) {
     clearSelection();
     handled = false;  // and notebook.js moves the current cell
-  } else if (key === "Enter" || ["nb_edit", "nb_insert_above", "nb_insert_below", "nb_markdown", "nb_code", "nb_output", "nb_paste_below", "nb_undo_delete"].includes(cmd)) {
+  } else if (key === "Enter" || [["nb_insert_above", "a"], ["nb_insert_below", "b"], ["nb_markdown", "m"], ["nb_code", "y"], ["nb_output", "o"],
+    ["nb_paste_below", "v"], ["nb_undo_delete", "z"], ["nb_edit", "Enter"]].some(([id, k]) => is(id, () => key === k))) {
     clearSelection();  // these act on the current cell only
     handled = false;
   } else handled = false;

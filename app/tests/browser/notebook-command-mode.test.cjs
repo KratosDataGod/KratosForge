@@ -239,3 +239,48 @@ test("Alt+Enter runs the cell and adds a code cell below; Shift+Enter runs and m
   assert.deepStrictEqual(await sources(), ["code:print('ran')", "code:z = 3", "code:"]);
   assert.deepStrictEqual(app.errors, []);
 });
+
+// With no key changed in Settings > Editor > Change keys (editorprefs.js), every variant the handlers
+// always took still works the same: Ctrl+Shift+V, Ctrl+Shift+L, Shift+Alt+M; with cells selected Alt+C,
+// Ctrl+C, Alt+X and Alt+D D; and A typed as a capital without Shift (Caps Lock) still adds nothing.
+test("with the default keys, every variant command mode took before still does the same", { skip }, async () => {
+  const multi = async () => { await reset(0); await page().keyboard.press("Shift+J"); await page().waitForFunction(() => nbSel.ids.size === 2); };
+  const clip = () => page().evaluate(() => [cellClipboard].flat().filter(Boolean).map((c) => c.source));
+
+  await reset(0);
+  await page().keyboard.press("c");
+  await page().evaluate(() => { selectCell(state.notebook.cells[1]); enterCommandMode(state.notebook.cells[1]); });
+  await page().keyboard.press("Control+Shift+V");
+  assert.deepStrictEqual(await sources(), ["code:a = 1", "code:a = 1", "code:b = 2", "markdown:Some notes"], "Ctrl+Shift+V pastes above");
+
+  await reset(0);
+  const lines = await page().evaluate(() => !!state.lineNumbers);
+  await page().keyboard.press("Control+Shift+L");
+  assert.strictEqual(await page().evaluate(() => !!state.lineNumbers), !lines, "Ctrl+Shift+L shows or hides line numbers");
+  await page().keyboard.press("Shift+L");
+  assert.strictEqual(await page().evaluate(() => !!state.lineNumbers), lines);
+
+  await reset(0);
+  await page().keyboard.press("A");  // a capital A with no Shift held, as with Caps Lock
+  assert.deepStrictEqual(await sources(), CELLS.map((c) => `${c.type}:${c.source}`), "a capital A without Shift adds nothing");
+
+  await reset(0);
+  await page().keyboard.press("Shift+Alt+M");
+  assert.deepStrictEqual(await sources(), ["code:a = 1\nb = 2", "markdown:Some notes"], "Shift+Alt+M merges the cell below");
+
+  await multi();
+  await page().evaluate(() => { cellClipboard = null; });
+  await page().keyboard.press("Alt+c");
+  assert.deepStrictEqual(await clip(), ["a = 1", "b = 2"], "Alt+C copies the selected cells");
+  await multi();
+  await page().evaluate(() => { cellClipboard = null; });
+  await page().keyboard.press("Control+c");
+  assert.deepStrictEqual(await clip(), ["a = 1", "b = 2"], "Ctrl+C copies the selected cells");
+  await multi();
+  await page().keyboard.press("Alt+x");
+  assert.deepStrictEqual(await sources(), ["markdown:Some notes"], "Alt+X cuts the selected cells");
+  await multi();
+  await page().keyboard.press("Alt+d");
+  await page().keyboard.press("Alt+d");
+  assert.deepStrictEqual(await sources(), ["markdown:Some notes"], "Alt+D D deletes the selected cells");
+});

@@ -34,6 +34,7 @@ class CellEditors extends Map {
 const editors = new CellEditors();  // cell id -> CodeMirror view
 const deletedCells = [];       // for Z (undo delete)
 let cellClipboard = null;
+let lastDKey = 0;
 
 const langComp = new CM.Compartment();
 const gutterComp = new CM.Compartment();
@@ -1088,29 +1089,32 @@ document.addEventListener("keydown", (e) => {
     if (next) { e.preventDefault(); next.focus(); }
     return;
   }
-  // The run keys stay as they are; the rest follow Settings > Editor > Change keys (editorprefs.js
-  // notebookCommandFor: "" is the first of two keys, such as the first D of D D).
+  // The run keys stay as they are; the rest follow Settings > Editor > Change keys (editorprefs.js), and
+  // a command whose key hasn't changed keeps its test below. cmd "" is the first of a changed command's two keys.
   const cmd = notebookCommandFor(e);
+  const is = (id, was) => notebookKeyIs(e, id, was);
   let handled = true;
   if (key === "Enter" && e.shiftKey) runCell(cell).then(() => focusNext(cell, false));
   else if (key === "Enter" && (e.ctrlKey || e.metaKey)) runCell(cell);
   else if (key === "Enter" && e.altKey) runCell(cell).then(() => addCell("code"));
-  else if (cmd === "nb_edit") enterEditMode(cell);
-  else if ((key === "ArrowUp" && plain) || cmd === "nb_select_above") selectRelative(-1);
-  else if ((key === "ArrowDown" && plain) || cmd === "nb_select_below") selectRelative(1);
-  else if (cmd === "nb_insert_above") addCell("code", false, -1);
-  else if (cmd === "nb_insert_below") addCell("code");
-  else if (cmd === "nb_delete") deleteCell(cell);
   else if (cmd === "") { /* waiting for the second key */ }
-  else if (cmd === "nb_undo_delete") undoDelete();
-  else if (cmd === "nb_markdown" && cell.type === "code") setLanguage(cell, "markdown");
-  else if (cmd === "nb_code" && cell.type === "markdown") setLanguage(cell, "python");
-  else if (cmd === "nb_copy") copyCell(cell);
-  else if (cmd === "nb_cut") { copyCell(cell); deleteCell(cell); }
-  else if (cmd === "nb_paste_below") pasteCell(cell, 1);
-  else if (cmd === "nb_paste_above") pasteCell(cell, -1);
-  else if (cmd === "nb_line_numbers") toggleLineNumbers();
-  else if (cmd === "nb_output" && cell.type === "code") setMeta(cell, "outputs_hidden", !cell.meta?.outputs_hidden);
+  else if (is("nb_edit", () => key === "Enter" && plain)) enterEditMode(cell);
+  else if ((key === "ArrowUp" && plain) || is("nb_select_above", () => key === "k" && plain)) selectRelative(-1);
+  else if ((key === "ArrowDown" && plain) || is("nb_select_below", () => key === "j" && plain)) selectRelative(1);
+  else if (is("nb_insert_above", () => key === "a" && plain)) addCell("code", false, -1);
+  else if (is("nb_insert_below", () => key === "b" && plain)) addCell("code");
+  else if (is("nb_delete", () => key === "d" && plain)) {
+    if (notebookKeyChanged("nb_delete")) deleteCell(cell);
+    else if (Date.now() - lastDKey < 600) { deleteCell(cell); lastDKey = 0; } else lastDKey = Date.now();
+  } else if (is("nb_undo_delete", () => key === "z" && plain)) undoDelete();
+  else if (is("nb_markdown", () => key === "m" && plain) && cell.type === "code") setLanguage(cell, "markdown");
+  else if (is("nb_code", () => key === "y" && plain) && cell.type === "markdown") setLanguage(cell, "python");
+  else if (is("nb_copy", () => key === "c" && plain)) copyCell(cell);
+  else if (is("nb_cut", () => key === "x" && plain)) { copyCell(cell); deleteCell(cell); }
+  else if (is("nb_paste_below", () => key === "v" && plain)) pasteCell(cell, 1);
+  else if (is("nb_paste_above", () => key === "V" && e.shiftKey)) pasteCell(cell, -1);
+  else if (is("nb_line_numbers", () => key === "L" && e.shiftKey)) toggleLineNumbers();
+  else if (is("nb_output", () => key === "o" && plain) && cell.type === "code") setMeta(cell, "outputs_hidden", !cell.meta?.outputs_hidden);
   else handled = false;
   if (handled) e.preventDefault();
 });

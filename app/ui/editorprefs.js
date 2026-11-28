@@ -220,9 +220,12 @@ function notebookStrokeFromEvent(e) {
   return [e.ctrlKey || e.metaKey ? "Mod" : null, e.altKey ? "Alt" : null, e.shiftKey ? "Shift" : null, k.toLowerCase()].filter(Boolean).join("-");
 }
 
-// The command-mode command a key press is: its id, "" when it is the first of a command's two keys (the
-// second must follow within 600 ms, as D D always has), or null. notebook.js and nbselect.js both ask for
-// the same press, so the answer is kept for that press.
+// Whether a command-mode command has a key from Change keys rather than its default.
+const notebookKeyChanged = (id) => typeof editorOverrides()[id] === "string" && !!editorOverrides()[id];
+
+// The command-mode command a key press is, among those with a changed key: its id, "" when it is the
+// first of a command's two keys (the second must follow within 600 ms, as D D always has), or null.
+// notebook.js and nbselect.js both ask for the same press, so the answer is kept for that press.
 const notebookChord = { stroke: null, at: 0, event: null, result: null };
 function notebookCommandFor(e) {
   if (notebookChord.event === e) return notebookChord.result;
@@ -233,7 +236,7 @@ function notebookCommandFor(e) {
     const canon = editorKeyCanon(stroke);
     const first = notebookChord.stroke && now - notebookChord.at < 600 ? notebookChord.stroke : null;
     notebookChord.stroke = null;
-    const cmds = EDITOR_COMMANDS.filter((c) => c.in === "command").map((c) => [c.id, editorKeyCanon(editorKey(c.id))]);
+    const cmds = EDITOR_COMMANDS.filter((c) => c.in === "command" && notebookKeyChanged(c.id)).map((c) => [c.id, editorKeyCanon(editorKey(c.id))]);
     if (first) result = cmds.find(([, k]) => k === `${first} ${canon}`)?.[0] || null;
     if (!result) result = cmds.find(([, k]) => k === canon)?.[0] || null;
     if (!result && cmds.some(([, k]) => k.startsWith(`${canon} `))) {
@@ -243,6 +246,14 @@ function notebookCommandFor(e) {
   }
   Object.assign(notebookChord, { event: e, result });
   return result;
+}
+
+// Whether a key press is command-mode command `id`. With a changed key, only that key is. Without one,
+// the handler's own test `was` decides, exactly as before keys could change (so Ctrl+Shift+V, Alt+C with
+// cells selected and the rest still work), unless the press is another command's changed key.
+function notebookKeyIs(e, id, was) {
+  const cmd = notebookCommandFor(e);
+  return notebookKeyChanged(id) ? cmd === id : cmd === null && !!was();
 }
 
 // A command-mode command's key now, as the Keyboard shortcuts dialog shows it.

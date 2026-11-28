@@ -199,8 +199,9 @@ AREAS: tuple[Area, ...] = (
     _skinned("databricks", "connect", "Sign-in and workspace discovery",
        cloud_api=Cell("built", ("test_connprofiles.py", "test_databricks_discovery.py", "test_databricks_discovery_replies.py",
                                  "test_databricks_auth_errors.py", "test_databricks_auth_replies.py", "test_databricks_host.py",
-                                 "test_databricks_profile_host.py", "test_databricks_credman.py"),
-                      note="Against fakes of the CLI and APIs; no live run yet.")),
+                                 "test_databricks_profile_host.py", "test_databricks_credman.py", "test_connection_check.py"),
+                      note="Against fakes of the CLI and APIs; no live run yet. Discovery also answers in the shared "
+                           "connection result (PAR-003), which says who you are, the workspace, what you may do and each problem with its fix.")),
     _skinned("databricks", "sql", "SQL warehouses and the SQL editor",
        cloud_api=Cell("built", ("test_databricks_sql.py", "test_databricks_sql_errors.py", "test_databricks_sql_cancel.py"),
                       note="Against fakes of the SQL Statement API; no live run yet."),
@@ -239,10 +240,11 @@ AREAS: tuple[Area, ...] = (
                            "no budgets or alerts. Against fakes, no live run yet.")),
     # Snowflake
     _skinned("snowflake", "connect", "Sign-in, roles and warehouses",
-       cloud_api=Cell("partial", ("test_snowflake_auth.py", "test_snowflake_remote.py"),
+       cloud_api=Cell("partial", ("test_snowflake_auth.py", "test_snowflake_remote.py", "test_connection_check.py"),
                       note="Key-pair and programmatic access token sign-in, and a connection check of role, database, "
                            "schema and warehouse through the SQL API (Preview), without resuming a warehouse. Browser "
-                           "sign-in and Snowflake CLI connections aren't supported yet. Against fakes, no live run yet.")),
+                           "sign-in and Snowflake CLI connections aren't supported yet. The check also answers in the shared "
+                           "connection result (PAR-003). Against fakes, no live run yet.")),
     _skinned("snowflake", "worksheets", "SQL worksheets",
        cloud_api=Cell("partial", ("test_snowflake_sql_engine.py", "test_snowflake_remote.py", "test_engine_conformance.py"),
                       note="The Snowflake SQL warehouse engine (Preview) runs read-only statements (SELECT, WITH, SHOW, "

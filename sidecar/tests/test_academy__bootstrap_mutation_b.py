@@ -20,6 +20,7 @@ import pytest
 from fabric_desktop.academy import sandbox
 
 BLOCKED = frozenset({"fabric_desktop", "msal"})
+N = os.path.normcase   # _main hands the hook its folders in Windows' case: lower, with backslashes
 
 
 def load() -> dict:
@@ -127,9 +128,11 @@ def test_in_an_appcontainer_without_a_workspace_nothing_is_checked(b, tmp_path, 
 
 def test_in_an_appcontainer_a_workspace_at_a_root_joins_its_parts_with_one_separator(b, monkeypatch):
     seen = []
+    root = os.path.abspath(os.sep)   # "/" here, the drive's root ("D:\\") on Windows
+    a, ab = os.path.join(root, "a"), os.path.join(root, "a", "b")
     monkeypatch.setattr(os, "lstat", lambda p: seen.append(p) or SimpleNamespace(st_file_attributes=0))
-    assert b["_resolver"](True, os.sep)(os.sep + "a" + os.sep + "b") == os.sep + "a" + os.sep + "b"
-    assert seen == [os.sep + "a", os.sep + "a" + os.sep + "b"]
+    assert b["_resolver"](True, root)(ab) == ab
+    assert seen == [a, ab]
 
 
 # --------------------------------------------------------------------------- the audit hook
@@ -137,8 +140,10 @@ def test_in_an_appcontainer_a_workspace_at_a_root_joins_its_parts_with_one_separ
 def hook(b, work, reads=(), denied=(), libs=(), end_addr=0):
     added = []
     b["sys"] = SimpleNamespace(addaudithook=added.append)
-    b["_install"](str(work), tuple(map(str, reads)), tuple(map(str, denied)), BLOCKED, tuple(map(str, libs)),
-                  os.path.realpath, end_addr)
+    def roots(ps):   # as _main hands them over: followed, and in Windows' case
+        return tuple(N(os.path.realpath(p)) for p in ps)
+    b["_install"](N(os.path.realpath(work)), roots(reads), roots(denied), BLOCKED, roots(libs), os.path.realpath,
+                  end_addr)
     (h,) = added
     return h
 
@@ -593,8 +598,8 @@ def test_main_runs_the_steps_in_order_then_the_learners_script(main_env, b):
     libs = str(rec.tmp / "libs")
     assert rec.steps[0] == "ender" and rec.steps[1] == ("guard", frozenset({"msal"}))
     assert rec.steps[2] == ("wrap", str(rec.work), os.path.realpath)
-    assert rec.steps[3] == ("install", str(rec.work), (libs,), (str(rec.tmp),), frozenset({"msal"}), (libs,),
-                            os.path.realpath, 55)
+    assert rec.steps[3] == ("install", N(str(rec.work)), (N(libs),), (N(str(rec.tmp)),), frozenset({"msal"}),
+                            (N(libs),), os.path.realpath, 55)
     script = os.path.join(str(rec.work), "s.py")
     assert rec.ran == [("__main__", script, rec.end)]
     assert rec.sys.path == [libs, "first"] and rec.sys.argv == [script]
@@ -683,7 +688,7 @@ def test_main_on_windows_uses_the_appcontainer_resolver_for_its_paths(main_env, 
     real = os.lstat
     monkeypatch.setattr(os, "lstat", lambda p: seen.append(p) or real(p))
     run("win32", job_handle=12, appcontainer=True, read_roots=[str(rec.work / "r")])
-    assert rec.steps[3][2] == (str(rec.work / "r"),) and str(rec.work / "r") in seen
+    assert rec.steps[3][2] == (N(str(rec.work / "r")),) and str(rec.work / "r") in seen
 
 
 def test_main_follows_a_linked_workspace_and_needs_no_library_list(main_env, b):
@@ -692,7 +697,7 @@ def test_main_follows_a_linked_workspace_and_needs_no_library_list(main_env, b):
     cfg = {"workspace": str(rec.tmp / "wl"), "script": "s.py", "read_roots": [], "denied_roots": [], "blocked_modules": []}
     b["sys"] = rec.sys = SimpleNamespace(argv=["-c", json.dumps(cfg)], platform="linux", path=[], stderr=rec.stderr)
     b["_main"]()
-    assert rec.steps[2][1] == str(rec.work) and rec.steps[3][1:6] == (str(rec.work), (), (), frozenset(), ())
+    assert rec.steps[2][1] == str(rec.work) and rec.steps[3][1:6] == (N(str(rec.work)), (), (), frozenset(), ())
     assert rec.sys.path == []
 
 

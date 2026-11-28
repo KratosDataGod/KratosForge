@@ -47,7 +47,7 @@ def test_a_normal_exercise_runs_and_writes_in_its_folder(lab: tuple[Path, Path])
     res = run(lab, "import polars as pl, duckdb\n"
                    "df = pl.DataFrame({'id': [1, 1, 2]}).unique()\n"
                    "df.write_parquet('out.parquet')\n"
-                   "print(duckdb.sql(\"SELECT count(*) FROM 'out.parquet'\").fetchone()[0])\n")
+                   "print(duckdb.sql(\"SELECT count(*) FROM 'out.parquet'\").fetchall()[0][0])\n")
     assert res["status"] == "ok", res["stderr"]
     assert res["stdout"].strip() == "2"
     assert (lab[1] / "out.parquet").is_file()

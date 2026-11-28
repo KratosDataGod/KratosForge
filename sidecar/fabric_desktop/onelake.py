@@ -448,7 +448,9 @@ class FileStore:
                     raise _onelake_error(resp, f"{step} {path}")
                 done += 1
         except Exception as failed:
-            if done:  # the new file was created: remove it, so only the old file is left
+            # The new file was created, or may have been when no create's reply came back: remove it by
+            # its own name, so only the old file is left (a 404 for one never made is only logged).
+            if done or _dropped(failed):
                 try:
                     self.delete(workspace_id, lakehouse_id, temp, recursive=False)
                 except Exception as exc:  # noqa: BLE001 - the upload's own error is the one to report

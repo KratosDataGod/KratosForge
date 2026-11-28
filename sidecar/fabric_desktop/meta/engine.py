@@ -77,6 +77,8 @@ def _out_of_memory(exc: BaseException) -> bool:
             return True
         cur = cur.__cause__ or cur.__context__
     return False
+
+
 _LOG_TABLE = re.compile(r"/Tables/([^/?#\s]+)/([^/?#\s]+)/_delta_log/")
 
 

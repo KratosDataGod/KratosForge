@@ -230,3 +230,24 @@ def test_a_job_whose_data_upload_dropped_is_written_again_then_says_so_plainly(t
                               "(Wi-Fi, a VPN or a proxy), even after trying again. Nothing was committed, so the table "
                               "is as it was. Write it again once you're connected.")
     assert len(tries) == P.JOB_UPLOAD_ATTEMPTS and is_retryable(err.value) and not lake.exists()
+
+
+def test_a_refused_token_first_doesnt_use_up_a_jobs_tries_for_a_dropped_upload(tmp_path, monkeypatch):
+    """A refused token is sent again once, with a fresh one, and that try isn't counted against the
+    dropped-upload tries: the job still gets every one of them, with the same waits."""
+    lake = tmp_path / "lake" / "orders"
+    monkeypatch.setattr(P, "resolve_target", lambda j, fabric: Ref(lake))
+    waits: list[float] = []
+    monkeypatch.setattr(P.time, "sleep", waits.append)
+    tries = []
+
+    def refused_then_dropping(*a, **k):
+        tries.append(1)
+        if len(tries) == 1:
+            raise P.WriteTokenExpired("Writing dbo.orders: refused. Nothing was committed.")
+        raise OSError(DATA_DROPPED)
+    monkeypatch.setattr(P, "publish", refused_then_dropping)
+    with pytest.raises(P.DataUploadDropped):
+        P.run_job(job(tmp_path), Fabric(), lambda: "tok", tmp_path / "work", guard=lambda *a: None)
+    assert len(tries) == 1 + P.JOB_UPLOAD_ATTEMPTS
+    assert waits == [P.JOB_UPLOAD_RETRY_WAIT * n for n in range(1, P.JOB_UPLOAD_ATTEMPTS)]

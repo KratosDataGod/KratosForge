@@ -245,3 +245,28 @@ def test_a_file_upload_whose_rename_reply_was_lost_says_the_file_may_be_either()
     fake.lose_rename = True
     with pytest.raises(onelake.UploadDropped, match="may have its old content or its new one. Upload it again"):
         fs.upload(WS, LH, "Files/config.json", b'{"v": 2}')
+
+
+class LostCreateADLS(FakeADLS):
+    """FakeADLS that makes the upload's new file and then loses every create's reply."""
+
+    def request(self, method, url, params=None, data=None, headers=None, timeout=None):
+        answered = super().request(method, url, params=params, data=data, headers=headers, timeout=timeout)
+        if method == "PUT" and (params or {}).get("resource") == "file":
+            raise requests.ConnectionError("('Connection aborted.', RemoteDisconnected('Remote end closed "
+                                           "connection without response'))")
+        return answered
+
+
+def test_a_file_upload_whose_create_replies_are_all_lost_removes_the_file_it_made():
+    """OneLake made the new file but no create's reply came back: the new file is removed by its own
+    name, so only the old file is left in the lakehouse."""
+    fake = FakeADLS()
+    fs = onelake.FileStore(lambda: "tok", session=fake, sleep=lambda s: None)
+    fs.upload(WS, LH, "Files/config.json", b'{"v": 1}')
+    lost = LostCreateADLS()
+    lost.files = dict(fake.files)
+    fs = onelake.FileStore(lambda: "tok", session=lost, sleep=lambda s: None)
+    with pytest.raises(onelake.UploadDropped, match="wasn't changed"):
+        fs.upload(WS, LH, "Files/config.json", b'{"v": 2}')
+    assert list(lost.files.values()) == [b'{"v": 1}']  # the old file, and no upload left beside it

@@ -1,5 +1,6 @@
-// AF-2 (docs/ux/action-first.md): Home leads with Continue and Start something, then Recent notebooks,
-// and asks to sign in in one place only (see harness.cjs for how to run it).
+// AF-2 (docs/ux/action-first.md) and the Home simplicity mockup: one status strip, then Continue and
+// New notebook, then Getting started and Recent notebooks, and Home asks to sign in in one place
+// only (see harness.cjs for how to run it).
 const { test, after } = require("node:test");
 const assert = require("node:assert");
 const { playwright, openApp } = require("./harness.cjs");
@@ -23,18 +24,21 @@ async function home(storage = {}) {
 // Top of each part of Home, in page order. With the Living Experience hero (Preview), the parts sit in
 // .home-main beside the progression panel.
 const order = (p) => p.evaluate(() => [...(document.querySelector(".page.home .home-main") || document.querySelector(".page.home")).children].map((e) =>
-  e.matches(".home-start") ? "start" : e.matches(".ready") ? "ready" : e.querySelector?.(":scope h2")?.textContent === "Recent notebooks" ? "recent"
+  e.matches(".home-actions") ? "start" : e.matches(".home-strip") ? "strip" : e.querySelector?.(":scope h2")?.textContent === "Recent notebooks" ? "recent"
     : e.matches(".callout") ? "callout" : e.matches(".get-started") ? "get-started" : null).filter(Boolean));
 
-test("Start something and Recent notebooks come first, with Continue opening the notebook changed last", { skip }, async () => {
+test("the status strip, Continue and Getting started come first, with Continue opening the notebook changed last", { skip }, async () => {
   const p = await home();
-  assert.deepStrictEqual((await order(p)).slice(0, 4), ["start", "get-started", "recent", "ready"]);
-  const cont = p.locator(".home-start button.primary, .home-hero-actions button.primary");
+  const parts = (await order(p)).filter((x) => x !== "start");  // with the hero, Continue sits in it
+  assert.deepStrictEqual(parts.slice(0, 3), ["strip", "get-started", "recent"]);
+  assert.strictEqual(await p.locator('.page.home h2:text-is("Start something")').count(), 0);
+  const cont = p.locator(".home-actions button.primary, .home-hero-actions button.primary");
   assert.strictEqual(await cont.count(), 1);
   assert.strictEqual((await cont.textContent()).trim(), "Continue: Customers");
-  // Every way to start stays.
-  for (const label of ["New notebook", "Import from Fabric or Databricks", "New lakehouse", "OneLake catalog"]) {
-    assert.ok(await p.$(`.home-start button:has-text("${label}"), .home-hero-actions button:has-text("${label}")`), label);
+  // Every way to start stays: New notebook beside Continue, the rest in Getting started.
+  assert.ok(await p.$('.home-actions button:has-text("New notebook"), .home-hero-actions button:has-text("New notebook")'));
+  for (const label of ["Import", "New lakehouse", "OneLake catalog"]) {
+    assert.ok(await p.$(`.get-started button:text-is("${label}")`), label);
   }
   await cont.click();
   await p.waitForFunction(() => state.view === "notebook");
@@ -47,12 +51,12 @@ test("signed out, Home asks to sign in once and says Fabric wasn't checked", { s
   assert.ok(!(await order(p)).includes("callout"));  // Ready to work already asks
   assert.strictEqual(await p.locator('.page.home button:text-is("Sign in")').count(), 1);
   assert.doesNotMatch(await p.textContent(".get-started"), /Sign in/);
-  assert.match(await p.textContent(".page.home .home-head + .sub"), /^Sign in so KratosForge can check Fabric\. Notebooks run on this PC either way\.$/);
+  assert.match(await p.textContent(".page.home .home-strip ~ .sub"), /^Sign in so KratosForge can check Fabric\. Notebooks run on this PC either way\.$/);
 });
 
 test("with Ready to work hidden, the sign-in callout asks instead, and only it", { skip }, async () => {
   const p = await home({ "fd.ready.hidden": "1" });
-  assert.deepStrictEqual((await order(p)).slice(0, 4), ["start", "get-started", "recent", "callout"]);
+  assert.deepStrictEqual((await order(p)).filter((x) => x !== "start").slice(0, 4), ["strip", "get-started", "recent", "callout"]);
   assert.strictEqual(await p.locator('.page.home button:text-is("Sign in")').count(), 1);
 });
 
@@ -61,6 +65,6 @@ test("with no notebooks there is no Continue, and New notebook is still there", 
   app = await openApp({ mocks: { list_notebooks: () => [], readiness_check: () => readiness } });
   const p = app.page;
   await p.waitForFunction(() => state.view === "home" && homeCache.done, null, { timeout: 20000 });
-  assert.strictEqual(await p.locator(".home-start button.primary, .home-hero-actions button.primary").count(), 0);
-  assert.ok(await p.$('.home-start button:has-text("New notebook"), .home-hero-actions button:has-text("New notebook")'));
+  assert.strictEqual(await p.locator(".home-actions button.primary, .home-hero-actions button.primary").count(), 0);
+  assert.ok(await p.$('.home-actions button:has-text("New notebook"), .home-hero-actions button:has-text("New notebook")'));
 });

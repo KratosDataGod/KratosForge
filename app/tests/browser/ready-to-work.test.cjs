@@ -44,6 +44,7 @@ test("the card says how it works and names the one write", { skip }, async () =>
   const page = app.page;
   await page.evaluate(() => { localStorage.removeItem("fd.ready.write"); document.querySelectorAll(".ready").forEach((n) => n.remove());
     document.body.append(readinessCard()); });
+  await page.click(".ready button:has-text('Show checks')");  // the strip keeps the list shut while nothing needs attention
   await page.waitForSelector(".ready .how-it-works", { state: "attached" });
   const text = await page.textContent(".ready .how-it-works");
   assert.match(text, /What it changes/);

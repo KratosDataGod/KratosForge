@@ -19,7 +19,7 @@ test("Home draws before a slow release check returns, then fills in", { skip }, 
   assert.strictEqual(await page.locator('.page.home [role="status"]').count(), 1);
   assert.match(await page.textContent('.page.home [role="status"]'), /Starting the local engine/);
   assert.ok(await page.locator('.page.home .loading .spinner[aria-hidden="true"]').count() >= 4);
-  assert.ok(await page.locator('.home-start button:has-text("New notebook")').isDisabled());
+  assert.ok(await page.locator('.home-actions button:has-text("New notebook")').isDisabled());
   // Nothing may start the sidecar while the check runs.
   assert.deepStrictEqual(app.calls.map((c) => c.method), []);
   assert.strictEqual(await page.evaluate(() => homeCache.page), null);

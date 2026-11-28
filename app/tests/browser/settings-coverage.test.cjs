@@ -301,8 +301,8 @@ test("Ready to work offers each row's fix, and the write test says why it can't 
   ];
   await page().evaluate(() => { try { localStorage.removeItem("fd.ready.hidden"); localStorage.removeItem("fd.ready.write"); } catch { /* */ } go("workspaces"); go("home"); });
   const card = page().locator("section.ready");
-  // Home may still be drawing from before this test's rows were set: Check again reads them for certain.
-  await card.getByRole("button", { name: "Check again" }).first().click();
+  // Home may still be drawing from before this test's rows were set: Refresh reads them for certain.
+  await card.getByRole("button", { name: "Refresh" }).click();
   await card.getByText("Little room.").waitFor();
   assert.strictEqual(await card.getByRole("button", { name: "Sign in" }).getAttribute("class"), "tool primary small", "a failing row's fix is the main button");
   await card.getByRole("button", { name: "How to get capacity" }).click();
@@ -315,8 +315,9 @@ test("Ready to work offers each row's fix, and the write test says why it can't 
 
   readiness = [{ key: "capacity", title: "Capacity", status: "ok", text: "On F2." }];
   await page().evaluate(() => go("home"));
-  await card.getByRole("button", { name: "Check again" }).first().click();
+  await card.getByRole("button", { name: "Refresh" }).click();
   await card.getByText("1 of 2 ready").waitFor();
+  await card.getByRole("button", { name: "Show checks" }).click();  // nothing needs attention, so the list starts shut
   await card.getByRole("button", { name: "Test a write" }).click();
   await dialog().getByText("Fabric didn't answer (503).").waitFor();
   assert.ok(await dialog().getByRole("button", { name: "Test", exact: false }).last().isDisabled(), "nothing to test without a lakehouse");

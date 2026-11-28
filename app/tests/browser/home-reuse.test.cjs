@@ -23,12 +23,12 @@ test("going back to Home shows it as it was, with no engine calls", { skip }, as
   await page().evaluate(() => go("home"));
   assert.strictEqual(app.calls.length, before, app.calls.slice(before).map((c) => c.method).join(", "));
   assert.ok(await page().$("text=Orders"));
-  assert.match(await page().textContent(".home-head"), /Updated just now/);
+  assert.match(await page().textContent(".home-strip"), /Updated just now/);
 });
 
 test("Refresh reads everything again", { skip }, async () => {
   const before = app.calls.length;
-  await page().click('.home-head button:has-text("Refresh")');
+  await page().click('.home-strip button:has-text("Refresh")');
   await homeLoaded();
   assert.ok(app.calls.slice(before).some((c) => c.method === "list_notebooks"));
 });

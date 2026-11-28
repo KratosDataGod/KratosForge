@@ -1368,25 +1368,25 @@ function readinessShown() {
   try { return localStorage.getItem("fd.ready.hidden") !== "1"; } catch { return true; }
 }
 
-function readinessCard() {
+// Home's status strip (Home simplicity mockup): one line with the sign-in state and each check's
+// mark, then tail (Updated, Refresh, Learn more). Show checks opens the full list below it.
+function readinessCard({ tail = [] } = {}) {
   if (!readinessShown()) return null;
-  const box = h("section", { class: "card pad ready", "aria-labelledby": "ready-title" });
+  const box = h("section", { class: "card pad ready home-strip", "aria-labelledby": "ready-title" });
+  let open = null;  // null: open only while a check needs attention or is worth a look; a press of Show or Hide checks decides after that
   let writeRow = null;
   try { writeRow = savedWriteRow(JSON.parse(localStorage.getItem("fd.ready.write") || "null"), state.user, state.tenant || null); } catch { /* ask again */ }
   let lastRows = [];
-  const retest = () => writeTestDialog((r, target) => { rememberWrite(r, target); writeRow = r || null; draw(lastRows, "just now"); });
+  // After a write test the list stays open, so its result and Test a write are in view.
+  const retest = () => writeTestDialog((r, target) => { rememberWrite(r, target); writeRow = r || null; open = true; draw(lastRows, "just now"); });
   const draw = (rows, checkedAt) => {
     lastRows = rows;
     const all = writeRow ? [...rows, writeRow] : rows;
     const good = all.filter((r) => r.status === "ok").length;
-    const head = h("div", { class: "row" }, h("h2", { class: "grow", id: "ready-title" }, "Ready to work"),
-      h("span", { class: "muted-text small" }, `${good} of ${rows.length + 1} ready`),
-      btn("Check again", null, run, "tool outline small"),
-      btn("Hide", null, () => { try { localStorage.setItem("fd.ready.hidden", "1"); } catch { /* */ } box.remove(); }, "tool link small"));
     if (rows.every((r) => r.status === "ok") && writeRow?.status === "ok") {
-      box.replaceChildren(h("div", { class: "row" }, icon("ok", 18), h("b", { class: "grow" }, "Ready to work."),
+      box.replaceChildren(h("div", { class: "row wrap" }, icon("ok", 18), h("b", { id: "ready-title" }, "Ready to work."),
         h("span", { class: "muted-text small" }, `Checked ${checkedAt}`), btn("Check again", null, run, "tool link small"),
-        btn("Test again", null, retest, "tool link small")));
+        btn("Test again", null, retest, "tool link small"), h("span", { class: "grow" }), ...tail));
       return;
     }
     const capacityOk = rows.find((r) => r.key === "capacity")?.status === "ok";
@@ -1395,8 +1395,27 @@ function readinessCard() {
         : "Not checked. It needs a lakehouse you can write to, so it waits for the check above." };
     const tester = btn(writeRow?.status === "ok" ? "Test again" : "Test a write", null, retest,
       "tool outline small", { disabled: capacityOk ? null : true });
-    box.replaceChildren(head, withHowItWorks(
-      h("ol", {}, rows.map((r) => readinessRow(r, run)), readinessRow(write, run, tester)),
+    // The line: sign-in first when signed out, then one mark per check, so the list itself can stay shut.
+    // (The line under the strip already says notebooks run on this PC either way.)
+    const signedOut = rows.find((r) => r.fix === "sign_in" && r.status !== "ok");
+    const lead = signedOut
+      ? [icon("warning", 18), h("b", { id: "ready-title" }, "Not signed in."), readinessFix(signedOut, run)]
+      : [h("b", { id: "ready-title" }, "Ready to work"), h("span", { class: "muted-text small" }, `${good} of ${rows.length + 1} ready`)];
+    const chips = [...rows, write].filter((r) => r !== signedOut).map((r) => {
+      const [mark, label] = READY_MARK[r.status] || READY_MARK.wait;
+      return h("span", { class: `ready-chip ${r.status}`, title: label },
+        h("span", { class: "ready-mark", role: "img", "aria-label": label }, icon(mark, 14)), r.title);
+    });
+    const shown = open ?? all.some((r) => (r.status === "fail" || r.status === "warn") && r !== signedOut);
+    const toggle = btn(shown ? "Hide checks" : "Show checks", null, () => { open = !shown; draw(lastRows, checkedAt); },
+      "tool link small", { "aria-expanded": String(shown) });
+    const line = h("div", { class: "row wrap ready-line" }, ...lead, h("span", { class: "ready-chips row wrap" }, ...chips), toggle,
+      h("span", { class: "grow" }), ...tail);
+    if (!shown) { box.replaceChildren(line); return; }
+    const tools = h("div", { class: "row" }, h("span", { class: "grow" }), btn("Check again", null, run, "tool outline small"),
+      btn("Hide", null, () => { try { localStorage.setItem("fd.ready.hidden", "1"); } catch { /* */ } box.remove(); }, "tool link small"));
+    box.replaceChildren(line, tools, withHowItWorks(
+      h("ol", {}, rows.map((r) => readinessRow(r === signedOut ? { ...r, fix: null } : r, run)), readinessRow(write, run, tester)),
       howItWorks("home.ready", {
         reads: "Your saved sign-in, the workspaces and capacities Fabric lists for you, your organization's policy file on this PC, and how much room the drive with your data folder has, whether it is a network share, and whether any folder KratosForge keeps files in is in OneDrive. It reads when Home opens and when you press Check again, and no check opens a sign-in window.",
         changes: "Nothing, unless you choose Test a write. That asks you first, then writes one small file, Files/_fabric_desktop_check/write-test.txt, to the lakehouse you pick, reads it back and deletes the folder. Workspaces named Prod are refused, and no table is touched.",
@@ -1405,7 +1424,8 @@ function readinessCard() {
       })));
   };
   async function run() {
-    box.replaceChildren(h("h2", { id: "ready-title" }, "Ready to work"), h("div", { class: "muted-text" }, "Checking..."));
+    box.replaceChildren(h("div", { class: "row wrap ready-line" }, h("b", { id: "ready-title" }, "Ready to work"),
+      h("span", { class: "muted-text small" }, "Checking..."), h("span", { class: "grow" }), ...tail));
     const rows = await attempt(() => rpc("readiness_check"), "Ready to work");
     if (rows) draw(rows, timeText(new Date()));
   }
@@ -1422,40 +1442,46 @@ function markDone(step) {
 // The main starting points, one small tile each, in a card that folds to its header line and
 // remembers that (fd.fold.home.getstarted). Someone who hid the old Get started card starts folded.
 // Tiles tick once tried: a notebook, a lakehouse opened, a metadata project; the rest never tick.
-// Returns { el, mark(project, notebookCount) } so Home ticks them once it has read those.
+// Returns { el, first, mark(project, notebookCount) } so Home ticks them once it has read those.
+// It stays open, above Recent notebooks, until this PC has a notebook; from then on it starts folded
+// to one line below the list (first: false), and anyone can open it again (Home simplicity mockup).
 function gettingStarted() {
   let hidden = false;
   try { hidden = localStorage.getItem("fd.getstarted.hidden") === "1"; } catch { /* shown */ }
   const done = (step) => { try { return localStorage.getItem(`fd.done.${step}`) === "1"; } catch { return false; } };
+  const first = !done("notebook");
   const points = [
     ["notebook", "notebook", "Run a notebook on this PC", "Python and Spark-style code on your own processor.", "New notebook", () => newNotebook()],
     ["import", "arrowUpload", "Bring your notebooks", "Import from Fabric or Databricks and run them here.", "Import", () => nbfImportDialog()],
     ["lakehouse", "onelake", "Explore OneLake", "Browse lakehouse tables and files, or query them with SQL.", "OneLake catalog", () => go("onelake")],
-    ["project", "metadata", "Build medallion tables", "Describe bronze, silver and gold once, and KratosForge builds and runs them.", "Data mesh", () => go("metadata")],
+    ["project", "metadata", "Build medallion tables", "Describe bronze, silver and gold once, and KratosForge builds and runs them.", "Data mesh", () => go("metadata"),
+      ["New lakehouse", () => newLakehouse()]],
     ["optimize", "gauge", "Spend less Fabric capacity", "See what uses capacity and what could run on this PC.", "Optimize", () => go("optimize")],
     ["platform", "building", "Set up the platform", "For admins: workspaces, environments, access and governance.", "Platform", () => go("platform")],
   ];
   const tiles = new Map();
-  const grid = h("div", { class: "gs-grid" }, points.map(([key, ic, title, text, verb, run]) => {
+  const grid = h("div", { class: "gs-grid" }, points.map(([key, ic, title, text, verb, run, also]) => {
     const tile = h("div", { class: `gs-tile${key === "lakehouse" && done("lakehouse") ? " done" : ""}` },
       h("div", { class: "row gs-title" }, icon(ic, 16), h("b", { class: "grow" }, title), h("span", { class: "gs-tick", title: "Tried" }, icon("ok", 14))),
       h("div", { class: "muted-text small" }, text),
-      btn(verb, null, run, "tool link small"));
+      h("div", { class: "row gs-acts" }, btn(verb, null, run, "tool link small"), also ? btn(also[0], null, also[1], "tool link small") : null));
     tiles.set(key, tile);
     return tile;
   }));
-  const learn = PREVIEW_FEATURES.learn && previewShown()
-    ? btn("New to SQL or data work? Try the lessons in Learn", "beaker", () => go("learn"), "tool link small") : null;
+  const learn = PREVIEW_FEATURES.academy && previewShown()
+    ? btn("New to SQL or data work? Try the lessons in Academy", "beaker", () => { if (typeof academyPage === "object") academyPage.open = null; go("academy"); }, "tool link small") : null;
   const el = foldable("home.getstarted",
-    h("h2", {}, "Getting started with KratosForge"),
+    h("span", { class: "row gs-head" }, h("h2", {}, "Getting started with KratosForge"),
+      h("span", { class: "muted-text small gs-again" }, "Open it again any time.")),
     h("div", { class: "gs-body" }, grid,
       h("div", { class: "row wrap gs-foot" }, learn, learnMore("get-started", "Read the user guide"))),
-    { cls: "card pad get-started", start: hidden });
+    { cls: "card pad get-started", start: hidden || !first });
   const mark = (project, notebookCount) => {
+    if (notebookCount > 0) markDone("notebook");  // the next Home folds this card below the list
     tiles.get("notebook").classList.toggle("done", notebookCount > 0);
     tiles.get("project").classList.toggle("done", !!project?.path);
   };
-  return { el, mark };
+  return { el, first, mark };
 }
 
 registerFeature({

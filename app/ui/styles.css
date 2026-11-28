@@ -1297,8 +1297,21 @@ body.pop-out .page.monitor { padding: 12px; }
 .home-envs { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .env-tile { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; text-align: left; font: inherit; color: inherit; cursor: pointer; }
 .env-tile:hover { border-color: var(--accent); }
-.home-start { align-items: center; gap: 8px; }
-.home-start h2 { margin: 0 8px 0 0; }
+.home-actions { align-items: center; gap: 8px; }
+/* Home's status strip: sign-in, the Ready to work marks, Updated, Refresh and Learn more on one line. */
+.home-strip { padding-top: 8px; padding-bottom: 8px; }
+.home-strip .ready-line { align-items: center; gap: 8px 12px; }
+.home-strip .ready-chips { gap: 4px 12px; }
+.ready-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.ready-chip.ok .ready-mark { color: var(--ok-2); }
+.ready-chip.fail .ready-mark { color: var(--danger); }
+.ready-chip.warn .ready-mark { color: var(--warn); }
+.home-strip > .row:nth-child(2) { margin-top: 4px; }
+.get-started .gs-head { align-items: baseline; gap: 12px; }
+.get-started .gs-again { display: none; }
+.get-started.folded .gs-again { display: inline; }
+.get-started .gs-acts { gap: 12px; }
+.get-started .gs-acts > .tool { padding-left: 0; }
 
 /* ---------- home-hero.js: Living Experience on Home (LX-06, Preview) ---------- */
 .page.home.living > .home-hero, .page.home.living > .home-body { max-width: 1460px; }

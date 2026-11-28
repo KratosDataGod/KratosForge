@@ -2134,12 +2134,6 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
 _STARRED = {exp.DataType.Type.INT, exp.DataType.Type.SMALLINT, exp.DataType.Type.TINYINT, exp.DataType.Type.UTINYINT}
 
 
-def _volatile(value: exp.Expression) -> bool:
-    """Whether ``value`` can change each time it's read: RAND, NEWID or another random value."""
-    return any(isinstance(n, (exp.Rand, exp.Uuid)) or isinstance(n, exp.Anonymous) and n.name.upper() in
-               ("NEWID", "RANDOM") for n in value.walk())
-
-
 def _fraction_digits(source: exp.DataType | None) -> int | None:
     """A datetime2(n) or time(n): T-SQL shows n digits of a second as text, zeros too; with no n written it is 7
     (WR-258: datetime2 and time are datetime2(7) and time(7), and CAST(x AS VARCHAR) writes 7 digits)."""

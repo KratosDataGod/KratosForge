@@ -15,7 +15,7 @@ from typing import Any
 
 from ..fabric_run import describe_schedule
 from ..local_schedules import local_configuration
-from .agents import agent_state
+from .agents import agent_state, newer
 
 
 def _text(when: Any) -> str:
@@ -23,8 +23,8 @@ def _text(when: Any) -> str:
         return ""
     try:
         return describe_schedule({"configuration": local_configuration(when)}).replace(" Local", "")
-    except (ValueError, TypeError, KeyError):
-        return ""
+    except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
+        return ""  # a time whose values are of the wrong type, or too large, from a hand-edited record
 
 
 def placements(by_env: dict[str, list[dict[str, Any]]], pc: list[dict[str, Any]], now: Any
@@ -37,26 +37,29 @@ def placements(by_env: dict[str, list[dict[str, Any]]], pc: list[dict[str, Any]]
         newest: dict[str, dict[str, Any]] = {}
         for r in records:
             name = str(r.get("agent") or "")
-            if name and str(r.get("heartbeat_at") or "") >= str(newest.get(name, {}).get("heartbeat_at") or ""):
+            if name and newer(r, newest.get(name), ties=True):
                 newest[name] = r
         for name, r in sorted(newest.items()):
             state = agent_state(r, now)
             if state == "stopped":
                 continue
-            for s in r.get("schedules") or []:
+            schedules = r.get("schedules")
+            for s in schedules if isinstance(schedules, list) else []:
+                if not isinstance(s, dict):
+                    continue
                 row = {"env": env, "place": "agent", "agent": name, "state": state, "schedule": s.get("id"),
                        "text": _text(s.get("when")), "next": s.get("next"), "shared": s.get("shared") is True}
                 if not isinstance(s.get("entities"), list):
                     unknown.append(row)
                     continue
-                known.append(row | {"entities": sorted(map(str, s["entities"])) or None})
+                known.append(row | {"entities": sorted(set(map(str, s["entities"]))) or None})
     for s in pc:
         target = s.get("target") or {}
         if target.get("kind") != "meta" or not s.get("enabled", True) or target.get("env") not in by_env:
             continue
         known.append({"env": target["env"], "place": "pc", "agent": None, "state": "live", "schedule": s.get("id"),
                       "text": s.get("text") or "", "next": s.get("next_run"),
-                      "entities": sorted(map(str, target.get("entities") or [])) or None})
+                      "entities": sorted(set(map(str, target.get("entities") or []))) or None})
     return known, unknown
 
 

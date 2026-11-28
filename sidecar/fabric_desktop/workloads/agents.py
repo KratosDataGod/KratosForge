@@ -32,6 +32,17 @@ def _when(text: Any) -> dt.datetime | None:
     return t if t.tzinfo is not None else None
 
 
+def newer(record: dict[str, Any], than: dict[str, Any] | None, ties: bool = False) -> bool:
+    """Whether ``record``'s heartbeat is later than ``than``'s, compared as times, as fleet() does.
+    A heartbeat that can't be read never wins over one that can; ``ties`` lets an equal one win."""
+    if than is None:
+        return True
+    beat, held = _when(record.get("heartbeat_at")), _when(than.get("heartbeat_at"))
+    if beat is None:
+        return held is None and ties
+    return held is None or beat > held or (ties and beat == held)
+
+
 def agent_state(record: dict[str, Any], now: dt.datetime) -> str:
     """``stopped`` (it said so), ``live`` (its promised next report hasn't passed) or ``offline``
     (it has: it stopped without saying so). A record with no readable time is offline."""

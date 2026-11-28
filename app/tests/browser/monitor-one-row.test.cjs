@@ -78,7 +78,7 @@ test("Monitor's tabs are by source and stay with Preview features hidden; each t
   assert.deepStrictEqual((await pages()).map((t) => t.replace("Preview", "")), ["Runs", "Schedules", "Operations"]);
   await page().locator(".monitor-tabs .tab", { hasText: "Fabric" }).click();
   await page().waitForFunction(() => monitorPage.panel === "fabric");
-  assert.deepStrictEqual(await pages(), ["Monitoring hub", "Schedules"]);
+  assert.deepStrictEqual(await pages(), ["Monitoring hub", "SchedulesPreview"]);  // Fabric schedules are untested on a tenant (QA-020)
   await page().locator(".monitor-pages button", { hasText: "Schedules" }).click();
   await page().waitForFunction(() => monitorPage.panel === "fabric_schedules");
   assert.ok(await page().locator('.monitor-tabs .tab.active:has-text("Fabric")').count());

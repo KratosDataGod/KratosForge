@@ -17,6 +17,7 @@ from fabric_desktop import delta_dml as D
     ("UPDATE c.db.t SET a = 1", "c.db.t: name the table as schema.table or table."),
     ("UPDATE t SET a", "a isn't column = value."),
     ("MERGE INTO t USING (SELECT 1 AS id) ON t.id = id WHEN MATCHED THEN DELETE", "Give the MERGE source an alias"),
+    ("MERGE INTO t USING s WHEN MATCHED THEN DELETE", "MERGE INTO needs ON"),
     ("MERGE INTO t USING s ON t.id = s.id WHEN NOT MATCHED THEN DELETE", "no row in the table to delete"),
     ("MERGE INTO t USING s ON t.id = s.id WHEN NOT MATCHED THEN UPDATE SET a = 1", "no row in the table to update"),
     ("MERGE INTO t USING s ON t.id = s.id WHEN NOT MATCHED BY SOURCE THEN UPDATE SET *",

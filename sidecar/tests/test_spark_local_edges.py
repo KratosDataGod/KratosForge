@@ -58,7 +58,8 @@ def test_a_csv_header_given_as_an_argument_is_kept(lake, tmp_path):  # noqa: F81
     out = tmp_path / "out.csv"
     status, text = run(f"df.write.csv({str(out)!r}, header=False)")
     assert status == "ok", text
-    assert out.read_text().strip() == "9,EU"
+    [part] = out.glob("part-*.csv")
+    assert part.read_text().strip() == "9,EU"
 
 
 # ---- reads
@@ -99,7 +100,7 @@ def test_text_and_csv_reads_by_format(folder):
 @pytest.mark.parametrize("code, says", [
     ("spark.read.format('xml').load({p!r})", "Format 'xml' isn't supported on this PC"),
     ("spark.read.parquet()", "Give parquet a path"),
-    ("spark.sql('RESTORE TABLE dbo.sales TO VERSION AS OF 0')", "RESTORE rewrites a table to an older version"),
+    ("spark.sql('RESTORE TABLE dbo.sales')", "RESTORE on this PC takes the form"),
 ])
 def test_reads_this_pc_cant_do_say_why(folder, code, says):
     status, text = run(code.format(p=str(folder / "notes.txt")))

@@ -35,8 +35,8 @@ _RULES: list[tuple[str, str, bool, str, tuple[str, ...]]] = [
      "The input wasn't there when the run started. Check that the upstream load ran and wrote to the expected path.",
      (r"matched no files", r"filenotfound", r"no such file", r"path does not exist", r"source .* not found")),
     ("schema", "Code or schema", False,
-     "A column or field the code expects is missing or has another type. Retrying alone won't fix it; "
-     "check schema drift or the last change to the code.",
+     ("A column or field the code expects is missing or has another type. Retrying alone won't fix it; "
+     "check schema drift or the last change to the code."),
      (r"keyerror", r"column ['\"]?[\w.]+['\"]? (not found|does not exist)", r"columnnotfound", r"schema",
       r"schemaerror", r"cannot cast", r"invalid type")),
     ("data_quality", "Data quality", False,

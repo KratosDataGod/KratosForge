@@ -38,6 +38,9 @@ before(async () => {
   if (skip) return;
   app = await openApp({ viewport: { width: 1440, height: 900 }, engine: ENGINE });
   await page().evaluate(async () => {
+    // The whole-notebook question: what's asked with preview features hidden, or when the cells both
+    // sides started from aren't known. The per-cell merge (Preview) is notebook-sync-merge.test.cjs.
+    state.settings = { ...(state.settings || {}), show_preview: { value: false } };
     await rpc("save_notebook", { name: "Daily sales", cells: [{ type: "code", source: "orders = 1" }] });
     await openNotebook("Daily sales");
   });

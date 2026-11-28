@@ -7,6 +7,7 @@ Windows event collector or any log shipper (Azure Monitor agent, Fluent Bit) can
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import faulthandler
 import json
@@ -82,6 +83,7 @@ def report_native_crashes(log_dir: Path) -> bool:
     if faulthandler.is_enabled():
         return False
     path = log_dir / CRASH_LOG
+    crash_file = None
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
         if path.is_file() and path.stat().st_size > CRASH_LOG_BYTES:
@@ -94,6 +96,9 @@ def report_native_crashes(log_dir: Path) -> bool:
         faulthandler.enable(file=crash_file, all_threads=True)
     except (AttributeError, OSError, ValueError) as exc:  # no report then; the agent still runs
         logging.getLogger("fabric_desktop.agent").warning("native crashes won't be reported: %s", exc)
+        if crash_file is not None:
+            with contextlib.suppress(OSError):  # a failed close mustn't stop the agent starting
+                crash_file.close()  # opened but not handed to faulthandler: nothing would write to it
         return False
     if _crash_file is not None:
         _crash_file.close()

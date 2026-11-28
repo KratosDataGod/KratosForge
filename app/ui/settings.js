@@ -13,7 +13,7 @@ const SOURCE_TEXT = {
 // so Settings says so plainly and how to go back (unit testing item 4).
 function clientIdNote(source) {
   const lead = "Sign-in isn't using Microsoft's Fabric sign-in. Microsoft shows this app's own name and publisher, and may ask you or an admin to approve it.";
-  if (source === "policy") return `${lead} Your organization set it, so only they can change it.`;
+  if (source === "policy") return `${lead} Your organization set it, so only they can change it. Ask IT to change client_id in Group Policy or the policy file.`;
   if (source === "environment") return `${lead} It comes from the FABRIC_DESKTOP_CLIENT_ID setting on this PC. To go back, remove that variable (setx FABRIC_DESKTOP_CLIENT_ID ""), restart KratosForge and sign in again.`;
   if (source === "user") return `${lead} To go back, clear the ID and sign in again.`;
   if (source === "built_in") return `${lead} It came with this build.`;
@@ -26,6 +26,7 @@ async function loadSettings() {
   state.settings = await rpc("app_settings").catch(() => state.settings || null);
   applyMotion();  // motion.js
   applyAppearance();  // features.js
+  applyEditorPrefs();  // editorprefs.js
   if (!skinState.list) loadSkins().then(() => typeof render === "function" && render());  // skins.js: once; the rail then takes the skin's order
   return state.settings;
 }
@@ -35,6 +36,7 @@ async function saveSettings(changes, label = "Not saved") {
   if (res) state.settings = res;
   applyMotion();
   applyAppearance();  // features.js
+  applyEditorPrefs();  // editorprefs.js
   return res;
 }
 
@@ -227,6 +229,7 @@ function channelLabel() {
 function redactReport(text, level = "support") {
   const slash = "(?:\\\\\\\\|\\\\|/)+";
   const out = String(text)
+    .replace(/-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)/g, "[removed]")
     .replace(/eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]*/g, "[removed]")
     .replace(/(\bbearer\s+)[A-Za-z0-9._~+/=\-]{8,}/gi, "$1[removed]")
     .replace(/(\bauthorization\s*[:=]\s*basic\s+)[A-Za-z0-9+/=]{4,}/gi, "$1[removed]")
@@ -249,7 +252,8 @@ function redactReport(text, level = "support") {
     .replace(/\bglpat-[A-Za-z0-9_\-]{20,}(?:\.[A-Za-z0-9_\-]+)*/g, "[removed]")
     .replace(/\bnpm_[A-Za-z0-9]{36}\b/g, "[removed]")
     .replace(/(?:https?:\/\/)?\bhooks\.slack\.com\/(?:services|workflows|triggers)\/[^\s"'<>]+/gi, "[removed]")
-    .replace(/-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)/g, "[removed]")
+    .replace(/\bH4sI[A-Za-z0-9+/_\-]{40,}={0,2}/g, "[removed]")
+    .replace(/(\b(?:ocp-apim-)?subscription[_-]?key"?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1[removed]")
     .replace(/("(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)"\s*:\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
     .replace(/('(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)/gi, "$1[removed]")
     .replace(/\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
@@ -258,12 +262,14 @@ function redactReport(text, level = "support") {
     .replace(/\b(client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
   if (level !== "support") return out;
   return out
-    .replace(/[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+/g, "[email]")
+    // As the engine's _EMAIL: a name or domain in any script, an apostrophe only between letters, and a run
+    // with no address after it skipped whole. Whitespace is Python's \s (\x85 is one, BOM is not).
+    .replace(/((?:[^\x00-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000@"'<>()\[\]{},;:\\/|=&?!*`^$~]|(?<=[\p{L}\p{N}])'(?=[\p{L}\p{N}]))+@[^\x00-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000@"'<>()\[\]{},;:\\/|=&?!*`^$~._%+#]+(?:\.[^\x00-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000@"'<>()\[\]{},;:\\/|=&?!*`^$~._%+#]+)+)|(?:[^\x00-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000@"'<>()\[\]{},;:\\/|=&?!*`^$~]|(?<=[\p{L}\p{N}])'(?=[\p{L}\p{N}]))+/gu, (m, address) => (address ? "[email]" : m))
     .replace(/\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b/gi, "[tenant]$1")
     .replace(/(OneDrive - )([^\\/"'<>:\r\n]+)/g, "$1[organization]")
     .replace(/\b[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b/gi, "[tenant]$1$2")
     .replace(/(\.sharepoint\.(?:com|us|de|cn)\/(?:sites|teams)\/)[^\/\s"'<>?#]+(?:(?: [^\/\s"'<>?#]+)+(?=[\/"'<>?#\r]|$))?/gim, "$1[site]")
-    .replace(/(\/personal\/)[a-z0-9][a-z0-9_.\-]*/gi, "$1[user]")
+    .replace(/(\/personal\/)[^\/\\\t-\r\x1c-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000"'<>?#&]+/giu, "$1[user]")
     .replace(new RegExp(`([a-z]:${slash}(?:users|documents and settings)${slash})([^\\\\/"'<>\\r\\n]+)`, "gi"), "$1[user]")
     .replace(/(\/home\/|\/Users\/)([^\\/\s"'<>]+)/g, "$1[user]")
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[id]");
@@ -314,6 +320,10 @@ function reportProblem() {
 
 // A zip for whoever is helping: the engine writes it (support_bundle.py) with every file redacted, to a
 // folder the person picks. Nothing is sent from the app.
+// What a bundle keeps on purpose, and where it should go (Chris, 2026-11-13): the same sentence is in
+// CONTENTS.txt (support_bundle.KEPT), kept in step by a test.
+const BUNDLE_KEPT = "Workspace, lakehouse, warehouse, table and notebook names, and the SQL that ran. "
+  + "Send the bundle to your IT or support contact, not to a public forum or GitHub issue.";
 const BUNDLE_FILES = {
   "about.json": "App and engine build, Python, Windows version, and where each setting comes from",
   "sidecar.log": "The last 2,000 lines of the engine's log",
@@ -387,12 +397,14 @@ async function saveSupportBundle() {
       h("li", {}, "Tenant, workspace and item ids"),
       h("li", {}, "Settings that hold a secret, such as a connection string, show only whether they're set")),
     h("p", { class: "muted-text small" }, "No table data, notebook contents or sign-in cache is read."),
+    h("h3", {}, "Kept, so whoever helps can find the problem"),
+    h("p", {}, BUNDLE_KEPT),
     h("div", {}, toggle), contents,
     h("h3", {}, "Where it's saved"),
     h("label", { class: "field", for: "sb-folder" }, "Folder"),
     h("div", { class: "row" }, folder, window.__TAURI__?.core ? choose : null),
     h("p", { class: "muted-text small" }, "Saved as ", h("span", { class: "mono" }, "fabric-desktop-support-….zip"),
-      ". Read it before you send it on: logs can name your notebooks and warehouses."),
+      "."),
     problem),
   [btn("Cancel", null, closeDialog, "tool outline"), save]);
 }
@@ -768,8 +780,8 @@ function whatsNewItems(notes, history) {
 // ---------- Settings page ----------
 
 const MOTION_LEVEL_HELP = ["No decorative effects. Progress, results and errors still show as text and bars.",
-  "Quick page and panel transitions only. No characters or sparks.",
-  "The wolf runs with your work, sparks when it succeeds, the forge strike on deploy. Recommended.",
+  "Quick page and panel transitions, and a short reveal when you earn an achievement. Everyday work stays plain. Recommended.",
+  "Adds the wolf on your runs, sparks when work succeeds and the forge strike on deploy.",
   "The same moments with more character: extra sparks, halftone and offset rings."];
 const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival, the Wolf Run after long work, and the navy wolf on work in Fabric or with a remote."],
   ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment or promote, the ember when something fails."],
@@ -787,7 +799,7 @@ function motionSettingsCard(s, locked) {
   const levelRow = (n) => h("label", { class: `choice-row${level === n ? " selected" : ""}` },
     h("input", { type: "radio", name: "motion_level", value: String(n), checked: level === n ? true : null,
       disabled: locked("motion_level") ? true : null, onchange: () => save({ motion_level: n }) }),
-    h("span", {}, h("b", {}, `${MOTION_LEVELS[n]}${n === 2 ? " (default)" : ""}`), h("span", { class: "muted-text small" }, MOTION_LEVEL_HELP[n])));
+    h("span", {}, h("b", {}, `${MOTION_LEVELS[n]}${n === 1 ? " (default)" : ""}`), h("span", { class: "muted-text small" }, MOTION_LEVEL_HELP[n])));
   const toggle = (key, label, on, disabled) => h("label", { class: "switch" },
     h("input", { type: "checkbox", checked: on ? true : null, disabled: disabled || locked(key) ? true : null, "aria-label": label,
       onchange: (e) => save({ [key]: e.target.checked }) }),
@@ -802,16 +814,20 @@ function motionSettingsCard(s, locked) {
   };
   return h("section", { class: "card pad motion-settings" }, h("h2", {}, "Appearance"),
     typeof skinChooser === "function" && previewShown() ? skinChooser(locked) : null,  // skins.js
+    previewShown() || source("ui_color_mode") ? choice("ui_color_mode") : null,
     h("h3", {}, "Layout"),
     h("p", { class: "muted-text small" }, "How much every page shows. Nothing is removed: what you tuck away is one click from where it was."),
-    Object.keys(LAYOUT_CHOICES).map(choice),
+    Object.keys(LAYOUT_CHOICES).filter((key) => key !== "ui_color_mode").map(choice),
     h("h3", {}, "Living Experience"),
     h("p", { class: "muted-text small" }, "Quiet while you work, epic when you achieve. Effects only follow real work as it finishes; they never delay a run, take focus or cover your code. ",
       reduced ? h("b", {}, "Still now: Windows asks apps to reduce motion. ") : null, learnMore("motion-and-effects")),
     h("div", { class: "choices motion-levels", role: "radiogroup", "aria-label": "Experience mode" }, [0, 1, 2, 3].map(levelRow)),
     source("motion_level") ? h("div", { class: "setting-source" }, SOURCE_TEXT.policy) : null,
-    motionFamilies().map(([key, label, help]) => settingRow(label, level < 2 ? `${help} Plays at Heroic and Legendary.` : help,
-      toggle(key, label, s[key]?.value ?? true, level < 2), source(key))),
+    motionFamilies().map(([key, label, help]) => {
+      const from = key === "motion_achievements" ? 1 : 2;  // achievements play from Subtle, the rest from Heroic
+      return settingRow(label, level < from ? `${help} ${from === 1 ? "Plays at Subtle and above." : "Plays at Heroic and Legendary."}` : help,
+        toggle(key, label, s[key]?.value ?? true, level < from), source(key));
+    }),
     settingRow("Respect Windows' reduced-motion setting",
       "When Windows' Animation effects are off, KratosForge shows no motion. Untick to keep the level you chose anyway.",
       toggle("motion_follow_system", "Respect Windows' reduced-motion setting", s.motion_follow_system?.value !== false), source("motion_follow_system")),
@@ -928,14 +944,20 @@ function mailServerOnly() {
   return box;
 }
 
+// Living Experience (home-hero.js, Preview): Chris's header art with the page's name on its sky. The
+// gears painted on it are decoration: none is a control or stands for a section below.
+function settingsPageView(...children) {
+  const hero = typeof pageHero === "function" ? pageHero("settings", "Settings") : null;
+  return h("div", { class: hero ? "page settings living-head" : "page settings" }, hero || h("h1", {}, "Settings"), ...children);
+}
+
 async function renderSettings() {
-  setView(h("div", { class: "page settings" }, h("h1", {}, "Settings"), h("p", { class: "muted-text" }, "Loading...")));
+  setView(settingsPageView(h("p", { class: "muted-text" }, "Loading...")));
   // The organization sign-in goes to is read alongside (reads only: no sign-in, no network).
   const [s, org] = await Promise.all([loadSettings(), rpc("organization_status").catch(() => null)]);
   if (state.view !== "settings") return;
   if (!s) {
-    setView(h("div", { class: "page settings" }, h("h1", {}, "Settings"),
-      h("p", { class: "muted-text" }, "Settings load once the local engine is running.")));
+    setView(settingsPageView(h("p", { class: "muted-text" }, "Settings load once the local engine is running.")));
     return;
   }
   // Policy or an environment variable sets it: the field shows the value, read-only, and says which.
@@ -990,6 +1012,7 @@ async function renderSettings() {
 
   // Appearance > Living Experience (motion.js, docs/forge-animations.md)
   const display = s.motion_level ? motionSettingsCard(s, locked) : null;
+  const editor = s.editor_word_wrap ? editorSettingsCard(s, locked) : null;  // editorprefs.js
 
   // Preview features
   const previews = h("section", { class: "card pad" }, h("h2", {}, "Preview features"),
@@ -1045,18 +1068,20 @@ async function renderSettings() {
         // The nil GUID alone is the engine's "no tenant" (app_settings.NO_TENANT): the file can't be read.
         h("dd", {}, s.allowed_tenants.value.includes("00000000-0000-0000-0000-000000000000")
           ? "No account, until the problems below are fixed" : "Only your organization's own work accounts")] : null,
-      s.policy_problems?.length ? [h("dt", {}, "Problems in that file"),
+      s.policy_problems?.length ? [h("dt", {}, "Problems in your organization's settings"),
         h("dd", {}, h("ul", { class: "plain" }, s.policy_problems.map((p) => h("li", {}, p))))] : null));
 
   // Integrations (external AI tools, integrations.js) is a tab: the left rail is full.
   // Connections (connections.js) is a tab too: Databricks and Snowflake connection profiles.
-  const tab = previewShown() && ["integrations", "connections"].includes(state.settingsTab) ? state.settingsTab : "general";
+  // Environment (kf-environment.js) is the KratosForge Environment this PC uses (CP-010).
+  const tab = previewShown() && ["integrations", "connections", "environment"].includes(state.settingsTab) ? state.settingsTab : "general";
   const tabs = previewShown() ? h("div", { class: "subtabs", role: "tablist", "aria-label": "Settings" },
-    [["general", "General"], ["connections", "Connections"], ["integrations", "Integrations"]].map(([id, label]) =>
+    [["general", "General"], ["connections", "Connections"], ["environment", "Environment"], ["integrations", "Integrations"]].map(([id, label]) =>
       h("button", { class: `tab${tab === id ? " active" : ""}`, role: "tab", "aria-selected": String(tab === id), onclick: () => { state.settingsTab = id; render(); } },
         label, id === "general" ? null : previewTag()))) : null;
   const integrations = h("div", { class: "integrations" });
   const connections = h("div", { class: "connections" });
+  const environment = h("div", { class: "kf-environment" });
   // The platform is set up in one place, Platform > Settings (UX-009); Settings only points there.
   const platform = previewShown() ? h("section", { class: "card pad platform-link" },
     h("div", { class: "row" }, h("div", { class: "grow" }, h("h2", {}, "Platform ", previewTag()),
@@ -1064,16 +1089,18 @@ async function renderSettings() {
     btn("Open Platform > Settings", "building", () => goPlatform("settings"), "tool outline"))) : null;
   // Usage and Notifications are read above: whoever moved on to another page meanwhile stays there.
   if (state.view !== "settings") return;
-  setView(h("div", { class: "page settings" },
-    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
-      pageIntro("How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
-    tabs, tab === "integrations" ? integrations : tab === "connections" ? connections : [account, updates, display, previews, usage, platform, notify, about, advanced].filter(Boolean)));
+  setView(settingsPageView(pageIntro("How KratosForge signs in, updates and talks to you. ", learnMore("settings")),
+    tabs, tab === "integrations" ? integrations : tab === "connections" ? connections : tab === "environment" ? environment : [account, updates, display, editor, previews, usage, platform, notify, about, advanced].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
     return;
   }
   if (tab === "connections") {
     renderConnectionsTab(connections);
+    return;
+  }
+  if (tab === "environment") {
+    renderEnvironmentTab(environment);
     return;
   }
   const optimize = previewShown() ? await optimizeSettingsSection() : null;
@@ -1106,8 +1133,8 @@ function advancedSection(s, locked, limitRow) {
         if (await saveSettings({ client_id: "" })) { toast("Saved. Sign in again to use it."); render(); }
       }, "tool outline small") : null) : null);
   const kernel = s.kernel_process ? h("div", { class: "advanced-group" }, h("h3", {}, "Notebooks"),
-    settingRow("Run notebooks in their own process (Preview)",
-      "Cells run in a Python process of their own instead of inside the app's engine. Stop and a crash then end only that process, and the rest of the app keeps working. Variables are cleared when you switch.",
+    settingRow("Run notebooks in their own process",
+      "Cells run in a Python process of their own instead of inside the app's engine. Stop and a crash then end only that process, and the rest of the app keeps working. On by default; you or your organization can turn it off. Variables are cleared when you switch.",
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.kernel_process.value ? true : null, disabled: locked("kernel_process") ? true : null,
         onchange: async (e) => { await saveSettings({ kernel_process: e.target.checked }); render(); } }),
       h("span", {}, s.kernel_process.value ? "On" : "Off")),
@@ -1494,7 +1521,7 @@ function readinessCard() {
     box.replaceChildren(head, withHowItWorks(
       h("ol", {}, rows.map((r) => readinessRow(r, run)), readinessRow(write, run, tester)),
       howItWorks("home.ready", {
-        reads: "Your saved sign-in, the workspaces and capacities Fabric lists for you, and your organization's policy file on this PC. It reads when Home opens and when you press Check again, and no check opens a sign-in window.",
+        reads: "Your saved sign-in, the workspaces and capacities Fabric lists for you, your organization's policy file on this PC, and how much room the drive with your data folder has, whether it is a network share, and whether any folder KratosForge keeps files in is in OneDrive. It reads when Home opens and when you press Check again, and no check opens a sign-in window.",
         changes: "Nothing, unless you choose Test a write. That asks you first, then writes one small file, Files/_fabric_desktop_check/write-test.txt, to the lakehouse you pick, reads it back and deletes the folder. Workspaces named Prod are refused, and no table is touched.",
         results: "Only on this PC. A passed write test is remembered here for 7 days for the same account and lakehouse, and is forgotten when a test fails or you sign out. Nothing is sent anywhere.",
         anchor: "ready-to-work",
@@ -1527,7 +1554,7 @@ function gettingStarted() {
     ["notebook", "notebook", "Run a notebook on this PC", "Python and Spark-style code on your own processor.", "New notebook", () => newNotebook()],
     ["import", "arrowUpload", "Bring your notebooks", "Import from Fabric or Databricks and run them here.", "Import", () => nbfImportDialog()],
     ["lakehouse", "onelake", "Explore OneLake", "Browse lakehouse tables and files, or query them with SQL.", "OneLake catalog", () => go("onelake")],
-    ["project", "metadata", "Build medallion tables", "Describe bronze, silver and gold once; KratosForge builds and runs them.", "Data mesh", () => go("metadata")],
+    ["project", "metadata", "Build medallion tables", "Describe bronze, silver and gold once, and KratosForge builds and runs them.", "Data mesh", () => go("metadata")],
     ["optimize", "gauge", "Spend less Fabric capacity", "See what uses capacity and what could run on this PC.", "Optimize", () => go("optimize")],
     ["platform", "building", "Set up the platform", "For admins: workspaces, environments, access and governance.", "Platform", () => go("platform")],
   ];

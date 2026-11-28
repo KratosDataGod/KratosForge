@@ -322,7 +322,7 @@ def test_a_proof_runs_both_sides_from_pinned_inputs_without_touching_shared_tabl
     assert out["fabric"]["job_seconds"] == 90 and out["fabric"]["run_seconds"] is not None
     card = out["scorecard"]
     assert card["cost"]["fabric"]["kind"] == "estimated" and card["cost"]["fabric"]["assumptions"]
-    # FinOps classification: the same measurements Monitor > Cost uses.
+    # FinOps classification: the same measurements Optimize > Cost and savings uses.
     fm, pm = card["cost"]["fabric"]["measurement"], card["cost"]["pc"]["measurement"]
     assert card["cost"]["fabric"]["classification"] == fm["classification"] == "estimated"
     assert fm["value"] == card["cost"]["fabric"]["cu_seconds"] and fm["run_id"] == out["fabric"]["job_id"]
@@ -610,7 +610,113 @@ def test_interrupt_is_sent_while_holding_the_cancel_lock(monkeypatch):
 
     monkeypatch.setattr(notebook.ctypes.pythonapi, "PyThreadState_SetAsyncExc", recording)
     assert k.interrupt() == {"interrupted": True, "stopped": True}
-    assert held == [True] and k.poll(-1, 0.0)["status"] == "cancelled"
+    # Usually one send; another only if the first was lost (see the tests below). Each under the lock.
+    assert held and all(held) and k.poll(-1, 0.0)["status"] == "cancelled"
+
+
+def _armed_cell(k, code="import time\nfor _ in range(400):\n    time.sleep(0.05)"):
+    k.start(code)
+    run = k._current
+    deadline = time.monotonic() + 30
+    while not run.armed and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert run.armed
+    return run
+
+
+def test_an_interrupt_that_is_lost_is_sent_again(monkeypatch):
+    # Python drops an exception raised in a callback, such as a weakref's that garbage collection runs on
+    # the cell's thread ("Exception ignored in ... KeyboardInterrupt"), so the cell ran on and Cancel
+    # didn't stop it. Seen once in a loaded full-suite run.
+    from fabric_desktop import notebook
+    k = Kernel()
+    run = _armed_cell(k)
+    send, sends = notebook.ctypes.pythonapi.PyThreadState_SetAsyncExc, []
+
+    def lose_the_first(ident, exc):
+        sends.append(run.cancel_lock.locked())
+        return 1 if len(sends) == 1 else send(ident, exc)
+
+    monkeypatch.setattr(notebook.ctypes.pythonapi, "PyThreadState_SetAsyncExc", lose_the_first)
+    assert k.interrupt() == {"interrupted": True, "stopped": True}
+    assert sends == [True, True]
+    snap = k.poll(-1, 0.0)
+    assert snap["status"] == "cancelled" and any("Cancelled" in o.get("text", "") for o in snap["outputs"])
+
+
+def test_no_interrupt_is_sent_once_the_cell_has_disarmed(monkeypatch):
+    # Every send is lost here, and the cell finishes on its own while Cancel waits; its finish is slowed
+    # so the time between disarming and being done is long. A send then would raise in the cell's
+    # finally and skip run.finish, so none may come once it has disarmed.
+    from fabric_desktop import notebook
+    k = Kernel()
+    finish = notebook._Run.finish
+
+    def slow_finish(self, status):
+        time.sleep(1.0)
+        return finish(self, status)
+
+    run = _armed_cell(k, "import time\nfor _ in range(10):\n    time.sleep(0.05)")
+    armed_at_send = []
+    monkeypatch.setattr(notebook._Run, "finish", slow_finish)
+    monkeypatch.setattr(notebook.ctypes.pythonapi, "PyThreadState_SetAsyncExc",
+                        lambda ident, exc: armed_at_send.append(run.armed) or 1)
+    assert k.interrupt() == {"interrupted": True, "stopped": True}
+    assert armed_at_send and all(armed_at_send), armed_at_send
+    assert k.poll(-1, 0.0)["status"] == "ok"
+
+
+def test_an_interrupt_the_cell_caught_is_not_sent_again(monkeypatch):
+    # Once the cell has its interrupt, it may take a while to wind down (here, adding its output slowly):
+    # a second interrupt then would land in that handling.
+    from fabric_desktop import notebook
+    k = Kernel()
+    run = _armed_cell(k)
+    send, sends = notebook.ctypes.pythonapi.PyThreadState_SetAsyncExc, []
+    add = run.add
+
+    def slow_add(item):
+        if "Cancelled" in item.get("text", ""):
+            time.sleep(1.2)
+        return add(item)
+
+    def recording(ident, exc):
+        sends.append(exc)
+        return send(ident, exc)
+
+    monkeypatch.setattr(run, "add", slow_add)
+    monkeypatch.setattr(notebook.ctypes.pythonapi, "PyThreadState_SetAsyncExc", recording)
+    assert k.interrupt() == {"interrupted": True, "stopped": True}
+    assert len(sends) == 1
+    assert k.poll(-1, 0.0)["status"] == "cancelled"
+
+
+def test_a_cancel_caught_by_a_watch_counts_as_caught():
+    # A watch that Cancel stops reports the rest as skipped; Cancel mustn't send another into that.
+    k = Kernel()
+    k.start("x = 1", watches=["[__import__('time').sleep(0.05) for _ in range(600)]", "x"])
+    run = k._current
+    time.sleep(0.5)  # "x = 1" is done; the first watch is sleeping
+    assert run.armed and not run.done.is_set()
+    assert k.interrupt() == {"interrupted": True, "stopped": True}
+    assert run.interrupted and [w.get("skipped") for w in run.watches] == [True, True]
+
+
+def test_a_cell_that_catches_cancel_itself_is_sent_it_again(monkeypatch):
+    # Code in the cell that catches KeyboardInterrupt and carries on would otherwise run on after Cancel.
+    k = Kernel()
+    _armed_cell(k, "import time\ntry:\n    inside = True\n    for _ in range(400):\n        time.sleep(0.05)\n"
+                   "except KeyboardInterrupt:\n    caught = True\n"
+                   "for _ in range(400):\n    time.sleep(0.05)")
+    # Armed is before the cell's own code runs: wait until it is inside its try, so the first interrupt
+    # lands where the cell catches it (Windows CI sent it before the cell got there).
+    deadline = time.monotonic() + 30
+    while not k.namespace.get("inside") and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert k.namespace.get("inside")
+    assert k.interrupt() == {"interrupted": True, "stopped": True}
+    snap = k.poll(-1, 0.0)
+    assert snap["status"] == "cancelled" and k.namespace.get("caught") is True
 
 def test_the_kernel_refuses_cells_while_a_proof_runs_and_one_proof_at_a_time(svc):
     svc.fake = FakeFabric(svc)

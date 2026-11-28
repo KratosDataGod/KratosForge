@@ -74,8 +74,18 @@ def http_client(store, **kw):
     return client, token
 
 
+# Starlette's test client has no socket: it calls from a loopback address, as uvicorn reports one, and the
+# account check is a stand-in that says yes (there is no program to ask Windows about).
+IN_PROCESS = ("127.0.0.1", 50000)
+
+
+def this_account(peer_port, server_port):
+    return True
+
+
 def api(store, limiter=None):
-    return TestClient(build_app(registry(store), store, PORT, limiter=limiter), base_url=f"http://127.0.0.1:{PORT}")
+    return TestClient(build_app(registry(store), store, PORT, limiter=limiter, same_user=this_account),
+                      base_url=f"http://127.0.0.1:{PORT}", client=IN_PROCESS)
 
 
 def auth(token):
@@ -312,13 +322,27 @@ def live(store):
 def test_client_disconnect_cancels_call(store, live):
     port, seen = live
     _, token = http_client(store)
-    with pytest.raises(httpx2.ReadTimeout):
-        httpx2.post(f"http://127.0.0.1:{port}/api/v1/capabilities/ext_slow/invoke", headers=auth(token),
-                    json={"arguments": {"seconds": 5}}, timeout=0.5)
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline and not (seen and seen[-1].cancelled):
-        time.sleep(0.05)
-    assert seen and seen[-1].cancelled
+    # The caller hangs up only once the call has started, so a slow runner can't make it hang up before
+    # the server has the call (a fixed client timeout raced that). The call would run for a minute.
+    body = json.dumps({"arguments": {"seconds": 60}}).encode()
+    head = (f"POST /api/v1/capabilities/ext_slow/invoke HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+            f"Authorization: Bearer {token}\r\nContent-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n\r\n").encode()
+    caller = socket.create_connection(("127.0.0.1", port))
+    try:
+        caller.sendall(head + body)
+        _wait_for(lambda: seen, "the call didn't start")
+    finally:
+        caller.close()
+    _wait_for(lambda: seen[-1].cancelled, "hanging up didn't cancel the call")
+
+
+def _wait_for(done, message, seconds=30.0):
+    """Waits for ``done()``; the limit only stops a broken run, it isn't what the test measures."""
+    deadline = time.monotonic() + seconds
+    while not done():
+        assert time.monotonic() < deadline, message
+        time.sleep(0.02)
 
 
 def mcp_transport(port, token):
@@ -396,10 +420,14 @@ def test_serve_refuses_when_switched_off(tmp_path, monkeypatch):
 
 
 def test_engine_starts_and_stops_the_child_process(tmp_path, monkeypatch):
-    import os
-    import sys
+    from pathlib import Path
+
+    import fabric_desktop
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(sys.path))
+    # The child runs from the service's folder, so it gets the engine's own folder. Not all of sys.path:
+    # other tests add project folders to it (Project.purge_code), and on Windows the variable then passed
+    # 32,767 characters and the child couldn't start.
+    monkeypatch.setenv("PYTHONPATH", str(Path(fabric_desktop.__file__).resolve().parent.parent))
     svc = Service(root=tmp_path / "FabricDesktop")
     port = free_port()
     svc.integrations_set_enabled(True)

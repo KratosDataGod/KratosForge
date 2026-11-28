@@ -119,6 +119,21 @@ def test_a_folder_of_files_streams_new_files_into_foreach_batch_and_memory(tmp_p
     assert run(k, mem).strip().endswith("3")
 
 
+def test_a_stream_schema_can_be_a_ddl_string(tmp_path):
+    # Spark's readStream.schema takes a StructType or a DDL string.
+    landing = tmp_path / "landing"
+    landing.mkdir()
+    (landing / "a.csv").write_text("id,amount\n1,5\n2,6\n")
+    code = (f"m = spark.readStream.schema('id INT, amount STRING').format('csv').option('header', 'true')"
+            f".load({str(landing)!r})\n"
+            "print(m.schema.simpleString())\n"
+            "m.writeStream.format('memory').queryName('ddl_landed').outputMode('append').start()\n"
+            "print(sorted(tuple(r) for r in spark.sql('SELECT * FROM ddl_landed').collect()))")
+    lines = run(Kernel(), code).strip().splitlines()
+    assert lines[0] == "struct<id:int,amount:string>"
+    assert lines[-1] == "[(1, '5'), (2, '6')]"
+
+
 def test_what_runs_only_in_fabric_says_so(lake):
     k = Kernel()
     for code, words in [
@@ -142,3 +157,38 @@ def test_a_source_with_deletion_vectors_is_refused(lake):
     out = Kernel().run(STREAM.replace("dbo.bronze", "dbo.dv"))
     assert out["status"] == "error" and "deletion vectors" in str(out["outputs"])
     assert not (lake / "dbo" / "silver").exists()
+
+
+def test_a_source_with_column_mapping_is_refused_with_the_reason(lake):
+    import shutil
+    from pathlib import Path
+    shutil.copytree(Path(__file__).parent / "fixtures" / "delta_spark" / "cm_name", lake / "dbo" / "cm")
+    out = Kernel().run(STREAM.replace("dbo.bronze", "dbo.cm"))
+    text = str(out["outputs"])
+    assert out["status"] == "error" and "uses column mapping, which a stream on this PC can't read, because" in text
+    assert "Run the stream in Fabric." in text
+    assert not (lake / "dbo" / "silver").exists()
+
+
+def test_a_batch_read_schema_can_be_a_ddl_string(tmp_path):
+    from fabric_desktop.notebook import Kernel
+    (tmp_path / "in.csv").write_text("1,a\n2,b\n", encoding="utf-8")
+    out = Kernel().run(f"df = spark.read.schema('id INT, name STRING').csv({str(tmp_path / 'in.csv')!r})\n"
+                       "print(df.dtypes, [tuple(r) for r in df.orderBy('id').collect()])")
+    assert out["status"] == "ok", out
+    assert "".join(o.get("text", "") for o in out["outputs"]).strip() == \
+        "[('id', 'int'), ('name', 'string')] [(1, 'a'), (2, 'b')]"
+
+
+@pytest.mark.parametrize("fmt", ["csv", "parquet", "json", "text"])
+def test_an_empty_folder_read_with_a_schema_is_no_rows_and_without_one_an_error(tmp_path, fmt):
+    from fabric_desktop.notebook import Kernel
+    schema = "value STRING" if fmt == "text" else "col0 INT, col1 DOUBLE"
+    k = Kernel()
+    out = k.run(f"df = spark.read.schema({schema!r}).format({fmt!r}).load({str(tmp_path)!r})\n"
+                "print(df.dtypes, df.count())")
+    assert out["status"] == "ok", out
+    want = "[('value', 'string')] 0" if fmt == "text" else "[('col0', 'int'), ('col1', 'double')] 0"
+    assert "".join(o.get("text", "") for o in out["outputs"]).strip() == want
+    out = k.run(f"spark.read.format({fmt!r}).load({str(tmp_path)!r})")
+    assert out["status"] == "error" and "UNABLE_TO_INFER_SCHEMA" in str(out["outputs"])

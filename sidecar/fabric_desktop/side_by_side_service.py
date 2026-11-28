@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import json
 import logging
 import os
@@ -19,8 +18,9 @@ from . import depgraph, jsonfile, notebook_cells, receipts
 from . import side_by_side as sbs
 from .fabric_run import TERMINAL, compute_check, uses_local_module, uses_spark
 from .fabric_step import STEP_REFUSED, is_step
-from .onelake import DFS_HOST, FileStore, storage_options
+from .onelake import FileStore, lakehouse_root, storage_options, table_uri
 from .redact import describe
+from .timeutil import now_iso as _now, parse_time as _parse
 
 _log = logging.getLogger(__name__)
 _SAVE_LOCK = threading.Lock()  # side_by_side.jsonl is read, changed and written back whole
@@ -30,16 +30,6 @@ POLL_SECONDS = 5
 MAX_FABRIC_SECONDS = 6 * 3600
 
 
-def _now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-
-
-def _parse(at: Any) -> dt.datetime | None:
-    try:
-        t = dt.datetime.fromisoformat(str(at).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
 
 
 class OneLakeTables(sbs.Tables):
@@ -51,9 +41,8 @@ class OneLakeTables(sbs.Tables):
         self.files = FileStore(token)
 
     def _uri(self, table: str) -> str:
-        schema, _, name = table.rpartition(".")
-        folder = f"{schema}/{name}" if self.schemas else name
-        return f"abfss://{self.workspace_id}@{DFS_HOST}/{self.lakehouse_id}/Tables/{folder}"
+        schema, _, name = table.rpartition(".")  # a name without a schema is in dbo, as everywhere else
+        return table_uri(lakehouse_root(self.workspace_id, self.lakehouse_id), schema or "dbo", name, not self.schemas)
 
     def _names(self) -> list[str]:
         top = [e for e in self.files.list(self.workspace_id, self.lakehouse_id, "Tables") if e["is_dir"]]
@@ -81,7 +70,8 @@ class OneLakeTables(sbs.Tables):
         return self._open(table).history(limit=200)
 
     def dataset(self, table: str, version: int) -> Any:
-        return self._open(table, version).to_pyarrow_dataset()
+        from . import delta_read
+        return delta_read.dataset(self._open(table, version))
 
 
 class SideBySideMixin:
@@ -107,9 +97,14 @@ class SideBySideMixin:
         rows, torn = [], False
         for line in filter(str.strip, lines):
             try:
-                rows.append(json.loads(line))
-            except ValueError:
+                row = json.loads(line)
+            except (ValueError, RecursionError):
                 torn = True
+                continue
+            if isinstance(row, dict) and isinstance(row.get("id"), str):
+                rows.append(row)
+            else:  # JSON, but not a comparison (a hand edit, another program): left out, the file as it is
+                _log.warning("A line of %s isn't a side-by-side run and is skipped.", self.side_by_side_file.name)
         if torn:
             self._sbs_repair(rows)
         return rows
@@ -256,7 +251,7 @@ class SideBySideMixin:
             live["local"].pop("cells", None)
             saved[r["id"]] = live
         rows = [r for r in saved.values() if not name or r.get("name") == name]
-        return sorted(rows, key=lambda r: r.get("started_at") or "", reverse=True)[:limit]
+        return sorted(rows, key=lambda r: str(r.get("started_at") or ""), reverse=True)[:limit]
 
     def side_by_side_cancel(self, id: str) -> dict[str, Any]:
         record = self._sbs_state().get(id)

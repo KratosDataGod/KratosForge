@@ -30,14 +30,14 @@ def test_braces_that_arent_python_and_dollars_stay_for_the_shell():
 
 def test_powershell_runs_the_cell_from_stdin_without_a_profile(monkeypatch):
     ran = []
-    monkeypatch.setattr(shell.shutil, "which", lambda name: "C:/pwsh/pwsh.exe" if name == "pwsh" else None)
+    monkeypatch.setattr(shell, "trusted_cli", lambda name: "C:/pwsh/pwsh.exe" if name == "pwsh" else None)
     monkeypatch.setattr(shell, "_run", lambda args, stdin=None, echo=None, shell=False: ran.append((args, stdin)) or (0, []))
     assert shell.script("powershell", "Get-Date", echo=lambda s: None) == 0
     assert ran == [(["C:/pwsh/pwsh.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "-"], "Get-Date")]
 
 
 def test_powershell_missing_says_so(monkeypatch):
-    monkeypatch.setattr(shell.shutil, "which", lambda name: None)
+    monkeypatch.setattr(shell, "trusted_cli", lambda name: None)
     with pytest.raises(FileNotFoundError, match="%%powershell needs PowerShell"):
         shell.script("powershell", "Get-Date")
 
@@ -54,6 +54,7 @@ def _windows(monkeypatch):
 
 def test_cmd_runs_the_cell_from_a_script_file_that_is_removed_after(monkeypatch):
     _windows(monkeypatch)
+    monkeypatch.setenv("SystemRoot", r"C:\Windows")
     seen = {}
 
     def run(args, stdin=None, echo=None, shell=False):
@@ -62,7 +63,7 @@ def test_cmd_runs_the_cell_from_a_script_file_that_is_removed_after(monkeypatch)
     monkeypatch.setattr(shell, "_run", run)
     said = []
     assert shell.script("cmd", "echo hi\nver", echo=said.append) == 0
-    assert seen["args"][:3] == ["cmd.exe", "/d", "/c"] and seen["args"][3].endswith(".cmd")
+    assert seen["args"][:3] == [r"C:\Windows\System32\cmd.exe", "/d", "/c"] and seen["args"][3].endswith(".cmd")
     assert seen["text"] == b"@echo off\r\necho hi\r\nver"
     assert not Path(seen["args"][3]).exists() and said == []
 
@@ -135,8 +136,23 @@ def test_expressions_whose_spark_type_cant_be_worked_out_keep_duckdbs_types(conn
     assert _types(conn, spark_decimal_types(sql.parse(query)[0], conn)) == duckdb_types
 
 
+def _same_unnamed(conn, query):
+    """As _same, for a statement whose columns have no names yet: sql.parse names each unnamed column as
+    Spark does (spark_sql_names), so these read the query without that, as one it couldn't name."""
+    statement = sqlglot.parse_one(query, read="spark")
+    before = sql.duckdb_sql(statement)
+    assert sql.duckdb_sql(spark_decimal_types(statement, conn)) == before
+
+
 def test_a_changed_column_between_two_stars_cant_be_named_so_nothing_changes(conn):
-    _same(conn, "SELECT *, a / b, * FROM t")
+    _same_unnamed(conn, "SELECT *, a / b, * FROM t")
+
+
+def test_a_column_spark_names_is_changed_between_two_stars(conn):
+    statement = sql.parse("SELECT *, a / b, * FROM t")[0]
+    before = sql.duckdb_sql(statement)
+    after = sql.duckdb_sql(spark_decimal_types(statement, conn))
+    assert after != before and after.count('AS "(a / b)"') == 1
 
 
 def test_a_string_operand_has_no_decimal_type_so_nothing_changes(conn):
@@ -145,7 +161,7 @@ def test_a_string_operand_has_no_decimal_type_so_nothing_changes(conn):
 
 def test_a_statement_duckdb_cant_bind_is_left_as_it_was_and_logged(conn, caplog):
     with caplog.at_level(logging.INFO, logger=spark_decimals.log.name):
-        _same(conn, "SELECT a / b FROM t WHERE no_such_column = 1")
+        _same_unnamed(conn, "SELECT a / b FROM t WHERE no_such_column = 1")
     assert "column names unknown" in caplog.text
 
 

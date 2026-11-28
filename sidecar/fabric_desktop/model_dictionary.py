@@ -13,15 +13,15 @@ from __future__ import annotations
 
 import csv
 import io
+from collections.abc import Iterator
 from typing import Any
 
-from . import semantic
+from . import csv_cells, semantic
 from .meta import mesh
 
 HEADER = ["Table", "Column or measure", "Kind", "Type", "Description", "Classification", "Hidden", "Entity"]
 EDITABLE = ("description", "classification")
 MAX_CHARS = 5_000_000  # a dictionary CSV is a few hundred KB; past this it isn't one
-FORMULA = ("=", "+", "-", "@", "\t", "\r")  # Excel runs a cell starting with one of these as a formula
 
 # Contract types (metadata guide) to the Delta type names semantic.py reads.
 _DELTA = {"string": "string", "int64": "long", "int32": "integer", "float64": "double", "bool": "boolean",
@@ -80,23 +80,15 @@ def counts(items: list[dict[str, Any]]) -> dict[str, int]:
             "measures": sum(1 for x in items if x["kind"] == "measure")}
 
 
-def _cell(value: str) -> str:
-    """A cell Excel shows as text: a leading ' keeps =HYPERLINK(...) and the like from running."""
-    return f"'{value}" if value.startswith(FORMULA) else value
-
-
-def _uncell(value: str) -> str:
-    """The text _cell wrote, without the ' it added."""
-    return value[1:] if value.startswith("'") and value[1:].startswith(FORMULA) else value
-
-
-def to_csv(items: list[dict[str, Any]]) -> str:
-    """The dictionary as CSV. Excel opens it straight away; the Entity column is how Import finds each row."""
+def to_csv(items: list[dict[str, Any]], cells: csv_cells.Cells | None = None) -> str:
+    """The dictionary as CSV. Excel opens it straight away; the Entity column is how Import finds each row.
+    ``cells`` puts a ' in front of a description such as =HYPERLINK(...), and Import takes it off again."""
+    cells = cells if cells is not None else csv_cells.Cells()
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\r\n")
     w.writerow(HEADER)
     for x in items:
-        w.writerow([_cell(v) for v in (x["table"], x["name"] or "(table)", x["kind"].capitalize(), x["type"],
+        w.writerow([cells(v) for v in (x["table"], x["name"] or "(table)", x["kind"].capitalize(), x["type"],
                     x["description"], x["classification"].capitalize(), "Yes" if x["hidden"] else "", x["entity"])])
     return buf.getvalue()
 
@@ -108,7 +100,16 @@ def read_csv(text: str) -> list[dict[str, str]]:
     text = text.lstrip("﻿")
     first = text.split("\n", 1)[0]
     delimiter = ";" if first.count(";") > first.count(",") else ","
-    reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+    try:
+        return _rows(csv.reader(io.StringIO(text), delimiter=delimiter))
+    except csv.Error as exc:  # a cell past csv's field size limit, or a bare carriage return in an unquoted cell
+        if "field larger than field limit" in str(exc):
+            raise ValueError(f"A cell in this file is over {csv.field_size_limit():,} characters, more than a data "
+                             "dictionary cell can hold. Shorten it and import again.") from exc
+        raise ValueError("This file couldn't be read as CSV, so it isn't a data dictionary.") from exc
+
+
+def _rows(reader: Iterator[list[str]]) -> list[dict[str, str]]:
     head = next(reader, None)
     if not head or [h.strip().lower() for h in head[:len(HEADER)]] != [h.lower() for h in HEADER]:
         raise ValueError(f"This isn't a data dictionary from KratosForge: the first row must be {', '.join(HEADER)}.")
@@ -117,7 +118,7 @@ def read_csv(text: str) -> list[dict[str, str]]:
         if not any(v.strip() for v in values):
             continue
         # Padded with blanks for a short row, and cells past the header dropped: strict=False on purpose.
-        rows.append(dict(zip([h.lower() for h in HEADER], [_uncell(v.strip()) for v in values] + [""] * len(HEADER),
+        rows.append(dict(zip([h.lower() for h in HEADER], [csv_cells.unprotect(v.strip()) for v in values] + [""] * len(HEADER),
                              strict=False)))
     return rows
 

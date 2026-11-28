@@ -40,10 +40,88 @@ def test_ci_tools_install_from_hashed_files():
         for line in workflow.read_text(encoding="utf-8").splitlines():
             if "pip install" not in line or "-c constraints.txt" in line or "--target" in line:
                 continue
-            if "--require-hashes -r .github" not in line:
+            if "--no-deps --no-build-isolation -e ." in line:   # the engine itself, after its hashed packages
+                continue
+            if not re.search(r'--require-hashes -r "?(\.\./)?\.github', line):
                 loose.append(f"{workflow.name}: {line.strip()}")
     assert not loose, loose
     for path in (ROOT / ".github" / "requirements").glob("*.txt"):
         pins = re.findall(r"^\S+==\S+ \\$", path.read_text(encoding="utf-8"), re.M)
         hashes = re.findall(r"--hash=sha256:[0-9a-f]{64}", path.read_text(encoding="utf-8"))
         assert pins and len(hashes) >= len(pins), path.name
+
+
+def test_the_shells_crates_are_linted_and_gated_on_licence_and_source():
+    """The shell job fails on any clippy warning; the audit job runs cargo-deny's licence, ban and source
+    checks (deny.toml) beside cargo-audit, read for the Windows exe, with crates.io the only source."""
+    shell = CI.split("\n  shell:\n", 1)[1].split("\n  preview-integrity:\n", 1)[0]
+    assert "cargo clippy --release --locked --all-targets -- -D warnings" in shell
+    assert "components: clippy" in shell
+    toolchain = tomllib.loads((ROOT / "app" / "src-tauri" / "rust-toolchain.toml").read_text(encoding="utf-8"))
+    assert "clippy" in toolchain["toolchain"]["components"]
+    audit = CI.split("\n  audit:\n", 1)[1].split("\n  sbom-app:\n", 1)[0]
+    action = (ROOT / ".github" / "actions" / "dependency-audit" / "action.yml").read_text(encoding="utf-8")
+    assert "check licenses bans sources" in audit and "uses: ./.github/actions/dependency-audit" in audit
+    assert "cargo audit --file app/src-tauri/Cargo.lock" in action
+    deny = tomllib.loads((ROOT / "app" / "src-tauri" / "deny.toml").read_text(encoding="utf-8"))
+    assert deny["graph"]["targets"] == ["x86_64-pc-windows-msvc"]
+    assert (deny["sources"]["unknown-registry"], deny["sources"]["unknown-git"]) == ("deny", "deny")
+    assert deny["sources"]["allow-registry"] == ["https://github.com/rust-lang/crates.io-index"]
+    assert deny["bans"]["wildcards"] == "deny"
+    assert not any(lic.startswith(("GPL", "LGPL", "AGPL")) for lic in deny["licenses"]["allow"])
+
+
+def _pins(path: Path) -> dict[str, str]:
+    """{normalised name: version} of a requirements or constraints file."""
+    found = re.findall(r"^([A-Za-z0-9_.-]+)==([^\s;\\]+)", path.read_text(encoding="utf-8"), re.M)
+    return {re.sub(r"[-_.]+", "-", name).lower(): version for name, version in found}
+
+
+def test_ci_installs_the_engines_packages_from_hashed_locks_at_constraints_versions():
+    """The sidecar, lint, vscode-extension and ui-browser jobs install the engine's packages and test
+    tools from hashed lock files (.github/requirements/test-<os>.txt, lint.txt), not from PyPI by
+    constraints.txt's versions alone. The locks must say what constraints.txt says: a version bumped
+    there and not regenerated here fails, with the command in each lock's header."""
+    requirements = ROOT / ".github" / "requirements"
+    constraints = _pins(ROOT / "sidecar" / "constraints.txt")
+    ci_tools = _pins(ROOT / "sidecar" / "ci-constraints.txt")
+    build = _pins(requirements / "engine-build.txt")
+    locks = {name: _pins(requirements / f"{name}.txt") for name in ("test-linux", "test-windows", "lint")}
+    for name, pins in locks.items():
+        wrong = {p: (v, constraints.get(p, ci_tools.get(p))) for p, v in pins.items()
+                 if v != constraints.get(p, ci_tools.get(p, build.get(p)))}
+        # colorama comes with pytest on Windows only and constraints.txt (made on Linux) doesn't list it.
+        wrong.pop("colorama", None)
+        assert not wrong, f"{name}.txt doesn't match constraints.txt (lock, constraints): {wrong}; regenerate it"
+        assert pins["setuptools"] == build["setuptools"], f"{name}.txt's setuptools isn't engine-build.txt's"
+    missing = set(constraints) - set(locks["test-linux"]) - set(locks["test-windows"]) - {"pip"}
+    assert not missing, f"constraints.txt pins {sorted(missing)}, which neither test lock installs; regenerate them"
+    assert set(locks["test-windows"]) - set(locks["test-linux"]) <= {"colorama", "pymsalruntime", "pywin32"}
+    assert set(ci_tools) <= set(locks["lint"])
+    # No workflow installs anything by constraints alone any more; the editable engine adds no packages.
+    for workflow in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        assert "-c constraints.txt" not in workflow.read_text(encoding="utf-8"), workflow.name
+    assert "--require-hashes -r ../.github/requirements/test-linux.txt -r ../.github/requirements/tsql-live.txt" in (
+        ROOT / ".github" / "workflows" / "tsql-contract-live.yml"
+    ).read_text(encoding="utf-8")
+    assert CI.count("--require-hashes -r ../.github/requirements/test-linux.txt") == 2
+    assert '--require-hashes -r "../.github/requirements/$lock"' in CI and "lock=test-windows.txt" in CI
+    assert "--require-hashes -r ../.github/requirements/lint.txt" in CI
+    assert CI.count("python -m pip install --no-deps --no-build-isolation -e .") == 4
+
+
+def test_the_windows_shell_coverage_run_is_advisory_and_pinned():
+    """Shell coverage on Windows runs daily and by hand, never on a pull request (it would hold Windows
+    runners that pull request CI needs), with the pinned Rust release and a fixed cargo-llvm-cov."""
+    import yaml
+
+    text = (ROOT / ".github" / "workflows" / "shell-coverage.yml").read_text(encoding="utf-8")
+    workflow = yaml.safe_load(text)
+    triggers = workflow[True]   # YAML 1.1 reads the bare key `on` as true
+    assert set(triggers) == {"schedule", "workflow_dispatch"}
+    assert workflow["permissions"] == {"contents": "read"}
+    channel = tomllib.loads((ROOT / "app" / "src-tauri" / "rust-toolchain.toml").read_text(encoding="utf-8"))["toolchain"]["channel"]
+    assert f'toolchain: "{channel}"' in text
+    assert re.search(r"cargo install --locked cargo-llvm-cov --version \d+\.\d+\.\d+\b", text)
+    assert "persist-credentials: false" in text
+    assert "--fail-under" not in text

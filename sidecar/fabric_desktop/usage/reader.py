@@ -72,7 +72,7 @@ def decimal_mark(values: list[str]) -> str | None:
     ambiguous = False
     for raw in values:
         v = raw.strip().replace(" ", "").replace(" ", "").replace(" ", "").replace("'", "")
-        if not v or not _NUM.match(v):
+        if not v or not _NUM.fullmatch(v):
             continue
         has_dot, has_comma = "." in v, "," in v
         if has_dot and has_comma:
@@ -110,7 +110,7 @@ def number(raw: str, mark: str | None) -> float | None:
     """A number written with ``mark`` as its decimal mark; None when the cell is empty or not a number,
     including one too large to be a real amount (more digits than a float holds reads as infinity)."""
     v = (raw or "").strip().replace(" ", "").replace(" ", "").replace(" ", "").replace("'", "")
-    if not v or not _NUM.match(v):
+    if not v or not _NUM.fullmatch(v):
         return None
     if mark == ",":
         v = v.replace(".", "").replace(",", ".")
@@ -134,7 +134,7 @@ def date_order(values: list[str]) -> str | None:
     mdy = dmy = False
     slashed = False
     for raw in values:
-        m = _SLASH.match(raw or "")
+        m = _SLASH.fullmatch(raw or "")
         if not m:
             continue
         slashed = True
@@ -184,7 +184,7 @@ def _when(raw: str, order: str | None, tz: dt.timezone) -> dt.datetime | None:
     v = (raw or "").strip()
     if not v:
         return None
-    m = _SLASH.match(v)
+    m = _SLASH.fullmatch(v)
     if m:
         a, b, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
         month, day = (a, b) if order != "dmy" else (b, a)

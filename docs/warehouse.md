@@ -11,7 +11,7 @@ From **Workspaces > Fabric portal**, **Open in KratosForge** opens the warehouse
 - **It runs in Fabric and uses capacity.** Unlike a lakehouse query, which runs on this PC, a warehouse query runs on the warehouse. The first run on each warehouse after the app starts asks you to confirm.
 - **It reads until you allow changes.** Until **Allow changes** is ticked, one statement that reads is sent; DDL, DML, `EXEC`, variables and anything that reaches outside the warehouse (`OPENROWSET`) are refused before Fabric is asked anything. With it ticked, a script may change the warehouse after it shows what it changes and you confirm: see [Changing the warehouse](#changing-the-warehouse).
 - **It runs as you.** The app signs in to Azure SQL (`https://database.windows.net`) with your account, the first time you run a warehouse query, and Fabric's permissions on the warehouse apply as they do in Fabric. See [permissions](permissions.md).
-- **Same run controls.** Stop, the time limit in Settings › Advanced › SQL queries, results a page at a time, Copy and Export to CSV or Parquet. The `sql_execution` audit line names the workspace and warehouse, never the SQL.
+- **Same run controls.** Stop, the time limit in Settings › Advanced › SQL queries, results a page at a time, Copy and Export to CSV, Parquet, Excel or JSON. The `sql_execution` audit line names the workspace and warehouse, never the SQL.
 - **No risk check, by design.** The [risk check](finops/risk-check.md) looks at workloads (notebooks, pipelines, Data mesh runs) before a run. A warehouse query isn't a workload: a change shows what it changes before it runs, and the confirm, Stop and the time limit bound what it can use. Query insights on the History tab show what queries cost in time; capacity cost comes later, in Optimize.
 - **Check before you run.** The editor checks T-SQL against Fabric Warehouse (or the SQL analytics endpoint) as you type, from Microsoft's [T-SQL surface area](https://learn.microsoft.com/en-us/fabric/data-warehouse/tsql-surface-area) page. See [SQL compatibility](sql-compatibility.md).
 
@@ -21,12 +21,29 @@ Tick **Allow changes** at the top of the Warehouse page to let **Run** change th
 
 1. **Run** first asks the engine what the script does. Nothing is sent to Fabric for this. A script that only reads runs as before.
 2. A script that changes the warehouse shows a confirm: the workspace, the warehouse, its environment, and each statement that changes something, such as *Statement 1: UPDATE dbo.DimCustomer changes the warehouse*.
-3. In **Prod**, or in a workspace whose environment isn't known, you type the warehouse's name before **Run in Prod** is enabled. The engine checks that name against Fabric's, so a change never reaches a warehouse you didn't name. Dev and Test need only the confirm.
+3. In **Prod**, or in a workspace whose environment isn't known, you type the warehouse's name before **Run in Prod** (**Run the change** when the environment isn't known) is enabled. The engine checks that name against Fabric's, so a change never reaches a warehouse you didn't name. Dev and Test need only the confirm.
 
    Here a workspace's environment comes only from your metadata project (**Data mesh > Environments and promote**), never from its name: a workspace that isn't Dev, Test or Prod there is treated like Prod, even one named `Sales Test`, so it asks for the name and deploys only what's in Git.
 4. The script runs in one transaction, in batches split at `GO` lines. If a statement fails, or you press **Stop**, nothing is kept. **Messages** and the **History** tab show how many rows changed and that it was committed, and the explorer lists the objects again.
 
-Some things are never run, even when changes are allowed: `BEGIN TRAN`, `COMMIT` and `ROLLBACK` (the run is the transaction), dynamic SQL, `EXECUTE AS`, permissions (`GRANT`, `REVOKE`, `DENY`, roles and users, which are managed in Fabric), `USE` and other databases, `COPY INTO` and database DDL. A script with one of these says which statement and why, and nothing is sent. A procedure's body is checked when you create it here, but a procedure already in the warehouse runs as it was written. The full list is in [SQL execution](sql-execution.md#changes-on-a-warehouse-wh-10).
+A script you wrote as one transaction, `BEGIN TRAN` on its first line and `COMMIT` on its last, runs the same way: those two lines are what the run does anyway. If a batch fails, the error says which one, and nothing is kept. `SET XACT_ABORT ON` or `OFF` in the script doesn't change that. With `OFF`, the warehouse goes on to the next statement after some run-time errors (dividing by zero, a value that doesn't convert), but the run still ends with that error and nothing is kept.
+
+Some things are never run, even when changes are allowed: any other `BEGIN TRAN`, `COMMIT` or `ROLLBACK` (the run is the transaction), dynamic SQL, `EXECUTE AS`, permissions (`GRANT`, `REVOKE`, `DENY`, roles and users, which are managed in Fabric), `USE` and other databases, `COPY INTO` and `BULK INSERT` (loads files and isn't run from the SQL page; see [Loading data with T-SQL](sql-compatibility.md#loading-data-with-t-sql)) and database DDL. A script with one of these says which statement and why, and nothing is sent. A procedure's body is checked when you create it here, but a procedure already in the warehouse runs as it was written. The full list is in [SQL execution](sql-execution.md#changes-on-a-warehouse-wh-10).
+
+### When a run is cut off
+
+A run the network or the warehouse ends part way says so by name, says what was kept, and says what to do next. A partial result or a partial change is never shown as a success:
+
+| What happened | The error says | Next step it gives |
+| --- | --- | --- |
+| The connection dropped | *The connection to the warehouse dropped during batch 2 of 3 (UPDATE ...), so the whole change was rolled back and nothing was kept.* | Check this PC's network (and VPN), then run it again |
+| Your sign-in expired during a long run | *Your sign-in to Fabric expired ...* | Sign in again, then run it again |
+| The capacity is busy (throttling, errors such as 40501) | *The warehouse stopped the run ... because its capacity is busy (error 40501) ...* | Wait a few minutes; if it keeps happening, ask your Fabric capacity admin |
+| The warehouse cancelled the run | *The warehouse cancelled the run ...* | Run it again; if it's cancelled again, check the warehouse's activity in Fabric |
+| The time limit was reached | *Stopped after the time limit (10 minutes, Settings › SQL). The change was rolled back, so nothing was kept.* | Narrow the query or raise the limit |
+| You pressed **Stop** | *Stopped. The change was rolled back, so nothing was kept.* | |
+
+A read that is cut off keeps no rows, even ones it had already received. A change is one transaction, so it keeps nothing unless the commit went through. The one case that can't be known is a connection lost while the commit was on its way, or **Stop** pressed then: the error says the change *may or may not have been kept*, so check the tables it changes before running it again. The batch that was running is kept with the run: hover the run in **History** (*Failed at batch 2*), and the audit log records it with the kind of failure.
 
 **Settings › Advanced › SQL queries › Warehouse changes** turns changes off for this PC, which leaves **Allow changes** greyed out; your organization can turn them off for everyone. The audit log records who changed which warehouse and how many rows, never the SQL or the data.
 
@@ -125,7 +142,7 @@ Pick a template, fill in its fields (schema, table, columns and the like) and wa
 - **Fields are checked for what they hold.** A name can't contain `]` or a line break and is written inside `[ ]`; a column list becomes `[a], [b]`; text is written inside quotes with `'` doubled; numbers, types (`varchar(50)`, `decimal(18,2)`) and dates (`yyyy-mm-ddThh:mm:ss`) must look like one. Until every field is fine, **Open in a new tab** stays off, so a half-filled script never reaches the editor.
 - **Search** finds a template by its title, description or group.
 - **On a SQL analytics endpoint**, which only reads, the gallery offers only the templates that work there: views, functions, procedures, security and data quality checks.
-- **Only a query that reads runs on this page.** Most templates create or change objects or data, which the page refuses until warehouse writes ship (a later stage, waiting on its own decision). For now, copy those scripts into Fabric's SQL editor.
+- **A template that changes the warehouse runs only through Allow changes.** Most templates create or change objects or data. Run refuses them until you tick **Allow changes**, then shows what the script changes and asks you to confirm (typing the warehouse's name in Prod). See [Changing the warehouse](#changing-the-warehouse).
 - Every template is checked against the Fabric Warehouse rules of the [compatibility check](sql-compatibility.md) by the app's tests. Two say *Review* (Truncate and reload, Dynamic data masking) and two *Not verified* (time travel's `OPTION (FOR TIMESTAMP AS OF ...)` and `CREATE SECURITY POLICY`, which the checker can't read).
 
 ### Your own templates
@@ -136,6 +153,7 @@ Your templates show in the gallery beside the built-in ones, in their group (or 
 
 Each template is a `.sql` file you can read and edit anywhere: a few header lines, a blank line, then the SQL. The blank line ends the header, so comments at the top of your SQL stay part of it.
 
+<!-- example: illustrative -->
 ```sql
 -- template: Top rows
 -- group: Team checks
@@ -161,6 +179,7 @@ The explorer's **Queries** tab lists them, My queries first, then each repositor
 
 A saved query is plain T-SQL with a few header lines, so any `.sql` file put in one of those folders shows up too, named after its file. A blank line ends the header:
 
+<!-- example: illustrative -->
 ```sql
 -- query: Revenue by region
 -- warehouse: WH_Gold
@@ -175,7 +194,7 @@ If the file changed after you opened it (a Git pull, or another editor), **Save 
 
 The explorer's **History** tab has two parts.
 
-**This PC's runs** lists every query you ran on this warehouse from the app, newest first: its first line of SQL (skipping comments), when it ran, how it ended (Succeeded, Failed, Stopped, Timed out), how long it took and how many rows it returned. Hover a failed run to see why: the first line of its error, with quoted text and numbers taken out, since an error can echo values from your data. Click one to open its SQL in a new tab; it doesn't run again until you press **Run**. **Filter by text or table** narrows the list. The SQL is kept in the app's storage on this PC only (up to 200 runs per warehouse, 20,000 characters of SQL each, and about 1 MB across all warehouses: past that, or when the app's storage is full, the oldest runs go first, so open tabs always keep their room), never in the engine's logs or the audit trail. **Clear history** removes them after asking; saved queries and open tabs stay.
+**This PC's runs** lists every query you ran on this warehouse from the app, newest first: its first line of SQL (skipping comments), when it ran, how it ended (Succeeded, Failed, Stopped, Timed out), how long it took and how many rows it returned. Hover a failed run to see why: the first line of its error, with quoted text and numbers taken out, since an error can echo values from your data, and the batch that failed when it was a script of several. Click one to open its SQL in a new tab; it doesn't run again until you press **Run**. **Filter by text or table** narrows the list. The SQL is kept in the app's storage on this PC only (up to 200 runs per warehouse, 20,000 characters of SQL each, and about 1 MB across all warehouses: past that, or when the app's storage is full, the oldest runs go first, so open tabs always keep their room), never in the engine's logs or the audit trail. **Clear history** removes them after asking; saved queries and open tabs stay.
 
 **Query insights from Fabric** reads Fabric's own record of everyone's queries on the warehouse, from its [queryinsights views](https://learn.microsoft.com/en-us/fabric/data-warehouse/query-insights):
 
@@ -217,6 +236,24 @@ A queryset counts as the app's only when its description is the one the app writ
 
 Monitoring sent to another workspace's Eventhouse isn't found yet: the tab looks only in the warehouse's own workspace. Not yet checked on a tenant: whether Microsoft's sign-in app gets a Kusto token (see [Permissions](permissions.md)), and the claim in `Identity` that names a person (the views try `upn`, then `unique_name`, then the object id).
 
+## Open in SSMS
+
+**Open in SSMS** in the page's toolbar starts SQL Server Management Studio on this warehouse (or SQL analytics endpoint), signed in as you with Microsoft Entra. The app reads the warehouse's SQL connection from Fabric (the same check every query uses: the server must end in `.datawarehouse.fabric.microsoft.com`) and starts SSMS with:
+
+`ssms.exe [query.sql] -S <server> -d <database> -A ActiveDirectoryInteractive [-U <you>] -nosplash`
+
+KratosForge passes SSMS no password or token: SSMS signs in on its own, and may ask you to pick your account. `-U` is your sign-in name, when the app knows it, so SSMS's sign-in box starts with it. Every value is checked before it goes on the command line, and none may start with `-`, so a warehouse name can't become another SSMS switch. Nothing in Fabric changes and no capacity is used until you run something in SSMS.
+
+The arrow beside it has more:
+
+| Item | What it does |
+| --- | --- |
+| **Open in SSMS with this query** | Writes the editor's text to a `.sql` file in the app's data folder (`ssms\`) and opens it in SSMS's query window. Files there older than a day are removed the next time. |
+| **Copy server name** | Copies the warehouse's server name (its SQL connection string), to connect from any tool by hand |
+| **Open in VS Code (MSSQL extension)** | Opens VS Code's [MSSQL extension](https://learn.microsoft.com/sql/tools/visual-studio-code-extensions/mssql/mssql-extension-visual-studio-code) connected to the warehouse with Microsoft Entra MFA (a `vscode://ms-mssql.mssql/connect` link) |
+
+The app looks for SSMS 22, then SSMS 21, where they install by default (`C:\Program Files\Microsoft SQL Server Management Studio 22\Release\Common7\IDE\SSMS.exe`). When neither is there, **SSMS isn't on this PC** shows the server name to copy, with **Get SSMS** and **Choose SSMS's folder…**: pick the folder that holds `SSMS.exe` and the app remembers it on this PC. The app starts only an `SSMS.exe` whose signature Windows trusts and names Microsoft Corporation, so a file that is merely named `ssms.exe` is never started. The page never names the program: the shell finds SSMS itself each time. SSMS 20 and before don't take `-A`, so choose SSMS 21 or later.
+
 ## Estimated plan
 
 **Estimated plan** in the editor's toolbar shows how Fabric would run the query, without running it. It works on a warehouse or SQL analytics endpoint, for one statement that reads (the same check as a run that reads); a change has no plan here.
@@ -228,13 +265,15 @@ Monitoring sent to another workspace's Eventhouse isn't found yet: the tab looks
 
 ## Results, Messages and Chart
 
-Above the result, three views, on every SQL page (lakehouse, local project and warehouse). Messages and Chart are Preview: on a lakehouse or local project page they carry the Preview tag and go when Settings hides preview features; on the Warehouse page the whole page is already Preview.
+Above the result, three views on every SQL page (lakehouse, local project and warehouse), and on a lakehouse page two more, Plan and Profile. Messages, Chart, Plan and Profile are Preview: on a lakehouse or local project page they carry the Preview tag and go when Settings hides preview features; on the Warehouse page the whole page is already Preview.
 
 - **Results**: the rows a page at a time, with Copy and Export, as before.
 - **Messages**: what the last run did: its target, when it was queued, started and ended, its state, rows and columns, why it was refused or failed, and its time limit. Never the SQL.
+- **Plan** (lakehouse page, Preview): **Show the plan** asks DuckDB on this PC how it would run the query, or the selection, without running it: each step (read table, filter, join, group by, sort) with the table, filter or keys it works on and its estimated rows. Hover a step for all its details. The tables are opened to work it out, so reading OneLake uses a little capacity. One query that only reads.
+- **Profile** (lakehouse page, Preview): **Profile the query** runs it again under DuckDB's profiler and shows each step's rows, time and share of the time, the slowest step marked, with the total time, rows read and peak memory: the same view as a notebook result's Query profile. It reads the tables again, which uses capacity. One query that only reads.
 - **Chart**: a quick bar, stacked bar, line, area, pie, scatter or histogram of the result, with X axis, values, aggregate (sum, average, count, max, min) and series. It reads the rows already on this PC from the run's snapshot, up to the first 50,000, so nothing runs again and no capacity is used. It draws the first 60 X axis values (the note says how many more there are) and up to 7 series (the rest as Other).
 
-A query that returns several result sets isn't possible yet: the page sends one statement at a time. That comes with warehouse writes and scripts, which wait on their own decision.
+With Preview features shown, **Run** on a script of several statements gives each statement its own result tab, here as on the other SQL pages. See [Several statements in one run](sql-execution.md#several-statements-in-one-run-preview). **Ctrl+Shift+Enter** runs only the statement at the cursor, with one result.
 
 The page stays tagged Preview until the app's own sign-in has run a query on a tenant: the [tenant run](#tested-on-a-tenant) used another sign-in. Settings can hide preview features.
 

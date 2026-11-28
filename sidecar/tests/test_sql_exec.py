@@ -20,7 +20,7 @@ import pyarrow.parquet as pq
 import pytest
 from deltalake import write_deltalake
 
-from fabric_desktop import app_settings, sql, sql_exec, sql_policy
+from fabric_desktop import app_settings, sql, sql_exec, sql_policy, sql_view
 from fabric_desktop.measure import RunMeter
 
 SLOW = "SELECT sum(a.range * b.range) FROM range(200000000) a, range(1000) b"
@@ -257,6 +257,20 @@ def test_the_time_limit_stops_a_run(tmp_path, lake):
     try:
         status = wait(manager, manager.start(SLOW, lake)["id"])
         assert status["state"] == "timed_out" and "time limit" in status["error"]
+        assert "Settings › SQL" in status["error"]
+    finally:
+        manager.shutdown()
+
+
+def test_a_lakehouse_run_stopped_by_the_organizations_limit_says_so(tmp_path, lake):
+    manager = sql_exec.SqlExecutions(tmp_path, token=lambda: "",
+                                     limits=limits(sql_time_limit_minutes=0.02, sql_time_limit_by_policy=True))
+    try:
+        run = manager.start(SLOW, lake)
+        status = wait(manager, run["id"])
+        assert status["state"] == "timed_out", status
+        assert status["error"] == "Stopped after your organization's time limit (0.02 minutes)."
+        assert not manager._get(run["id"]).folder.exists()  # its spill folder goes with it
     finally:
         manager.shutdown()
 
@@ -396,6 +410,66 @@ def test_parquet_export_renames_repeated_columns_so_it_reads_back(runs, lake):
     assert table.column_names == ["id", "amount", "id_2"] and table.column(1).to_pylist() == [1.5, None, 3.25]
 
 
+def test_excel_export_has_a_header_row_and_every_row(runs, lake):
+    import zipfile
+    run = wait(runs, runs.start("SELECT id, country FROM sales ORDER BY id", lake)["id"])
+    status = wait_export(runs, runs.export(run["id"], "xlsx", "sales")["id"])
+    assert status["state"] == "completed" and status["rows"] == 3 and status["path"].endswith(".xlsx")
+    with zipfile.ZipFile(status["path"]) as z:
+        sheet = z.read("xl/worksheets/sheet1.xml").decode()
+    assert sheet.count("<row ") == 4 and ">country<" in sheet and ">NL<" in sheet
+
+
+def test_excel_export_refuses_more_rows_than_a_sheet_holds(runs, lake, monkeypatch):
+    run = wait(runs, runs.start("SELECT id FROM sales", lake)["id"])
+    monkeypatch.setattr(sql_exec, "EXCEL_MAX_ROWS", 2)
+    with pytest.raises(ValueError, match="Excel holds at most 2 rows"):
+        runs.export(run["id"], "xlsx")
+
+
+def test_excel_export_refuses_more_columns_than_a_sheet_holds(runs, lake, monkeypatch):
+    run = wait(runs, runs.start("SELECT id, amount, country FROM sales", lake)["id"])
+    monkeypatch.setattr(sql_exec, "EXCEL_MAX_COLUMNS", 2)
+    with pytest.raises(ValueError, match="Excel holds at most 2 columns and this result has 3"):
+        runs.export(run["id"], "xlsx")
+    assert wait_export(runs, runs.export(run["id"], "csv")["id"])["state"] == "completed"  # CSV holds them
+
+
+def test_json_export_is_an_array_of_rows_with_unique_keys(runs, lake):
+    run = wait(runs, runs.start("SELECT id, amount, country, id, DATE '2026-01-02' AS d, CAST('NaN' AS DOUBLE) AS bad, "
+                                "CAST(1.10 AS DECIMAL(5,2)) AS money, unhex('0001') AS raw FROM sales ORDER BY id", lake)["id"])
+    status = wait_export(runs, runs.export(run["id"], "json")["id"])
+    rows = json.loads(Path(status["path"]).read_text(encoding="utf-8"))
+    assert status["rows"] == 3 and len(rows) == 3
+    assert rows[0] == {"id": 1, "amount": 1.5, "country": "NL", "id_2": 1, "d": "2026-01-02", "bad": None,
+                       "money": "1.10", "raw": "AAE="}
+    assert rows[1]["amount"] is None and rows[1]["country"] is None
+
+
+def test_json_export_of_no_rows_is_an_empty_array(runs, lake):
+    run = wait(runs, runs.start("SELECT id FROM sales WHERE id < 0", lake)["id"])
+    status = wait_export(runs, runs.export(run["id"], "json")["id"])
+    assert json.loads(Path(status["path"]).read_text()) == []
+
+
+def test_an_unknown_export_format_is_refused(runs, lake):
+    run = wait(runs, runs.start("SELECT 1 AS a", lake)["id"])
+    with pytest.raises(ValueError, match="Export as csv, parquet, xlsx or json"):
+        runs.export(run["id"], "xml")
+
+
+@pytest.mark.parametrize("fmt", ["xlsx", "json"])
+def test_a_stopped_excel_or_json_export_leaves_no_files(runs, lake, tmp_path, monkeypatch, fmt):
+    run = wait(runs, runs.start("SELECT range FROM range(300000)", lake)["id"])
+    export = sql_exec.Export(id="x", execution=run["id"], format=fmt, path=tmp_path / "Downloads" / f"r.{fmt}", total=0)
+    export.path.parent.mkdir(parents=True)
+    export.path.write_bytes(b"")
+    export.cancel.set()
+    runs._write(runs._get(run["id"]).snapshot, export)
+    assert export.state == "cancelled"
+    assert list((tmp_path / "Downloads").iterdir()) == []
+
+
 def test_a_stopped_export_leaves_no_files(runs, lake, tmp_path, monkeypatch):
     run = wait(runs, runs.start("SELECT range FROM range(300000)", lake)["id"])
     real = sql_exec._writer
@@ -475,10 +549,10 @@ def test_status_never_returns_the_sql(runs, lake):
 
 def test_service_calls_are_wired_and_audited_as_intended():
     from fabric_desktop import audit, server
-    for method in ("sql_start", "sql_status", "sql_page", "sql_cancel", "sql_export",
+    for method in ("sql_start", "sql_status", "sql_page", "sql_column_stats", "sql_cancel", "sql_export",
                    "sql_export_status", "sql_export_cancel"):
         assert method in server.METHODS
-    assert not audit.audited("sql_status") and not audit.audited("sql_page")
+    assert not audit.audited("sql_status") and not audit.audited("sql_page") and not audit.audited("sql_column_stats")
     assert audit.audited("sql_start") and audit.audited("sql_cancel") and audit.audited("sql_export")
     assert audit.target({"query": "SELECT secret", "lakehouse_ref": {"name": "LH"}})["query"] == "(given)"
     watchdog = (Path(__file__).parents[2] / "app" / "src-tauri" / "src" / "watchdog.rs").read_text()
@@ -493,7 +567,8 @@ def test_sql_settings_have_defaults_ranges_and_policy(tmp_path, monkeypatch):
     monkeypatch.setenv("ProgramData", str(tmp_path / "policy"))
     assert app_settings.sql_limits() == {"sql_page_rows": 1000, "sql_time_limit_minutes": 10,
                                          "sql_memory_limit_percent": 60, "sql_max_concurrent": 2,
-                                         "sql_result_retention_hours": 24, "sql_temp_dir": ""}
+                                         "sql_result_retention_hours": 24, "sql_temp_dir": "",
+                                         "sql_time_limit_by_policy": False}
     app_settings.save({"sql_page_rows": "500", "sql_time_limit_minutes": 0})
     assert app_settings.sql_limits()["sql_page_rows"] == 500
     assert app_settings.sql_limits()["sql_time_limit_minutes"] == 0
@@ -582,6 +657,21 @@ def test_lakehouse_refusals_are_unchanged_by_the_local_class():
         assert verdicts[0].kind == "onelake_write" and not verdicts[0].confirm
     with pytest.raises(ValueError):
         sql_policy.classify([], "elsewhere")
+
+
+def test_comment_lines_after_the_last_semicolon_are_read_only_in_every_dialect():
+    for dialect in ("spark", "duckdb"):
+        for target in ("lakehouse", "local"):
+            verdicts = sql_policy.classify(sql.parse("SELECT 1;\n-- notes\n-- more", dialect), target)
+            assert [v.kind for v in verdicts] == ["read_only", "read_only"]
+    # comments don't hide what comes before them
+    verdicts = sql_policy.classify(sql.parse("DROP TABLE sales; -- notes", "spark"))
+    assert verdicts[0].kind == "onelake_write"
+    # a Semicolon that ever carries parts isn't read as comments only
+    from sqlglot import exp
+    odd = exp.Semicolon()
+    odd.set("this", exp.to_identifier("x"))
+    assert sql_policy.classify([odd])[0].kind == "fabric_mutation"
 
 
 def test_a_lakehouse_run_can_never_allow_project_writes(runs, lake):
@@ -755,6 +845,15 @@ def test_local_target_runs_t_sql_under_the_same_policy(local_runs):
     assert count(local_runs) == 2500
 
 
+def test_a_local_t_sql_run_says_where_its_answer_can_differ_from_a_warehouse(local_runs):
+    # WR-206: a decimal AVG is worked out in floating point here; the run's status says so, and the page shows it.
+    done = wait(local_runs, start_local(local_runs, "SELECT AVG(CAST(id AS DECIMAL(10, 2))) AS a FROM orders",
+                                        dialect="tsql")["id"])
+    assert done["state"] == "completed" and any("floating point" in n for n in done["notes"])
+    plain = wait(local_runs, start_local(local_runs, "SELECT TOP 1 id FROM orders ORDER BY id", dialect="tsql")["id"])
+    assert plain["notes"] == []
+
+
 def test_a_dry_run_changes_nothing(local_runs, runs, lake):
     before = local_runs.recent()
     plan = start_local(local_runs, "INSERT INTO orders VALUES (9999, 1); DROP TABLE orders", dry_run=True)
@@ -826,3 +925,109 @@ def test_a_temp_view_is_found_whatever_case_it_is_named_in(runs, lake):
                                    "SELECT count(*) AS n FROM recent", lake, allow=["local_mutation"])["id"])
     assert status["state"] == "completed", status.get("error")
     assert runs.page(status["id"])["rows"] == [[2]]
+
+
+def test_local_and_lakehouse_runs_share_the_time_limit_wording():
+    assert sql_exec.time_limit_message("sql", 600) == "Stopped after the time limit (10 minutes, Settings › SQL)."
+    assert sql_exec.time_limit_message("policy", 90) == "Stopped after your organization's time limit (1.5 minutes)."
+    assert "project's settings" in sql_exec.time_limit_message("project", 60)
+    assert sql_exec.time_limit_message("caller", 60) == ""
+
+
+# ---- plan and profile on a lakehouse (editor parity S39, S40)
+
+def test_a_lakehouse_plan_lists_duckdb_s_steps_without_running_the_query(runs, lake):
+    status = wait(runs, runs.start("SELECT country, sum(amount) FROM sales WHERE id > 1 GROUP BY country", lake,
+                                   estimated_plan=True)["id"])
+    assert status["state"] == "completed" and status["plan"] is True and status["rows"] == 1
+    plan = json.loads(runs.page(status["id"])["rows"][0][0])
+    names = [s["name"] for s in plan["steps"]]
+    assert any("GROUP_BY" in n for n in names) and plan["more_steps"] == 0
+    assert [s["depth"] for s in plan["steps"]][0] == 0 and max(s["depth"] for s in plan["steps"]) >= 2
+    assert all(set(s) == {"depth", "name", "rows", "details"} for s in plan["steps"])
+    assert runs.audit_lines[-1][3]["plan"] is True and "profile" not in runs.audit_lines[-1][3]
+
+
+def test_a_lakehouse_profile_runs_the_query_under_the_profiler(runs, lake):
+    status = wait(runs, runs.start("SELECT country, sum(amount) FROM sales GROUP BY country", lake, profile=True)["id"])
+    assert status["state"] == "completed" and status["profile"] is True
+    profile = json.loads(runs.page(status["id"])["rows"][0][0])
+    assert {"seconds", "rows", "rows_scanned", "peak_memory", "steps", "more_steps"} <= set(profile)
+    assert profile["rows"] == 3 and profile["steps"] and all(0 <= s["share"] <= 1 for s in profile["steps"])
+    assert runs.audit_lines[-1][3]["profile"] is True
+
+
+@pytest.mark.parametrize("query", ["SELECT 1; SELECT 2", "CREATE TEMP VIEW v AS SELECT 1 x"])
+def test_a_plan_or_profile_is_for_one_query_that_reads(runs, lake, query):
+    for kind in ({"estimated_plan": True}, {"profile": True}):
+        status = wait(runs, runs.start(query, lake, **kind)["id"])
+        assert status["state"] == "failed" and status["error_kind"] in ("plan", "permission"), status
+    with pytest.raises(ValueError, match="only reads"):
+        runs.start("CREATE TEMP VIEW v AS SELECT 1 x", lake, allow=["local_mutation"], profile=True)
+
+
+def test_a_profile_is_only_for_a_lakehouse_and_never_with_a_plan(runs, lake):
+    with pytest.raises(ValueError, match="query profile"):
+        runs.start("SELECT 1", lake, profile=True, estimated_plan=True)
+    with pytest.raises(ValueError, match="query profile"):
+        runs.start("SELECT 1", None, "tsql", target="warehouse", profile=True,
+                   warehouse_ref={"workspace_id": "ws", "item_id": "wh", "kind": "warehouse"})
+
+
+def test_plan_steps_reads_estimates_and_caps_the_list():
+    from fabric_desktop import sql_worker
+    leaf = {"name": "SEQ_SCAN", "extra_info": {"Table": "t", "Projections": ["a", "b"], "Estimated Cardinality": "20"}}
+    got = sql_worker.plan_steps([{"name": "PROJECTION", "extra_info": {"Projections": "a"}, "children": [leaf]}])
+    assert got == {"steps": [{"depth": 0, "name": "PROJECTION", "rows": None, "details": {"Projections": "a"}},
+                             {"depth": 1, "name": "SEQ_SCAN", "rows": 20, "details": {"Table": "t", "Projections": "a, b"}}],
+                   "more_steps": 0}
+    chain: dict = {"name": "LEAF"}
+    for _ in range(sql_worker.PLAN_NODES + 4):
+        chain = {"name": "PROJECTION", "children": [chain]}
+    big = sql_worker.plan_steps([chain])
+    assert len(big["steps"]) == sql_worker.PLAN_NODES and big["more_steps"] == 5
+
+
+# ---- the result grid: sort, filter and column statistics over the snapshot (S19, S20, S26)
+
+def test_a_page_can_be_sorted_and_filtered_over_every_row_without_running_again(runs, lake):
+    status = wait(runs, runs.start("SELECT id, country, amount FROM sales", lake)["id"])
+    page = runs.page(status["id"], 0, 2, sort=[{"column": 2, "desc": True}])
+    assert page["rows"] == [[3, "US", 3.25], [1, "NL", 1.5]] and page["total"] == 3 and page["all_rows"] == 3
+    assert page["has_next"] is True and page["sort"] == [{"column": 2, "desc": True}]
+    page = runs.page(status["id"], 0, 10, filters=[{"column": 1, "text": "not null"}, {"column": 0, "text": "  "}])
+    assert [r[0] for r in page["rows"]] == [1, 3] and page["total"] == 2 and page["filters"] == [{"column": 1, "text": "not null"}]
+    assert runs.page(status["id"], 0, 10)["total"] == 3, "no sort or filter: the snapshot as it is"
+    stats = runs.column_stats(status["id"], 2)
+    assert stats["rows"] == 3 and stats["missing"] == 1 and stats["max"] == 3.25
+    assert len([a for a in runs.audit_lines if a[0] == "sql_start"]) <= 1, "nothing ran again"
+
+
+def test_the_service_answers_a_filter_it_can_t_read_with_its_column(tmp_path, runs, lake):
+    from fabric_desktop.service import Service
+    status = wait(runs, runs.start("SELECT id, country FROM sales", lake)["id"])
+    svc = Service.__new__(Service)
+    svc._sql_runs = runs  # type: ignore[attr-defined]
+    out = svc.sql_page(status["id"], filters=[{"column": 0, "text": "> many"}])
+    assert out["filter_error"] == {"column": 0, "message": "Write a number after > in the filter on id, as 3000 or 12.5."}
+    assert "rows" not in out
+    assert svc.sql_column_stats(status["id"], 1)["kind"] == "text"
+
+
+def test_sorting_a_result_over_the_grid_s_limit_is_refused(runs, lake, monkeypatch):
+    status = wait(runs, runs.start("SELECT id FROM sales", lake)["id"])
+    monkeypatch.setattr(sql_view, "VIEW_MAX_ROWS", 2)
+    with pytest.raises(ValueError, match="Sorting and filtering works on results of up to 2 rows"):
+        runs.page(status["id"], sort=[{"column": 0}])
+    with pytest.raises(ValueError, match="Column statistics works"):
+        runs.column_stats(status["id"], 0)
+    assert runs.page(status["id"])["total"] == 3, "plain paging still works"
+
+
+def test_a_spark_run_gives_sha2_at_each_length_spark_has(runs, lake):
+    import hashlib
+    run = wait(runs, runs.start("SELECT sha2('abc', 224) AS a, sha2('abc', 384) AS b, sha2('abc', 512) AS c, "
+                                "sha2('abc', 1) AS d", lake, dialect="spark")["id"])
+    assert run["state"] == "completed", run
+    assert runs.page(run["id"])["rows"] == [[hashlib.sha224(b"abc").hexdigest(), hashlib.sha384(b"abc").hexdigest(),
+                                            hashlib.sha512(b"abc").hexdigest(), None]]

@@ -47,6 +47,10 @@ class OrganizationsMixin:
             guest = bool(auth.is_guest())
         except Exception as exc:  # noqa: BLE001 - offline or no sign-in yet: the page still shows the choice
             _log.info("Organization status without the sign-in: %s", describe(exc))
+            # Offline: who is signed in, from the saved sign-in alone (Service._saved_account).
+            saved = getattr(self, "_saved_account", dict)() or {}
+            account_id = str(saved.get("home_account_id") or "")
+            user, home = saved.get("username"), (account_id.split(".", 1)[1] if "." in account_id else None)
         home_domain = user.rsplit("@", 1)[1].lower() if user and "@" in user else ""
         return {"setting": setting["value"], "fixed": setting["source"] == "policy",
                 "current": self._organization_of(str(setting["value"] or "")),

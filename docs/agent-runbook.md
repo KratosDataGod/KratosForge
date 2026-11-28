@@ -74,6 +74,16 @@ Text in `<angle brackets>` stands for a value filled in when the message is writ
 
 **Recover.** Nothing. The other agent finishes the request.
 
+### A Prod job's audit line couldn't be written
+
+- **Message** (`agent.py`, log): `job not started: its audit line couldn't be written`
+
+**Means.** A Prod job runs only once its `started` line is in the audit log, as the app's own Prod actions do. The line couldn't be written, so nothing ran; the job waits in the queue and is tried again later.
+
+**Check first.** Is the disk with the agent's home full, or is the audit folder read-only or locked by another program?
+
+**Recover.** Free disk space or unlock the audit folder. The job runs on its next try.
+
 ## Starting the agent
 
 ### The agent's settings are refused
@@ -96,14 +106,24 @@ A stop before the agent's own log starts is also kept in `<home>/logs/agent-star
 
 **Recover.** Fix `agent.toml` and start the agent again. Until it starts, its schedules don't run. Other agents and the app report it as [offline](#agent-offline) once its last status record goes stale.
 
+### The agent's home was saved by a newer build
+
+- **Message** (`data_format.py`, at start): `The data in <home> was saved by a newer KratosForge (data format <n>; this build, <version>, reads up to <max>). This older build won't open it, so nothing the newer one saved is damaged. Run the newer build again, or restore a backup taken before that upgrade (docs/install.md, Going back to an older build).`
+
+**Means.** A newer build of KratosForge ran in this agent's home and changed how its data is stored, and this build is older, so it stopped rather than misread or overwrite what the newer one saved. The entry in `logs/agent-start.log` has `stage=data`. Usually the agent was rolled back by hand, or Task Scheduler points at an older install than the one that last ran.
+
+**Check first.** The entry's `version=` is the build that stopped. Which install does the scheduled task start, and did a newer build run in this home, for example a Preview tried on the same server?
+
+**Recover.** Run the newer build again. To stay on the older build, restore the agent's home from a [backup](backup.md) taken before the upgrade ([Going back to an older build](install.md#going-back-to-an-older-build)), then start the agent. Don't delete `data-format.json`: the older build would then open data it can misread.
+
 ### The agent stopped as it started
 
 - **Message** (`agent_start.py`, `agent-start.log`): `<time> agent run stopped: stage=<stage> exit=<code> version=<version>`
 - **Message** (`cli.py`, log): `agent stopped by an error`
 
-**Means.** `agent run` stopped before or as it started. Task Scheduler shows only "the task ended with code 2" (or 1) and restarts it every minute, so each stop adds an entry to `logs/agent-start.log` in the agent's home: when (UTC), the stage, the exit code, the version and the reason, made log-safe. `settings` is an `agent.toml` problem, `data` is a home written by a newer version, `start` is a refusal such as [another agent using the control folder](#another-agent-is-using-the-control-folder), and `crash` is an error nobody expected, with the files and lines it went through (no values). When `agent.toml` couldn't be read, the entry is in the default home (`%ProgramData%\FabricDesktop\agent`). The file stays under 256 KB and is never sent anywhere.
+**Means.** `agent run` stopped before or as it started. Task Scheduler shows only "the task ended with code 2" (or 1) and restarts it every minute, so each stop adds an entry to `logs/agent-start.log` in the agent's home: when (UTC), the stage, the exit code, the version and the reason, made log-safe. `settings` is an [`agent.toml` problem](#the-agents-settings-are-refused), `data` is a [home saved by a newer build](#the-agents-home-was-saved-by-a-newer-build), `start` is a refusal such as [another agent using the control folder](#another-agent-is-using-the-control-folder), and `crash` is an error nobody expected, with the files and lines it went through (no values). When `agent.toml` couldn't be read, the entry is in the default home (`%ProgramData%\FabricDesktop\agent`). The file stays under 256 KB and is never sent anywhere.
 
-**Check first.** Read the newest entry: its stage says which section below applies. For `crash`, `agent.log` has the same error with its stack.
+**Check first.** Read the newest entry. Its second line, `see docs/agent-runbook.md#<section>`, names the section of this page for its stage. For `crash`, `agent.log` has the same error with its stack.
 
 **Recover.** Fix what the entry names, then let Task Scheduler start it again or start the task by hand. Send `agent-start.log` with `agent.log` when you report a crash.
 
@@ -127,6 +147,19 @@ A stop before the agent's own log starts is also kept in `<home>/logs/agent-star
 **Check first.** Is a second copy of the agent running on this PC, for example one started by hand while the service runs? Do two `agent.toml` files name the same project and environment?
 
 **Recover.** Stop the agent the message names, or give this agent a different environment. Then start it again. Deleting `agent.lock` doesn't help: the lock is on the open file, not on the file being there.
+
+### The agent's queue is full
+
+- **Message** (`agent.py`, log): `schedule deferred: the agent's queue is full; it runs once there is room`
+- **Message** (`mailbox.py`, log): `pipeline request waiting: the agent's queue is full`
+- **Message** (`agent.py`, log): `not queued: the agent's queue is full`
+- **Message** (`jobqueue.py`, `agent enqueue`): `the agent's queue is full: <n> jobs are waiting (agent.max_queued = <limit>); nothing was queued`
+
+**Means.** `agent.max_queued` jobs (default 1000) are already waiting, so new work is held back rather than added. Nothing is dropped and nothing queued is removed: a schedule keeps its due time and is queued once there is room (logged once per due time, counted in the status record's `schedules_deferred`), a pipeline request waits with `waiting` in its status, and `agent enqueue` exits 1 with the reason. The queue fills when jobs arrive faster than they finish: runs failing slowly and retrying, a paused or throttled capacity, `agent.concurrency` too low for the schedules, or a pipeline flooding requests.
+
+**Check first.** Run `fabric-desktop agent status`: are jobs running at all? If none run, look for a job that keeps failing ([A job didn't finish](#a-job-didnt-finish)) or a capacity problem. If they run but slowly, compare how long a run takes with how often its schedule fires.
+
+**Recover.** Fix what holds the jobs back, and the queue drains on its own; held-back schedules and requests then queue once each. Raise `agent.max_queued` only when the machine can really work through more, since a longer queue only makes work wait longer.
 
 ### The job queue file couldn't be read
 
@@ -194,9 +227,21 @@ Each agent sends this message once for a due time. If several agents sharing the
 
 A route that keeps failing rests between tries, so an outage doesn't cost a request, or a stalled loop, every pass. The first rest is a minute, and each failure after that doubles it, up to 30 minutes. While a route rests, its new messages go straight to the outbox, logged at info level (`alert waits: Teams failed recently, so it goes with the next try`). The warnings above appear only when a request was sent and failed. A throttled post (429) is retried at most twice, each wait capped at 10 seconds. A webhook that doesn't answer gives up after 5 seconds to connect or 15 to read. A route rests until its next try even after the webhook is fixed, unless its address changed: a new address is tried at once. When it recovers, it sends up to 25 waiting messages each pass, oldest first. The status record's `messages_waiting` shows how many are waiting.
 
+Each failed request, and each drop, also adds a `notice_not_delivered` line to the agent's [audit log](agent.md#the-agents-audit-trail), with the outbox, how many messages it queued or dropped, and the error without the address. A message is kept in its outbox before it is posted, so an agent stopped mid-send (a crash, a restart, a lost server) doesn't lose it. Ten minutes later the next try sends it, marked **Delayed**, with the note `sending it was cut off, so it may have arrived already`. A post that was cut off on its way may have reached Teams or the inbox, so that note marks the only case where a message can appear twice.
+
 **Check first.** Can the machine reach the webhook's host? Does the Teams channel still have its workflow or connector?
 
 **Recover.** If the webhook was replaced, set the new address in the environment variable that `alerts.teams_webhook_env` (or the route's `webhook_env`) names. Then restart the agent, since it reads its environment at start. Waiting messages go with the next try.
+
+### A message to Teams may have arrived, and isn't sent again
+
+- **Message** (`agent.py`, log): `couldn't confirm the alert reached Teams; it may have arrived, so it isn't sent again`
+
+**Means.** The message was sent, but it isn't known whether it arrived: Teams or the flow didn't answer within 15 seconds, answered 500, 502 or 504 (it failed after the request reached it), the connection dropped after the request went, or the mail server stopped answering while it took the email. It may have arrived, so it is taken out of the outbox. It isn't sent again, so it can't be posted twice. It's counted as `unconfirmed` in a `notice_not_delivered` line in the agent's [audit log](agent.md#the-agents-audit-trail), and the error says `It was sent, but no answer confirmed it, so it may have arrived`. A message that was refused or never sent (no connection, a connect timeout, any answer such as 429, 403 or 503) waits and is sent again as above. The route rests as it does after any failure.
+
+**Check first.** Look in the channel or inbox for the message at the time in the log.
+
+**Recover.** If it didn't arrive, its incident or job is still shown on Monitor; nothing else waits on the message.
 
 ### A message was dropped
 
@@ -220,6 +265,16 @@ A route that keeps failing rests between tries, so an outage doesn't cost a requ
 **Check first.** The `route` and `variable` fields name the route and the variable. Check the variable is set in the service's own environment (the systemd unit, the container, or the scheduled task), not only in your shell.
 
 **Recover.** Set the variable to a Teams webhook or `flow:https://...`, then restart the agent. For email, send it through a flow or from the app ([incidents](incidents.md#teams-a-flow-or-email)).
+
+### The alerts outbox couldn't be opened
+
+- **Message** (`agent.py`, log): `couldn't open the alerts outbox; incident changes are posted once, without it`
+
+**Means.** The incidents were written, but the outbox that keeps their messages until Teams takes them couldn't be opened. Each change is posted once and not kept; one that can't go now (quiet hours, a failing route) is counted as lost and audited.
+
+**Check first.** Is `alerts.sqlite3` in the agent's home locked by another program, damaged, or on a full disk?
+
+**Recover.** Free the file or the disk, or restart the agent. Messages queue in the outbox again from the next pass.
 
 ## Incidents
 

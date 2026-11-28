@@ -3,10 +3,179 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-10 11:42 UTC, main 5d2fc045.** Covers the PRs merged from #135 to #2395.
+**Product check of 2026-11-26 11:42 UTC, main 046f9d3e.** Covers the PRs merged from #135 to #3351.
 
 ## Summary
 
+- Morning check, 2026-11-26: 7 PRs merged after 9ea9dfde. 1 was product data, and the other 6 were linked. Ossie
+  work dominated (PB-110). The Direct Lake model builder now writes through the one TMDL writer (OSSIE-007a), and
+  Ossie gained a fixture corpus, a converter-upgrade check, large-model scale tests, stricter writers and speed-ups.
+  The SQL translator matches substring edges and sub-second timestamps across T-SQL, Spark and Snowflake (#3238,
+  PB-120). No item changed state.
+- Evening check, 2026-11-25: 15 PRs merged after b4bc548d. 2 were product data, and the other 13 were linked.
+  Direct Lake fallback risk shipped in Preview with one verdict per model, a growth forecast and a SKU what-if
+  (#3343, PB-110), and Ossie gained a compatibility matrix and a Snowflake export profile (engine only). Notebooks
+  gained Present mode (N49, #3338, Preview) and a measured budget for 2,000-cell notebooks (WR-134, PB-103). The
+  local API takes the caller's address from the socket only (#3342, PB-095). No item changed state.
+- Morning check, 2026-11-25: 11 PRs merged after 84a36dd6, all linked. Databricks Unity Catalog volumes work on this
+  PC with a Volumes screen (#3323, Preview, PB-120), and Markdown cells have a toolbar and preview (N23, #3329,
+  Preview, PB-103). Command-line restore is audited (WR-418, PB-124). Five test-stability PRs landed, and no test
+  reaches the network (#3311, PB-101). No item changed state.
+- Evening check, 2026-11-24: 30 PRs merged after a73ebb71. 3 were product data and a docs accuracy sweep, and the
+  other 27 were linked. A failed critical control now caps the Excellence rating below Exemplary (#3305, PB-138), and
+  Warehouse controls joined it (FEA-303). Command-line pipeline runs go through the audited, fail-closed call (WR-416)
+  and governance errors name the setting (WR-414, PB-124). A Databricks Asset Bundle can be checked on this PC
+  (WR-321, Preview, PB-120). Notebooks merge by cell across VS Code and the app (#3306, Preview, PB-109), and class
+  achievement cards sit above the skill trees (#3277, Preview, PB-134). No item changed state.
+- Morning check, 2026-11-24: 38 PRs merged after 293fb38d. 3 were the weekly review, docs audit 26 and a docs
+  accuracy sweep, and the other 35 were linked. Every Prod, approve, confirm and typed-name action is now proven to
+  fail closed (WR-410), and delete-my-data is proven to remove every inventoried store (WR-412, PB-124). Academy
+  practice exams gained new question types with partial credit (PB-128). The Excellence Assessment records accepted
+  risks and exceptions (FEA-404, PB-138). Browser tests now cover 77 pages and panels. No item changed state.
+- Evening check, 2026-11-23: 16 PRs merged after 0fdeb4d7. 1 was a product data PR, and the other 15 were linked.
+  The semantic model Best practices check card shipped in Preview from the approved mockup (#3210, PB-115). Databricks
+  SQL cells on this PC read Unity Catalog names (WR-316, PB-120). Parity cases now have a local runner and run records
+  (PAR-002, PB-140). Regular expressions answer as each platform does or stop by name (WR-257). No item changed state.
+- Check, 2026-11-23 (main didn't move between 11-20 and 11-23, so the weekend checks had nothing to refresh): 42
+  PRs merged after ea988e99. 2 were product data and docs PRs, and the other 40 were linked. PB-115 moved to In
+  progress: the live test can run the semantic model best practices check (#2913), and the product owner typed 'yes, run
+  it' for the live run on 11-20; it waits on his Allow on his PC. Profile > Skill trees shows the developer classes as talent trees in Preview (#2955,
+  PB-134). A read-only Snowflake SQL warehouse engine is in Preview (SF-003, PB-140). Every notebook cell write path
+  now waits for a Prod workspace's name (WR-131, PB-124).
+- Evening check, 2026-11-20: 23 PRs merged after bdb6f251. 2 were product data and docs audit PRs, and the other 21
+  were linked. Settings > Environment shows the KratosForge Environment with Upgrade's plan and confirm (CP-010), and
+  the environment's own cost is kept apart from savings (CP-011, PB-139). Each table can choose its Delta features at
+  publish, with a typed confirm when a reader can't read them (PB-099). Semantic parity levels and Fabric Semantic
+  View files landed (PB-110). Property tests show savings and the optimizer never invent a saving. Docs audit 25
+  merged with a checker that runs the docs' examples (#3142). No item changed state.
+- Morning check, 2026-11-20: 32 PRs merged after 75bf5b39. 1 was a product data PR, and the other 31 were linked.
+  A new program has an item: PB-140 Three-platform parity (Phase 0 assessment and scored backlog in #3112; Snowflake
+  key-pair and PAT sign-in in Preview, #3113; computed P3, In progress). The central control plane (PB-139) landed
+  CP-001 to CP-009 in the engine. Promote, rollback, restore and Save as table in a Prod workspace now wait for its
+  typed name (PB-124). Lineage exports OpenLineage run events in Preview (PB-081, #2949).
+- Evening check, 2026-11-19: 40 PRs merged after 1719d5db. 2 were product data and docs audit PRs, and the other 38
+  were linked. A new program has an item: PB-139 Central control plane, the KratosForge Environment (Phase 0 plan,
+  decisions and stories CP-001 to CP-017 merged in #3109; computed P3, In progress). Every Prod write path is listed
+  with its guard and two gaps are closed (#3100, PB-124). Silent wrong answers in double rounding and text-to-number
+  comparisons are fixed across Spark, T-SQL and Snowflake (#3101). The Excellence Assessment added capacity and
+  semantic model controls (PB-138), and docs audit 24 merged (#3014).
+- Morning check, 2026-11-19: 39 PRs merged after ad1ac4cf. 1 was a product data PR, and the other 38 were linked.
+  The Excellence scorecard is on Optimize > Assessment in Preview (FEA-109, PB-138), with notebook and pipeline
+  controls. A semantic model card saves an Ossie file as TMDL with a Round-trip check (PB-110 slice 3). Optimize asks
+  first on a capacity warning, and Prod schedules write their started line before they run (PB-124). Fuzzing, coverage
+  and mutation batches 94 to 148 hardened the engine (PB-101). No item changed state.
+- Evening check, 2026-11-18: 50 PRs merged after 7be2906d. 4 were product data and work queue PRs, and the other 46
+  were linked. Writes to Delta tables now use deletion vectors and column mapping by default (PB-099, #2971), as the
+  product owner asked. Savings Intelligence added sync states, period figures and pricing scenarios (PB-137), and the
+  Excellence Assessment its first controls (PB-138), all engine only. Spark SQL on this PC matches Spark 3.5 for JSON,
+  hashing and the session time zone (PB-103). The mastery engine (#2206, PB-134) and the Ossie to TMDL save (#2910,
+  PB-110) merged, and an accessibility audit covered every page (#3016). No item changed state.
+- Acceptance, 2026-11-18: the product owner accepted PB-061 (missing policy keys) with documented limitations on
+  the decision card at 12:55 UTC. The Group Policy templates haven't been applied from a live domain or Intune yet, and
+  the sign-in tenant key (#2419) joins the trust-widening list when it lands.
+- Morning check, 2026-11-18: 52 PRs merged after 8838a247. 5 were product data, docs audit and plan PRs, and the
+  other 47 were linked. Two new programs have items: PB-137 Enterprise Savings Intelligence (plan #2940; schema v2 and
+  the attribution waterfall engine merged) and PB-138 Fabric Excellence Assessment (plan #2939; the assessment engine
+  merged). Group Policy ADMX templates (#2258) closed the last missing key, so PB-061 is now In review: its implementation review recommends Accept with documented limitations
+  (the Group Policy templates haven't been applied from a live domain). Run 11's
+  live check fed local T-SQL a warehouse's answers (PB-002). Data health watches table freshness, volume and schema
+  and can open an incident (PB-105). Notebook cells now wait for a Prod workspace's typed name, and CSV exports guard
+  against formula cells, as the product owner chose on 2026-11-17.
+- Evening check, 2026-11-17: 45 PRs merged after 80cebf61. 1 was a product data PR, and the other 44 were linked.
+  Spark on this PC now gives Spark's answers for strings, regular expressions, aggregates, arrays, maps, generators and
+  window functions, and casts as Spark's ANSI-off setting does (PB-103). Local T-SQL refuses COPY INTO, BULK INSERT and
+  OPENROWSET by name and matches a warehouse's data types, procedures and table-valued forms (PB-106). Untested
+  Fabric writes are tagged Preview and every Fabric write is guarded (PB-124), and FOR TIMESTAMP AS OF reads local
+  Delta tables as they were (PB-099). No item changed status in these merges.
+- PB-136 accepted, 2026-11-17: Chris chose 'Accept with limits'. Notebooks run in a process of their own by default;
+  the trial gaps (a per-user 3.12 venv, the two #2601 fixes on his PC, a live tenant) stay listed as limits.
+- Morning check, 2026-11-17: 47 PRs merged after 58a112e4. 3 were product data, docs audit and work queue PRs, and
+  the other 44 were linked. The SQL page gained several statements per run, query parameters, .sql files, result
+  history and a table diagram (Preview), and its result grid can sort, filter, select, copy and arrange columns.
+  Local T-SQL now matches a Fabric Warehouse, or refuses by name, for collation, percentiles, MERGE, scripts, names,
+  SET options and JSON functions (PB-106). Notebooks gained Open as report and a Scratch console (Preview) and the
+  same result table tools (PB-103). Databricks and Snowflake function checks moved on (PB-120), names and ids are
+  checked whole (PB-124), and the Monitor run banner is back (PB-102). No item changed status.
+- Evening check, 2026-11-16: 44 PRs merged after 7bd752a5. 3 were product data, work queue and weekly review PRs,
+  and the other 41 were linked. Local T-SQL now matches a Fabric Warehouse at its edges for dates, arithmetic,
+  conversion and decimals, a warehouse script in BEGIN TRAN ... COMMIT runs as one transaction, and the editor gained
+  word wrap, font size and Vim settings (Preview) (PB-106). Spark on this PC cleared the last Fails rows of the
+  DataFrame API list and writes files as folders of part files (PB-103). Every SQLite store now commits durably
+  through one helper (PB-124), and every Fabric and OneLake write is tested failing (PB-101). No item changed status.
+- Morning check, 2026-11-16: 36 PRs merged after a13d0a0f. 2 were product data and docs audit PRs, and the other
+  34 were linked. Local data gained a Delta reader matrix for the Fabric-safe profile, and a table outside it now names
+  the feature and the readers it would break (PB-099). App Studio checks PBIR page ids as folder-safe names (PB-127).
+  Most of the rest was test work: mutation batches 39 to 54, shell code split out for tests, and Windows tests for
+  signature, policy, engine folder and disk checks (PB-101). No item changed status.
+- Evening check, 2026-11-15 (run 01:03 on 11-16): 22 PRs merged after b76c42d2. 1 was a product data PR, and the
+  other 21 were linked. Cancel now resends its interrupt when a cell missed it and keeps writes that were in flight
+  (PB-103). The SQL check splits on GO only on its own line and points at the failing token (PB-106). Home's banner
+  art and progress panel are back (PB-102). The shell gained tests and Windows coverage, and mutation testing batches
+  32 to 38 landed (PB-101). No item changed status.
+- Morning check, 2026-11-15: 22 PRs merged after 7178e900. 1 was a product data PR, and the other 21 were linked.
+  Databricks parity moved on: Databricks SQL cells read widgets, parse_json keeps decimals of up to 38 digits, and
+  concat writes timestamps and doubles as Spark does (PB-120). Three correctness fixes landed (PB-124), Spark decimals
+  find mixed-case names (PB-103), and mutation testing batches 20 to 31 landed (PB-101). No item changed status.
+- Evening check, 2026-11-14: 27 PRs merged after 2dc0bc43. 3 were product data, docs audit or operations PRs, and the
+  other 24 were linked. Notebook Spark on this PC (Preview) gained Python UDFs, mapInPandas and applyInPandas,
+  spark.catalog listings, dynamic partition overwrite, MERGE with schema evolution, OPTIMIZE, VACUUM and RESTORE, and
+  notebookutils.lakehouse.loadTable; notebooks also gained go to definition, find references and rename across cells
+  (PB-103). The SQL editor gained bookmarks (PB-106). Base64 from the app is decoded strictly everywhere (PB-124), and
+  mutation testing batches 11 to 19 landed (PB-101). No item changed status.
+- Morning check, 2026-11-14: 9 PRs merged after af7d786b. 1 was a product data PR, and the other 8 were linked. The
+  SQL page shows Plan and Profile for lakehouse queries (Preview), copies results as CSV, JSON or INSERT statements,
+  and F12 finds the table under the cursor (PB-106). Notebook templates for Silver and Gold tables landed (PB-103),
+  and the skin look series finished with real previews on each skin card (PB-102, Preview). No item changed state;
+  PB-136's acceptance waits on the product owner.
+- Evening check, 2026-11-13: 38 PRs merged after 6cab0dc3. 3 were product data and operations PRs, and the other 35
+  were linked. Notebooks now run in a process of their own by default (PB-136, now In review: the Windows trial on
+  Python 3.12 passed in every area). Settings has a color mode IT can set, and audit trails and receipts take an IT
+  time limit (PB-061; the Group Policy templates are left). The SQL editor gained run-at-cursor, hover help, Excel and
+  JSON export and Open in SSMS (PB-106). Notebooks export as PDF and render Markdown tables and math (PB-103). The
+  optimization engine assesses a workspace for duplicate work (PB-104, Preview), skins choose their look from fixed
+  choices (PB-102, Preview), and the engine can live in an admin-only folder by policy (PB-124, Preview).
+- Acceptance, 2026-11-13: the product owner accepted PB-073 (notebook cell time and memory limits) with documented
+  limitations. Notebooks still share the in-engine kernel unless **Run notebooks in their own process** is on; making
+  it the default is PB-136, which waits on a clean Windows trial and the product owner's go. The 19 feature request
+  issues moved to a roadmap label, so open issues now track bugs only.
+- Morning check, 2026-11-13: 8 PRs merged after 36844275. 2 were product data and docs audit PRs, and the other 6
+  were linked. The policy key docs now match what the app reads, with a test to keep them in step (PB-061). Agent
+  schedules that are edited or removed in agent.toml run once, as configured now (PB-124). No item changed state;
+  PB-073's acceptance waits on the product owner.
+- Evening check, 2026-11-12: 16 PRs merged after 7c3dbd0e. 1 was a product data PR, and the other 15 were linked.
+  Mutation testing reached batch 10, covering the policy and approval gates, SQL translation and local PySpark
+  (PB-101). Spark on this PC handles extract on text, NaN literals and read.csv's default comma, and SQL cells that
+  end in comments run (PB-103). Set-aside copies made in the same instant no longer replace each other (PB-124). No
+  item changed state; PB-073's acceptance waits on the product owner.
+- Morning check, 2026-11-12: 18 PRs merged after 86c07814. 1 was a product data PR, and the other 17 were linked.
+  Spark SQL's session, clock and random functions answer as in Fabric, and unnamed columns are named as Spark names
+  them (PB-103). A failed Delta write no longer leaves the next query stuck (PB-099). Blocked files name AppLocker or
+  WDAC, Windows FIPS mode is explained, and errors cite a request id only when one was sent (PB-124). Mutation
+  testing now pins the write, commit and clear-up paths. No item changed state; PB-073's acceptance waits on the
+  product owner.
+- Evening check, 2026-11-11: 19 PRs merged after 47416473. 2 were product data and docs audit PRs, and the other 17
+  were linked. App Studio gained its Model connections screen and a working Publish dialog (PB-127, Preview). Local
+  data projects read Delta tables under folders with spaces or non-ASCII names and refuse a write Windows can't read
+  back (PB-099). CI installs from hashed lock files, workflows pin their actions, and the shell's Rust crates are
+  gated by clippy and cargo-deny (PB-124). No item changed state; PB-073's acceptance waits on the product owner.
+- Morning check, 2026-11-11: 72 PRs merged after 17e7ea06. 2 were product data and docs audit PRs, and the other 70
+  were linked. Incidents gained their measures (time to acknowledge, time to resolve, SLAs met) in the engine
+  (PB-105); what's left there is the reports screen, which needs a mockup, and service desk tickets, which need the
+  product owner's go. Estate X-ray Optimizes ticked small-files findings together (PB-104). Sign-in survives a
+  damaged saved sign-in and an unreachable Microsoft sign-in, the app follows the Windows proxy, and tools start by
+  full path (PB-124). Runs that ended mid-write list their leftover files (PB-067), and support bundles are proven to
+  carry no secrets (PB-062). PB-073 moved to In review: its cell time and memory limits shipped, and the review
+  recommends Accept with documented limitations. The default flip moves to the new PB-136, waiting on a clean Windows
+  trial and the product owner's go.
+- Evening check, 2026-11-10: 21 PRs merged after 5d2fc045. 3 were product data PRs, and the other 18 were linked.
+  The secret scan no longer flags commit ids and warns reviewers about changes to its own filters, the agent's crash
+  log tells a crash from a handled fault, and expired local copies are swept daily (PB-124). VS Code says when a cell
+  is too large before sending it and asks again after a dropped check (PB-109). Living Experience now defaults to
+  Subtle, and only achievements celebrate (PB-102, Preview). PB-120 was accepted with documented limitations.
+- Acceptance, 2026-11-10: the product owner accepted PB-120 (platform support levels and one engine contract) with
+  documented limitations. Only Fabric is proven live, to level 2; Databricks and Snowflake are verified at level 0.
+  The SQL portability report and the two-engine comparison have no screen yet, and function checks use one
+  documented example per function on this PC.
 - Morning check, 2026-11-10: 17 PRs merged after d5a867c0. 1 was a product data PR, and the other 16 were linked.
   Every outbound request now retries throttling or says why it is sent once, Fabric lists follow both kinds of
   continuation, CI scans for secrets, and a short memory soak runs in CI on Linux and Windows (PB-124). Notebooks on
@@ -175,7 +344,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 121 items (7 P0, 33 P1, 60 P2, 21 P3). 14 are Proposed, 32 In progress, 2 In review and 73 Accepted.
+- Backlog: 128 items (7 P0, 33 P1, 60 P2, 28 P3). 13 are Proposed, 34 In progress, 2 In review and 79 Accepted.
 - PB-125 (Learn ranks and profile pictures) and PB-126 (Learn curriculum content batches) are new and Proposed, from the
   product owner's ask of 2026-11-02; they build once the rank ladder is approved.
 - PB-124 (new, In progress, P0 like PB-101): the enterprise audit's EA remediation backlog (docs/audits/), tracked as its own item.
@@ -202,7 +371,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 3 In review items (PB-024, PB-045, PB-120), a tenant run of
+two release gates. Also waiting: acceptance of the 2 In review items (PB-024, PB-045), a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

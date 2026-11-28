@@ -169,8 +169,8 @@ def test_a_remote_session_that_couldnt_close_is_noted_once_for_the_person(manage
     manager._notebooks["nb"].sessions["fake-remote"] = _Stuck()
     manager.switch("nb", "local-duckdb", decision="close")
     assert manager.engine_of("nb") == "local-duckdb"
-    assert manager.notes("nb") == ["Couldn't close the Fake remote session. It ends on its own after its idle "
-                                   "timeout, and may use compute (DBUs) until then."]
+    assert manager.notes("nb") == [("Couldn't close the Fake remote session. It ends on its own after its idle "
+                                   "timeout, and may use compute (DBUs) until then.")]
     assert manager.notes("nb") == []
 
 
@@ -190,10 +190,10 @@ def test_a_clean_switch_or_close_has_no_notes(manager):
 
 @pytest.mark.parametrize("engine, says", [
     ("fabric-spark", "may use capacity until then. To stop it now, cancel it in Fabric's Monitor hub."),
-    ("databricks-connect", "may use compute (DBUs) until then. To stop it now, end it on the cluster's page in "
-                           "Databricks."),
-    ("databricks-sql", "may use compute (DBUs) until then. To stop it now, stop it on the SQL warehouse's page "
-                       "in Databricks."),
+    ("databricks-connect", ("may use compute (DBUs) until then. To stop it now, end it on the cluster's page in "
+                           "Databricks.")),
+    ("databricks-sql", ("may use compute (DBUs) until then. To stop it now, stop it on the SQL warehouse's page "
+                       "in Databricks.")),
     ("snowflake-sql", "may use compute or capacity until then."),
 ])
 def test_a_remote_note_names_what_it_may_use_and_where_to_stop_it(engine, says):

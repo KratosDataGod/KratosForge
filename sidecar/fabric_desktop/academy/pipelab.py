@@ -17,7 +17,10 @@ or circular dependencies) and against the exercise's ordering rules; no notebook
 Checks (``validation``):
 
     pipeline_outcome  the run ended with ``status`` and the given ``activities``, ``outputs`` and
-                      ``return_value`` (validators.pipeline_outcome)
+                      ``return_value`` (validators.pipeline_outcome). ``parameters`` runs it with these
+                      instead of the exercise's, so a second check can catch an answer that hard-codes them.
+                      ``mocks`` replaces the exercise's mock for each activity it names, so a check can run
+                      the same pipeline on a night when a stand-in fails
     dag_matches       the DAG is valid, runs ``notebooks`` (and no others with ``exact``), runs each
                       ``after`` pair in that order, and caps ``concurrency`` at most ``max_concurrency``
 """
@@ -55,6 +58,11 @@ def check_problems(c: dict[str, Any]) -> list[str]:
     out = []
     if kind == "pipeline_outcome" and not isinstance(c.get("status", "Succeeded"), str):
         out.append("check pipeline_outcome's status is Succeeded, Failed or Cancelled")
+    if kind == "pipeline_outcome" and not isinstance(c.get("parameters", {}), dict):
+        out.append("check pipeline_outcome's parameters map parameter names to values")
+    if kind == "pipeline_outcome" and not (isinstance(c.get("mocks", {}), dict)
+                                           and all(isinstance(m, dict) for m in c.get("mocks", {}).values())):
+        out.append("check pipeline_outcome's mocks map activity names to mocks")
     if kind == "dag_matches" and not c.get("notebooks"):
         out.append("check dag_matches needs notebooks")
     return out
@@ -164,7 +172,9 @@ def run_check(work: Path, c: dict[str, Any], ex: dict[str, Any], children: dict[
         return dag_matches(dag, list(c["notebooks"]), c.get("after"), bool(c.get("exact")), c.get("max_concurrency"))
     if kind == "pipeline_outcome":
         got = run_pipeline(work, c.get("path") or ex.get("starter") or "pipeline.json",
-                           parameters=ex.get("parameters"), mocks=ex.get("mocks"), children=children)
+                           parameters=c.get("parameters", ex.get("parameters")),
+                           mocks={**(ex.get("mocks") or {}), **(c.get("mocks") or {})},
+                           children=children)
         if not got["ok"]:
             return _no(kind, got["detail"])
         return validators.pipeline_outcome(got["run"], c.get("status", "Succeeded"), c.get("activities"),

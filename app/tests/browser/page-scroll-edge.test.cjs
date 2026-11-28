@@ -14,7 +14,8 @@ const notebooks = Array.from({ length: 40 }, (_, i) => ({ name: `Notebook ${i}`,
 const measure = (p, sel) => p.$eval(sel, (el) => ({
   right: el.getBoundingClientRect().right,
   parentRight: el.parentElement.getBoundingClientRect().right,
-  widest: Math.max(...[...el.children].map((c) => c.getBoundingClientRect().width)),
+  // A page's header art (home-hero.js, Preview) runs full width under the top bar by design.
+  widest: Math.max(...[...el.children].filter((c) => !c.matches(".home-hero")).map((c) => c.getBoundingClientRect().width)),
 }));
 
 test("in a wide window Home and Settings scroll at the window's right edge, content still capped", { skip }, async () => {

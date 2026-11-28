@@ -25,8 +25,8 @@ def test_a_write_role_passes():
 
 def test_a_direct_viewer_is_told_what_is_missing_and_whom_to_ask():
     errors, notes = duties.role_problems("Prod workspace Sales", [assignment(ME, "Viewer"), ADMIN], {ME})
-    assert errors == ["You're a Viewer in Prod workspace Sales; promoting writes tables there, which needs "
-                      "Contributor or higher. Ask one of its Admins (user 2222) to make you a Contributor."]
+    assert errors == [("You're a Viewer in Prod workspace Sales; promoting writes tables there, which needs "
+                      "Contributor or higher. Ask one of its Admins (user 2222) to make you a Contributor.")]
     assert notes == []
 
 
@@ -181,5 +181,5 @@ def test_restoring_a_prod_table_checks_the_same_roles_as_a_rollback(svc, monkeyp
 
     fabric.assignments = [assignment(ME, "Contributor"), ADMIN]
     with pytest.raises(LookupError, match="past the role check"):
-        svc.meta_restore("silver.customers", "prod", 1)
+        svc.meta_restore("silver.customers", "prod", 1, confirm_name="Sales - Prod")  # WR-250: typed name
     assert len(touched) == 1

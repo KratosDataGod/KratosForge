@@ -160,8 +160,11 @@ def test_spark_compat_imports_only_duckdb_sqlglot_and_the_standard_library():
     assert roots - set(sys.stdlib_module_names) - {"__future__"} == {"duckdb", "sqlglot"}
 
 
+# The probe ends as the learner process does (pyspark_lab.END_NOW): os._exit on Windows can crash in
+# delta-rs's or DuckDB's shutdown code with 0xC0000005 after the probe has finished.
 PROBE = """
-import os, sys
+import faulthandler, os, sys
+faulthandler.enable()
 sys.path.insert(0, sys.argv[1])
 from kf_learner import pyspark_shim
 spark = pyspark_shim.session(sys.argv[2])
@@ -179,8 +182,8 @@ for name in ("fabric_desktop", "msal"):
     except ImportError:
         pass
 print(repr((bad, blocked)))
-sys.stdout.flush(); os._exit(0)
-"""
+rc = 0
+""" + pyspark_lab.END_NOW
 
 
 def test_a_learner_like_process_loads_no_engine_or_sign_in_code(tmp_path):
@@ -191,8 +194,10 @@ def test_a_learner_like_process_loads_no_engine_or_sign_in_code(tmp_path):
     pyspark_lab.prepare(work, "CREATE SCHEMA bronze; CREATE TABLE bronze.t AS SELECT 1 AS k, '03/01/2026' AS s, '1,000.50' AS a")
     pkg = learner_pkg.build(tmp_path / "pkg")
     env = {k: v for k, v in os.environ.items() if k in ("SYSTEMROOT", "TEMP", "TMP", "PATH")}
-    out = subprocess.run([sys.executable, "-I", "-c", PROBE, str(pkg), str(work)], cwd=work, env=env,
-                         capture_output=True, text=True, timeout=120, check=True).stdout
+    done = subprocess.run([sys.executable, "-I", "-c", PROBE, str(pkg), str(work)], cwd=work, env=env,
+                          capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, (hex(done.returncode & 0xFFFFFFFF), done.stderr[-4000:])
+    out = done.stdout
     bad, _importable = eval(out.strip().splitlines()[-1])  # noqa: S307 - our own probe's repr
     # Nothing from the engine or sign-in was loaded. (Whether fabric_desktop can be imported at all is the
     # sandbox's import guard, tested in PR-F; this interpreter has the engine installed for the test run.)
@@ -400,3 +405,31 @@ def test_a_real_native_crash_reports_the_fatal_error_line_and_exit_code(tmp_path
     assert msg.startswith("Your code crashed: "), msg
     assert "Fatal Python error:" in msg or "Windows fatal exception:" in msg, msg
     assert "signal" in msg or "exit code" in msg, msg
+    # A failing reference solution also says where it crashed: the innermost Python frames, by file name.
+    frames = pyspark_lab._crash_frames(run)
+    assert "in string_at" in frames and "answer.py:2 in <module>" in frames, run["stderr"]
+
+
+def test_a_crash_dump_gives_the_crashing_threads_innermost_frames_and_no_paths():
+    windows = """Windows fatal exception: access violation
+
+Thread 0x00001a2c (most recent call first):
+  File "C:\\py\\Lib\\threading.py", line 359 in wait
+
+Current thread 0x00000b18 (most recent call first):
+  File "C:\\py\\Lib\\site-packages\\deltalake\\table.py", line 1201 in merge
+  File "C:\\Temp\\kf-learner-x\\kf_learner\\pyspark_delta.py", line 88 in execute
+  File "answer.py", line 14 in <module>
+  File "<string>", line 9 in <module>
+  File "<string>", line 1 in <module>
+
+Extension modules: duckdb, deltalake (total: 2)
+"""
+    frames = pyspark_lab._crash_frames({"stderr": windows})
+    assert frames == (" Innermost frames: table.py:1201 in merge; pyspark_delta.py:88 in execute; answer.py:14 in <module>; "
+                      "<string>:9 in <module>.")
+    assert "C:" not in frames and "Temp" not in frames
+    # A plain Python error, or a crash with no frames, adds nothing.
+    assert pyspark_lab._crash_frames({"stderr": "Traceback\nValueError: bad"}) == ""
+    assert pyspark_lab._crash_frames({"stderr": "Fatal Python error: Aborted\n"}) == ""
+    assert pyspark_lab._crash_frames({}) == ""

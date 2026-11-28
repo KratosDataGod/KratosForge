@@ -34,7 +34,7 @@ test("Home holds one row: the moved buttons sit under Check, Share and Schedule"
     .map((b) => b.textContent.trim()));
   for (const moved of ["Save a copy", "Versions", "Validate"]) assert.ok(!ribbon.includes(moved), `${moved} is still on Home`);
   assert.deepStrictEqual(await items("Check"), ["Side by sidePreview", "ValidatePreview", "ProvePreview"]);
-  assert.deepStrictEqual(await items("Share"), ["Save a copy", "Versions", "ExportPreview"]);
+  assert.deepStrictEqual(await items("Share"), ["Save a copy", "Versions", "ExportPreview", "Open as reportPreview"]);
   assert.deepStrictEqual(await items("Schedule"), ["SchedulePreview", "Recent runsPreview"]);
   if (SHOTS) {
     await page().getByRole("button", { name: "Check", exact: true }).click();

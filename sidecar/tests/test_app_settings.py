@@ -71,8 +71,8 @@ def test_forge_animations_default_on_saved_and_lockable(dirs):
         app_settings.save({"forge_animations": True})
 
 
-def test_motion_level_defaults_to_refined_saved_checked_and_lockable(dirs):
-    assert app_settings.load()["motion_level"] == {"value": 2, "source": "default"}
+def test_motion_level_defaults_to_subtle_saved_checked_and_lockable(dirs):
+    assert app_settings.load()["motion_level"] == {"value": 1, "source": "default"}
     assert app_settings.save({"motion_level": 3})["motion_level"] == {"value": 3, "source": "user"}
     for bad in (4, -1, True, "2", 2.5):
         with pytest.raises(ValueError, match="motion_level"):
@@ -91,7 +91,7 @@ def test_motion_level_defaults_to_refined_saved_checked_and_lockable(dirs):
         app_settings.save({"motion_level": 2})
     dirs.write_text(json.dumps({"motion_level": 9}))
     assert app_settings.load()["motion_level"] == {"value": 3, "source": "user"}  # out of range: ignored
-    assert "motion_level must be between 0 and 3" in app_settings.policy_problems()
+    assert "motion_level must be between 0 and 3. Ask IT to change motion_level in the policy file." in app_settings.policy_problems()
 
 
 def test_layout_choices_default_to_help_on_request_and_take_only_their_choices(dirs):
@@ -104,7 +104,8 @@ def test_layout_choices_default_to_help_on_request_and_take_only_their_choices(d
     with pytest.raises(ValueError, match="beside, on_request"):
         app_settings.save({"ui_explanations": "hidden"})
     dirs.write_text(json.dumps({"ui_density": "tiny"}))
-    assert "ui_density must be one of comfortable, compact" in app_settings.policy_problems()
+    assert ("ui_density must be one of comfortable, compact. Ask IT to change ui_density in the policy file."
+            in app_settings.policy_problems())
 
 
 def test_learn_mode_defaults_to_professional_and_a_policy_can_set_it(dirs):
@@ -189,3 +190,50 @@ def test_a_subject_level_defaults_to_same_and_a_policy_can_set_it(dirs):
             app_settings.save({key: "focus"})
     dirs.write_text(json.dumps({"learn_mode_sql": "guided"}))
     assert app_settings.load()["learn_mode_sql"] == {"value": "guided", "source": "policy"}
+
+
+def test_editor_settings_default_to_the_editors_as_they_were_and_check_what_is_saved(dirs):
+    loaded = app_settings.load()
+    assert [loaded[k]["value"] for k in ("editor_word_wrap", "editor_font_size", "editor_keys", "editor_key_overrides")] == [
+        "off", 0, "default", {}]
+    saved = app_settings.save({"editor_word_wrap": "sql", "editor_font_size": 16, "editor_keys": "vim",
+                               "editor_key_overrides": {"format": "Alt-Shift-g", "split_cell": "Mod-Shift--"}})
+    assert saved["editor_font_size"]["value"] == 16 and saved["editor_key_overrides"]["value"]["format"] == "Alt-Shift-g"
+    for bad, says in [({"editor_word_wrap": "auto"}, "must be one of"), ({"editor_font_size": 9}, "10 to 24"),
+                      ({"editor_font_size": True}, "10 to 24"), ({"editor_keys": "emacs"}, "must be one of"),
+                      ({"editor_key_overrides": {"format": "<b>"}}, "isn't one"),
+                      ({"editor_key_overrides": {"Format!": "F3"}}, "command name"),
+                      ({"editor_key_overrides": ["F3"]}, "map of command to key")]:
+        with pytest.raises(ValueError, match=says):
+            app_settings.save(bad)
+    cleared = app_settings.save({"editor_font_size": 0, "editor_key_overrides": {}})
+    assert cleared["editor_font_size"] == {"value": 0, "source": "default"}
+    assert cleared["editor_key_overrides"] == {"value": {}, "source": "default"}
+
+
+def test_a_policy_with_a_bad_editor_setting_says_so(dirs):
+    dirs.write_text(json.dumps({"editor_font_size": 40, "editor_key_overrides": {"format": "F3; rm"}}))
+    problems = app_settings.policy_problems()
+    assert any("editor_font_size must be 0" in p for p in problems)
+    assert any(p.startswith("editor_key_overrides has a key for format") for p in problems)
+
+
+def test_a_bad_editor_setting_from_policy_or_the_user_file_falls_through(dirs):
+    dirs.write_text(json.dumps({"editor_font_size": 40, "editor_key_overrides": {"format": "F3; rm"}}))
+    app_settings.user_path().parent.mkdir(parents=True, exist_ok=True)
+    app_settings.user_path().write_text(json.dumps({"editor_font_size": 9, "editor_key_overrides": {"format": "F3\n"}}),
+                                        encoding="utf-8")
+    loaded = app_settings.load()
+    assert loaded["editor_font_size"] == {"value": 0, "source": "default"}
+    assert loaded["editor_key_overrides"] == {"value": {}, "source": "default"}
+    app_settings.user_path().write_text(json.dumps({"editor_font_size": 18, "editor_key_overrides": {"format": "F3"}}),
+                                        encoding="utf-8")
+    loaded = app_settings.load()
+    assert loaded["editor_font_size"] == {"value": 18, "source": "user"}
+    assert loaded["editor_key_overrides"] == {"value": {"format": "F3"}, "source": "user"}
+
+
+def test_an_editor_key_or_command_with_a_trailing_newline_is_refused(dirs):
+    for bad in ({"format": "F3\n"}, {"format\n": "F3"}):
+        with pytest.raises(ValueError):
+            app_settings.save({"editor_key_overrides": bad})

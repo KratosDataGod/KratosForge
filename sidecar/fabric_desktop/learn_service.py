@@ -13,7 +13,7 @@ import logging
 from typing import Any
 
 from . import progress, verify
-from .learn import content, dismissals, fixes, guides, labs, patterns
+from .learn import content, dismissals, fixes, guides, labs, patterns, team
 from .redact import describe
 from .sqlcompat import practices
 
@@ -22,7 +22,7 @@ _log = logging.getLogger(__name__)
 METHODS = {"learn_catalog", "learn_module", "learn_lab_start", "learn_lab_save", "learn_lab_run",
            "learn_lab_check", "learn_lab_hint", "learn_lab_reset", "learn_rule_guides", "learn_dismissals",
            "learn_dismiss", "learn_undismiss", "learn_fixes", "learn_fix_compare", "learn_fix_checked",
-           "learn_patterns"}
+           "learn_patterns", "learn_team_notes"}
 
 _SUMMARY = ("id", "kind", "title", "path", "level", "minutes", "objectives", "prerequisites", "platforms", "engines",
             "rules", "docs", "version", "status")
@@ -91,14 +91,37 @@ class LearnMixin:
     # ---- beside a best-practice finding (LX-09): Explain, Show example and Dismiss
 
     def learn_rule_guides(self) -> dict[str, Any]:
-        """Each notebook and SQL rule's Why, When it's fine and Before/After, from the docs that ship
-        with the app (learn/guides.py)."""
+        """Each notebook, SQL and semantic model rule's and each pipeline gotcha's Why, When it's fine and
+        Before/After, from the docs that ship with the app (learn/guides.py). Reads nothing else."""
         return guides.load()
 
     def learn_patterns(self) -> dict[str, Any]:
         """The decision patterns (GD-05): each one's title, explanation and an example that runs on this
         PC, from the docs that ship with the app (learn/patterns.py)."""
         return patterns.load()
+
+    def learn_team_notes(self) -> dict[str, Any]:
+        """Team notes (GD-09, learn/team.py): the open project's policies' own words beside a rule's or a
+        decision pattern's guide, ``{"notes": {id: [{text, policy, owner, version, sha256}]}, "problems"}``.
+        From the policies in force; when the platform can't be reached, from the project's latest policy
+        package on this PC, verified first (``package`` then says which). With neither, there are none, and
+        ``note`` says why."""
+        package: dict[str, Any] | None = None
+        try:
+            resolved = self.governance_resolve()  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - guides still show without the team's notes
+            try:
+                resolved, package = self._gc_offline_resolve(self._project())  # type: ignore[attr-defined]
+            except Exception as offline:  # noqa: BLE001 - no project, or no package that verifies
+                return {"notes": {}, "problems": [], "package": None,
+                        "note": f"The policies couldn't be read, so no team notes show: {describe(exc)} "
+                                f"Offline: {describe(offline)}"}
+        from . import governance_checks as gc  # registers the best-practice rules on import
+
+        known = frozenset(guides.load()) | frozenset(patterns.load())
+        out = team.team_notes(resolved.get("policies") or [], lambda pol: team.GUIDANCE_RULE in gc.rule_ids(pol.get("rule")),
+                              known)
+        return {**out, "package": package, "note": ""}
 
     def learn_dismissals(self) -> list[dict[str, Any]]:
         """The findings this person dismissed on this PC (learn/dismissals.py)."""

@@ -43,7 +43,7 @@ from ..retrying import send_remote
 from .authorization import require
 from .capabilities import EngineDescriptor, Support
 from .contract import RESULT_BYTES, CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
-from .databricks_auth import DatabricksAuthError, TokenProvider, provider_for
+from .databricks_auth import DatabricksAuthError, TokenProvider, TokenRefused, provider_for
 from .local_sql import ResultTooLarge
 
 _T = "unit_tests"
@@ -91,26 +91,75 @@ DATABRICKS_SQL = EngineDescriptor(
     limitations=("Preview: tested against fakes of the documented APIs, not yet against a live workspace.",
                  "A statement sent to a stopped warehouse starts it; the warehouse bills DBUs while it runs.",
                  "Results come back inline: over 25 MB the warehouse refuses them, so add a LIMIT.",
-                 "Only the last statement's result is shown, and only from its first result chunk (a whole "
-                 "result for comparing engines reads every chunk).",
-                 "Cells can change data on the warehouse (CREATE, INSERT, MERGE, DROP) with no further confirm, as "
-                 "in a Databricks notebook; the confirm is for starting the session.",
+                 ("Only the last statement's result is shown, and only from its first result chunk (a whole "
+                 "result for comparing engines reads every chunk)."),
+                 ("Cells can change data on the warehouse (CREATE, INSERT, MERGE, DROP) with no further confirm, as "
+                 "in a Databricks notebook; the confirm is for starting the session."),
                  "A statement still running after two hours is cancelled."),
 )
 
 
 class DatabricksError(RuntimeError):
-    """The workspace refused or failed a request; the message says what to check."""
+    """The workspace refused or failed a request; the message says what to check. ``status`` is the
+    HTTP status of a refusal, None when no answer came back or the answer couldn't be read."""
+
+    def __init__(self, message: str, status: int | None = None, unsent: bool = False):
+        super().__init__(message)
+        self.status = status
+        self.unsent = unsent   # the connection never opened, so the workspace got nothing
 
 
-def split_statements(code: str) -> list[str]:
+def _never_sent(exc: BaseException) -> bool:
+    """True when ``exc`` is a failure to open the connection (name lookup, refused, connect timeout),
+    so the request never reached the workspace; a reset or read timeout after sending is not."""
+    import requests
+    import urllib3.exceptions as u3
+    seen: set[int] = set()
+    todo: list[Any] = [exc]
+    while todo:
+        e = todo.pop()
+        if e is None or id(e) in seen:
+            continue
+        seen.add(id(e))
+        if isinstance(e, (requests.ConnectTimeout, u3.ConnectTimeoutError, u3.NewConnectionError,
+                          ConnectionRefusedError)):
+            return True
+        if isinstance(e, BaseException):
+            todo += [e.__cause__, e.__context__, getattr(e, "reason", None)]
+            todo += [a for a in e.args if isinstance(a, BaseException)]
+    return False
+
+
+def _result_rows(data: Any, seen: int) -> list[list[Any]]:
+    """The rows of one INLINE result chunk (``seen`` rows came before it). A chunk sent as download links
+    (EXTERNAL_LINKS), one that says it holds rows but sends none, or one that starts at another row is a
+    reply this engine didn't ask for: DatabricksError, never a short table."""
+    if not isinstance(data, dict):
+        raise DatabricksError("The warehouse sent a result chunk this engine can't read, so none of it was kept.")
+    if data.get("external_links"):
+        raise DatabricksError("The warehouse sent the result as download links instead of rows, which this engine "
+                              "doesn't read, so none of it was kept. Add a LIMIT so the result fits inline (25 MB).")
+    rows = data.get("data_array") or []
+    if not isinstance(rows, list):
+        raise DatabricksError("The warehouse sent a result chunk this engine can't read, so none of it was kept.")
+    count, offset = data.get("row_count"), data.get("row_offset")
+    if isinstance(count, int) and not isinstance(count, bool) and count != len(rows):
+        raise DatabricksError(f"The warehouse said a result chunk holds {count:,} rows but sent {len(rows):,}, so "
+                              "none of it was kept. Run the cell again.")
+    if isinstance(offset, int) and not isinstance(offset, bool) and offset != seen:
+        raise DatabricksError("The warehouse sent result chunks that skip or repeat rows, so none of it was kept. "
+                              "Run the cell again.")
+    return rows
+
+
+def split_statements(code: str, dialect: str = "databricks") -> list[str]:
     """``code``'s statements as written, split on top-level semicolons (sqlglot's tokenizer, so a
     semicolon in a string or comment doesn't split). Unreadable SQL is sent whole: the warehouse decides.
     A part that is only comments is left out: sending it would wake a stopped warehouse for nothing."""
     import sqlglot
     from sqlglot.tokens import TokenType
     try:
-        tokens = sqlglot.tokenize(code, read="databricks")
+        tokens = sqlglot.tokenize(code, read=dialect)
     except Exception:  # noqa: BLE001 - the warehouse reports what's wrong with SQL sqlglot can't read
         return [code.strip()] if code.strip() else []
     parts, start, has_sql = [], 0, False
@@ -133,6 +182,22 @@ _TYPES = {"BYTE": pa.int64(), "SHORT": pa.int64(), "INT": pa.int64(), "LONG": pa
 def _one_value_per_column(rows: list[list[Any]], width: int) -> None:
     if any(not isinstance(r, list) or len(r) != width for r in rows):
         raise DatabricksError("The warehouse sent a result that doesn't have one value per column.")
+    if any(v is not None and not isinstance(v, str) for r in rows for v in r):  # JSON_ARRAY sends text or null
+        raise DatabricksError("None of the result was kept because the warehouse sent a value that isn't text. "
+                              "Run the cell again.")
+
+
+def _check_manifest(reply: dict[str, Any]) -> None:
+    """A finished statement's manifest is an object whose columns are objects and whose row count is a
+    whole number, or none is given: anything else raises DatabricksError, never a guessed table."""
+    manifest = reply.get("manifest") or {}
+    schema = manifest.get("schema") or {} if isinstance(manifest, dict) else None
+    columns = schema.get("columns") or [] if isinstance(schema, dict) else None
+    total = manifest.get("total_row_count") if isinstance(manifest, dict) else None
+    if not isinstance(columns, list) or not all(isinstance(c, dict) for c in columns) or \
+            (total is not None and (isinstance(total, bool) or not isinstance(total, int) or total < 0)):
+        raise DatabricksError("None of the result was kept because the warehouse described it in a way this engine "
+                              "can't read. Run the cell again.")
 
 
 def to_table(manifest: dict[str, Any], rows: list[list[Any]]) -> pa.Table:
@@ -185,7 +250,7 @@ def whole_table(manifest: dict[str, Any], rows: list[list[Any]]) -> tuple[pa.Tab
                 arr = values.cast(pa.decimal128(int(col["type_precision"]), int(col["type_scale"])))
             else:
                 arr = values.cast(_WHOLE_TYPES.get(kind, pa.string()))
-        except (pa.ArrowInvalid, pa.ArrowNotImplementedError, KeyError, TypeError, ValueError):
+        except (pa.ArrowInvalid, pa.ArrowNotImplementedError, KeyError, TypeError, ValueError, OverflowError):
             arr = values   # a value that doesn't read as its type stays text
         if arr.type == pa.string() and kind != "STRING":
             as_text.append(f"{names[i]} ({str(col.get('type_text') or kind).lower()})")
@@ -257,7 +322,10 @@ class Client:
             # Refused unread, so even a submit is safe to send again: once, and only with a token that is
             # actually new (the CLI's, after a new sign-in). A sign-in that can't be had says so itself.
             self._tokens.drop(token)
-            fresh = self._tokens.token()
+            try:
+                fresh = self._tokens.token()
+            except TokenRefused:
+                fresh = token  # no new token to be had: one sign-in-again message below
             if fresh != token:
                 close = getattr(resp, "close", None)
                 if callable(close):
@@ -266,14 +334,22 @@ class Client:
                 if resp.status_code == 401:
                     self._tokens.drop(fresh)
         if resp.status_code == 401 and self._tokens.sign_in_again:
-            raise DatabricksError(f"Databricks refused the sign-in (HTTP 401). {self._tokens.sign_in_again}")
+            raise DatabricksError(f"Databricks refused the sign-in (HTTP 401). {self._tokens.sign_in_again}", 401)
         if resp.status_code >= 400:
-            raise DatabricksError(self._refusal(resp, path).rstrip() + (f" Tried {tries} times." if tries > 1 else ""))
+            raise DatabricksError(self._refusal(resp, path).rstrip() + (f" Tried {tries} times." if tries > 1 else ""),
+                                  resp.status_code)
         try:
             return resp.json() if resp.content else {}
         except ValueError:
             raise DatabricksError(f"{self.host} answered with something other than JSON (HTTP {resp.status_code}).") \
                 from None
+
+    def _statement_call(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        """A Statement Execution call whose answer must be a JSON object (discovery reads its own odd replies)."""
+        body = self._call(method, path, **kwargs)
+        if not isinstance(body, dict):
+            raise DatabricksError(f"{self.host} answered with JSON that isn't an object.")
+        return body
 
     def _send(self, method: str, path: str, token: str, repeatable: bool, **kwargs: Any) -> tuple[Any, int]:
         headers = {"Authorization": f"Bearer {token}"}
@@ -284,7 +360,8 @@ class Client:
             return send_remote(send, repeatable, self._sleep,
                                (lambda: False) if path.endswith("/cancel") else self.stopped)
         except Exception as exc:  # noqa: BLE001 - a network failure becomes the person's message
-            raise DatabricksError(f"Couldn't reach {self.host}: {type(exc).__name__}.") from None
+            raise DatabricksError(f"Couldn't reach {self.host}: {type(exc).__name__}.", unsent=_never_sent(exc)) \
+                from None
 
     @staticmethod
     def _refusal(resp: Any, path: str = "") -> str:
@@ -329,15 +406,25 @@ class Client:
         self._call("POST", "/api/2.0/workspace/delete", repeatable=False, json={"path": path, "recursive": False})
 
     def submit(self, body: dict[str, Any]) -> dict[str, Any]:
-        return self._call("POST", "/api/2.0/sql/statements", json=body)
+        """Send one statement. It is never sent again after an answer that may mean it started (a 5xx,
+        a dropped connection, an unreadable reply), and the error says to look before running it again."""
+        try:
+            return self._statement_call("POST", "/api/2.0/sql/statements", json=body)
+        except DatabricksError as exc:
+            if exc.status is not None and exc.status < 500:
+                raise   # refused unread (4xx): nothing ran
+            if exc.unsent:
+                raise DatabricksError(f"{exc} Nothing was sent, so the statement didn't run.") from None
+            raise DatabricksError(f"{exc} The statement may have started on the warehouse, so it wasn't sent again: "
+                                  "check Databricks' query history before you run the cell again.", exc.status) from None
 
     def status(self, statement_id: str) -> dict[str, Any]:
-        return self._call("GET", f"/api/2.0/sql/statements/{_checked_id(statement_id, 'statement')}")
+        return self._statement_call("GET", f"/api/2.0/sql/statements/{_checked_id(statement_id, 'statement')}")
 
     def chunk(self, statement_id: str, index: int) -> dict[str, Any]:
         """One result chunk of a finished statement (INLINE: rows in ``data_array``)."""
-        return self._call("GET", f"/api/2.0/sql/statements/{_checked_id(statement_id, 'statement')}"
-                                 f"/result/chunks/{int(index)}")
+        return self._statement_call("GET", f"/api/2.0/sql/statements/{_checked_id(statement_id, 'statement')}"
+                                           f"/result/chunks/{int(index)}")
 
     def cancel(self, statement_id: str) -> None:
         self._call("POST", f"/api/2.0/sql/statements/{_checked_id(statement_id, 'statement')}/cancel",
@@ -403,6 +490,11 @@ class DatabricksSqlSession:
         started = self._clock()
         reply = self._client.submit(body)
         self._statement = str(reply.get("statement_id") or "")
+        if not isinstance(reply.get("status"), dict):
+            reply["status"] = {}
+        if not self._statement and reply["status"].get("state") not in TERMINAL:
+            raise DatabricksError("The warehouse took the statement but sent no statement ID, so this PC can't follow "
+                                  "or stop it. Check Databricks' query history before you run the cell again.")
         if self._cancelled and self._statement:  # Cancel was pressed while the statement was being sent
             try:
                 self._client.cancel(self._statement)
@@ -410,19 +502,32 @@ class DatabricksSqlSession:
                 raise DatabricksError(self._abandon("Cancelled.")) from None
         while (reply.get("status") or {}).get("state") not in TERMINAL:
             if self._clock() - started > self._max_seconds:
+                minutes = f"{self._max_seconds / 60:.0f} minutes"
                 raise DatabricksError(self._abandon(
-                    f"The statement was still running after {self._max_seconds / 60:.0f} minutes."))
+                    f"The statement was still waiting to start after {minutes} (the warehouse was starting, or "
+                    "busy with other queries)." if (reply.get("status") or {}).get("state") == "PENDING"
+                    else f"The statement was still running after {minutes}."))
             self._sleep(POLL_SECONDS)
             try:
                 reply = self._client.status(self._statement)
             except (DatabricksError, DatabricksAuthError) as exc:
                 raise DatabricksError(self._abandon(str(exc))) from None
+            if not isinstance(reply.get("status"), dict):
+                reply["status"] = {}   # an unreadable status is polled again until the time limit
         state = reply["status"]["state"]
         if state == "FAILED":
-            err = reply["status"].get("error") or {}
+            err = reply["status"].get("error")
+            err = err if isinstance(err, dict) else {}
             raise DatabricksError(redact.one_line(err.get("message") or "The statement failed on the warehouse.", 1000))
         if state != "SUCCEEDED":
-            raise DatabricksError("Cancelled.")
+            if self._cancelled:
+                raise DatabricksError("Cancelled.")
+            if state == "CLOSED":
+                raise DatabricksError("The warehouse closed the statement before its result was read. Run the cell "
+                                      "again.")
+            raise DatabricksError("The statement was cancelled on the warehouse, not from here (in Databricks, or by "
+                                  "the warehouse itself). Run the cell again.")
+        _check_manifest(reply)
         return reply
 
     def _abandon(self, problem: str) -> str:
@@ -480,9 +585,9 @@ class DatabricksSqlSession:
             return self._whole_result(manifest, rows, request, seconds, on_output)
         if columns:
             from .local_sql import _table_output
-            rows = ((reply.get("result") or {}).get("data_array") or [])[:request.preview_rows]
-            total = int(manifest.get("total_row_count") or len(rows))
             try:
+                rows = _result_rows(reply.get("result") or {}, 0)[:request.preview_rows]
+                total = int(manifest.get("total_row_count") or len(rows))
                 out = _table_output(to_table(manifest, rows), total)
             except DatabricksError as exc:
                 out = {"type": "error", "ename": type(exc).__name__, "evalue": str(exc)}
@@ -500,14 +605,15 @@ class DatabricksSqlSession:
         return result
 
     def _all_rows(self, reply: dict[str, Any], limit: int) -> list[list[Any]]:
-        """Every row of a finished statement, chunk by chunk, within ``limit`` rows and RESULT_BYTES."""
+        """Every row of a finished statement, chunk by chunk, within ``limit`` rows and RESULT_BYTES, and as
+        many as the manifest says the result holds."""
         from .local_sql import _too_big, _too_many
         statement = str(reply.get("statement_id") or "")
         data = reply.get("result") or {}
         rows: list[list[Any]] = []
         size, index, read = 0, 0, 1   # the statement's own reply carries chunk 0
         while True:
-            batch = data.get("data_array") or []
+            batch = _result_rows(data, len(rows))
             size += len(json.dumps(batch))
             rows += batch
             if len(rows) > limit:
@@ -516,6 +622,12 @@ class DatabricksSqlSession:
                 raise _too_big()
             nxt = data.get("next_chunk_index")
             if nxt is None:
+                manifest = reply.get("manifest") or {}
+                total = manifest.get("total_row_count")
+                if isinstance(total, int) and not isinstance(total, bool) and total != len(rows) \
+                        and not manifest.get("truncated"):
+                    raise DatabricksError(f"The warehouse said the result has {total:,} rows but sent {len(rows):,}, "
+                                          "so none of it was kept. Run the cell again.")
                 return rows
             if self._cancelled:
                 raise DatabricksError("Cancelled.")

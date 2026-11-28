@@ -35,8 +35,24 @@ def signed_in(svc, user=USER, token="tok"):
                                       fabric_token=lambda: token, storage_token=lambda: token)
 
 
+class NoTenant:
+    """The Fabric client a test gets unless it sets its own: a signed-in test's background item scan
+    (_wl_start_scan) would otherwise call the real Fabric API with the fake token, and the answer
+    (a quick 401 on CI, a slow proxy refusal elsewhere) would vary by machine."""
+
+    def __init__(self, token=None):
+        pass
+
+    def __getattr__(self, name):
+        def refuse(*args, **kwargs):
+            raise PermissionError("401 test: no tenant")
+        return refuse
+
+
 @pytest.fixture
 def svc(tmp_path, monkeypatch):
+    monkeypatch.setattr(schedule_service, "FabricClient", NoTenant)
+    monkeypatch.setattr(workload_service, "FabricClient", NoTenant)
     monkeypatch.setattr(Service, "pc_schedules",
                         property(lambda self: LocalSchedules(self.root, FakeScheduler(), "C:/engine/python.exe")))
     s = Service(root=tmp_path / "app")
@@ -148,7 +164,8 @@ def test_a_failed_run_makes_the_workload_failing_with_the_run_as_evidence(svc, p
     _inject(svc, monkeypatch, "test", rows, deployments=[{"env": "test", "version": "old", "source_env": "dev",
                                                          "at": "2026-10-14T11:05:00+00:00"}])
     page = svc.workloads_list(view="attention")
-    assert [r["name"] for r in page["rows"]] == [name]
+    # The sources say why, if this ever comes back empty again (seen once on CI, not reproduced).
+    assert [r["name"] for r in page["rows"]] == [name], page["sources"]
     detail = svc.workload_detail(model.meta_id("proj", name))
     assert detail["health"] == "failing"
     failed = next(f for f in detail["findings"] if f["level"] == "failing")

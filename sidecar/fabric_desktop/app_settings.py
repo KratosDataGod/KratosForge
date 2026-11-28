@@ -22,10 +22,10 @@ Keys:
     show_preview     true to show features still in preview (default true)
     forge_animations  the first motion switch, kept so older settings and policy files still work:
                      false means motion_level 0 unless motion_level itself is set
-    motion_level     visual intensity (docs/forge-animations.md): 0 Off, 1 Minimal (functional
-                     transitions only), 2 Refined (default), 3 Expressive
+    motion_level     experience mode (docs/forge-animations.md): 0 Professional, 1 Subtle (functional
+                     transitions and the achievement reveal; default), 2 Heroic, 3 Legendary
     motion_wolf, motion_sparks, motion_ambient  true (default) to show that family of effects at
-                     levels 2 and 3; motion_achievements the same
+                     levels 2 and 3; motion_achievements the same at levels 1 to 3
     motion_follow_system  true (default): Windows' reduced-motion setting turns decorative motion
                      off whatever the level; false lets the chosen level apply anyway
     ui_explanations  "on_request" (default): each page's How this works panel and its one-line
@@ -36,7 +36,13 @@ Keys:
     ui_density       "comfortable" (default) or "compact": spacing in tables, lists and toolbars
     ui_skin          the platform skin's id (skins.py): "kratosforge" (default) or another built-in or
                      saved skin. A skin is appearance and page arrangement only
-    ui_color_mode    "skin" (default) follows the skin's own color mode; "light" or "dark" overrides it
+    ui_color_mode    "skin" (default), "light" or "dark": the app's color mode (skins.js colorMode); a policy value
+                     applies even with Preview features hidden
+    editor_word_wrap  "off" (default), "notebooks", "sql" or "both": which code editors wrap long lines
+    editor_font_size  the code font in notebook cells and SQL editors, 10 to 24 px; 0 (default) keeps each
+                     editor's own size
+    editor_keys      "default" or "vim" (Preview): Vim's modal editing in cells and SQL editors
+    editor_key_overrides  a map of editor command to its key, for the commands Settings > Editor lists
     learn_mode       how much learning guidance shows beside your work (docs/learn.md): "expert"
                      findings, About and Dismiss; "professional" (default) adds a line on why and
                      Explain and Show example on request; "guided" opens Explain, adds the lesson
@@ -46,7 +52,7 @@ Keys:
                      "same" (default) follows learn_mode; "expert", "professional" or "guided"
                      overrides it for that subject. Checks and policies are the same at every level
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
-                     and crashes end only that process (default false while in preview)
+                     and crashes end only that process (default true; false runs cells inside the engine)
     cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
                      0 (default) for no limit
     kernel_memory_limit_gb   with kernel_process: gigabytes the notebook's process may use before
@@ -77,6 +83,8 @@ Keys:
                      already set that way say so and can only be turned back to signed-in (default true)
     allow_optimize_lakehouse  IT only: false stops Optimize creating, connecting to or writing to a
                      shared optimization lakehouse (default true)
+    allow_central_environment  IT only: false stops the app creating, adopting, connecting to or
+                     checking a KratosForge Environment (controlplane_service.py) (default true)
     allow_replay_samples  IT only: false removes "A sample of the input data" from replay bundles
                      (replay.py), so a bundle never holds lakehouse data (default true)
     allowed_tenants  IT only: Microsoft Entra tenant ids people may sign in to; any other account is
@@ -85,6 +93,11 @@ Keys:
                      a guest (B2B) account working in the company that invited it. Empty (default):
                      the account's own organization. Set in the policy file, it is fixed and Settings
                      hides Switch organization
+    audit_retention_days  IT only: days the audit trails on this PC (the app's, external AI tools' and
+                     an agent's) are kept; whole months older than this are deleted, each cleanup
+                     recorded first. 0 (default) keeps them; otherwise at least 30
+    receipt_retention_days  IT only: days run receipts are kept; 0 (default) keeps them; otherwise
+                     at least 30
     local_retention_days  IT only: local copies of lakehouse data (file previews, staged writes, the
                      metadata framework's download cache, replay bundle copies) are deleted after this
                      many days unused;
@@ -151,7 +164,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
+import re
 import sys
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
@@ -160,25 +175,33 @@ from . import jsonfile
 from .redact import one_line
 from .auth import MICROSOFT_CLIENT_ID
 
+_log = logging.getLogger(__name__)
+# Saved policy copies whose policy file was removed but which couldn't be deleted yet (held past the wait):
+# until a delete or a readable policy replaces them, a broken policy file doesn't fall back on them.
+_REMOVED_COPY_KEPT: set[Path] = set()
+
 CHANNELS = ("stable", "preview")
 DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable", "show_preview": True, "support_url": "",
-                            "platform": {}, "kernel_process": False, "auto_update": True, "allow_fabric_runs": True,
+                            "platform": {}, "kernel_process": True, "auto_update": True, "allow_fabric_runs": True,
                             "allow_replay_samples": True, "allowed_tenants": [], "local_retention_days": 30, "telemetry": False,
+                            "audit_retention_days": 0, "receipt_retention_days": 0,
                             "telemetry_connection_string": "",
                             "cell_time_limit_minutes": 0, "kernel_memory_limit_gb": 0,
                             "kernel_max_sessions": 5, "kernel_idle_minutes": 0,
                             "allow_optimize_lakehouse": True, "allow_notebook_packages": True, "forge_animations": True,
-                            "allow_staging_cleanup": True}
+                            "allow_staging_cleanup": True, "allow_central_environment": True}
 TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "show_preview": bool, "support_url": str,
                                             "platform": dict, "kernel_process": bool, "auto_update": bool,
                                             "allow_fabric_runs": bool, "allow_replay_samples": bool,
                                             "allowed_tenants": list,
                                             "local_retention_days": int, "telemetry": bool,
+                                            "audit_retention_days": int, "receipt_retention_days": int,
                                             "telemetry_connection_string": str,
                                             "cell_time_limit_minutes": (int, float), "kernel_memory_limit_gb": (int, float),
                                             "kernel_max_sessions": (int, float), "kernel_idle_minutes": (int, float),
                                             "allow_optimize_lakehouse": bool, "allow_notebook_packages": bool,
-                                            "forge_animations": bool, "allow_staging_cleanup": bool}
+                                            "forge_animations": bool, "allow_staging_cleanup": bool,
+                                            "allow_central_environment": bool}
 USER_KEYS: tuple[str, ...] = ("client_id", "channel", "show_preview", "kernel_process", "telemetry",  # support_url is for IT only
              "cell_time_limit_minutes", "kernel_memory_limit_gb", "kernel_max_sessions", "kernel_idle_minutes",
              "forge_animations")
@@ -205,9 +228,10 @@ USER_KEYS += ("wh_monitoring_views", "wh_monitoring_auto")
 # Motion and effects (app/ui/motion.js): the visual intensity level and one switch per family.
 MOTION_LEVELS = (0, 3)
 MOTION_SWITCHES = ("motion_wolf", "motion_sparks", "motion_achievements", "motion_ambient", "motion_follow_system")
-# Every switch starts on, Achievement celebrations included (Chris, 2026-11-07). A choice someone
-# already saved stays: only people who never changed it get the new default.
-DEFAULTS.update({"motion_level": 2} | {key: True for key in MOTION_SWITCHES})
+# Subtle by default: everyday work stays plain and only achievements celebrate (Chris, 2026-11-09).
+# Every switch starts on (Chris, 2026-11-07). A choice someone already saved stays: only people who
+# never changed it get the new default.
+DEFAULTS.update({"motion_level": 1} | {key: True for key in MOTION_SWITCHES})
 TYPES.update({"motion_level": int} | {key: bool for key in MOTION_SWITCHES})
 USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 
@@ -256,6 +280,18 @@ CHOICES["ui_color_mode"] = ("skin", "light", "dark")
 DEFAULTS.update({"ui_skin": "kratosforge", "ui_color_mode": "skin"})
 TYPES.update({"ui_skin": str, "ui_color_mode": str})
 USER_KEYS += ("ui_skin", "ui_color_mode")
+# Editor settings (app/ui/editorprefs.js), for notebook cells and SQL editors. The defaults are the
+# editors as they were: no wrapping, each editor's own font size (0) and the default keys.
+CHOICES.update({"editor_word_wrap": ("off", "notebooks", "sql", "both"), "editor_keys": ("default", "vim")})
+EDITOR_FONT_SIZES = (10, 24)  # in px; 0 is each editor's own size
+EDITOR_KEY_OVERRIDES_MAX = 100
+_EDITOR_KEY = re.compile(r"^(?:(?:Mod|Ctrl|Alt|Shift|Meta)-)*[A-Za-z0-9\[\]\\;',./`=\-]$|"
+                         r"^(?:(?:Mod|Ctrl|Alt|Shift|Meta)-)*(?:F\d{1,2}|Enter|Space|Backspace|Delete|Home|End|PageUp|"
+                         r"PageDown|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|Insert)$")
+_EDITOR_COMMAND = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+DEFAULTS.update({"editor_word_wrap": "off", "editor_font_size": 0, "editor_keys": "default", "editor_key_overrides": {}})
+TYPES.update({"editor_word_wrap": str, "editor_font_size": int, "editor_keys": str, "editor_key_overrides": dict})
+USER_KEYS += ("editor_word_wrap", "editor_font_size", "editor_keys", "editor_key_overrides")
 # Learn (app/ui/learn.js): guidance beside findings. Checks run the same in every mode.
 CHOICES["learn_mode"] = ("expert", "professional", "guided")
 DEFAULTS["learn_mode"] = "professional"
@@ -277,16 +313,30 @@ TYPES.update({"notebook_package_folder": str, "allow_pypi_packages": bool})
 # hash-pinned lock files, and the package index to fetch them from (empty: the default index).
 DEFAULTS.update({"allow_dbconnect_install": True, "dbconnect_index_url": ""})
 TYPES.update({"allow_dbconnect_install": bool, "dbconnect_index_url": str})
+# Snowpark on this PC (engines/snowpark_local.py): the same for Snowpark Python with local testing.
+DEFAULTS.update({"allow_snowpark_install": True, "snowpark_index_url": ""})
+TYPES.update({"allow_snowpark_install": bool, "snowpark_index_url": str})
 # Read by integrations/policy.py, which decides what each means; listed here so the policy file has
 # one list of settings.
 INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integrations_http", "integrations_extensions",
                     "integrations_editors", "receipt_redactions")
 # Read only by the shell (main.rs), which applies them itself; listed so the file has one list of
 # settings and policy_problems() can say what the shell will skip.
-SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_download_url")
+SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_download_url", "engine_folder")
 # Read by appstudio/policy.py: what App Studio may send to AI models (connections, providers, hosts, sample rows).
 APPSTUDIO_KEYS = ("appstudio_models", "appstudio_providers", "appstudio_hosts", "appstudio_sample_rows")
 POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *APPSTUDIO_KEYS, *SHELL_KEYS)
+# Settings that widen what KratosForge trusts or where it sends or fetches things: sign-in hosts, a
+# package source, the sign-in app, a telemetry or help-desk address, hosts App Studio and integrations
+# may call. Only a source the person using the PC couldn't change may set them (Chris, 2026-11-10):
+# from a policy file or Group Policy key they could change, or the last good copy in their own profile,
+# they are ignored and reported; that source's restrictions still apply, with a warning.
+# audit_retention_days and receipt_retention_days: 0 keeps them, otherwise at least this many days.
+RETENTION_MIN_DAYS = 30
+LOOSENING = ("fabric_view_sign_in_hosts", "dbconnect_index_url", "snowpark_index_url", "notebook_package_folder",
+             "client_id",
+             "telemetry_connection_string", "appstudio_hosts", "integrations_http", "support_url",
+             "audit_retention_days", "receipt_retention_days")
 # No real tenant has the nil GUID, so allowed_tenants of just this lets no account sign in.
 NO_TENANT = "00000000-0000-0000-0000-000000000000"
 # The restrictions among DEFAULTS, and the value each takes when the policy file or that key can't
@@ -294,11 +344,42 @@ NO_TENANT = "00000000-0000-0000-0000-000000000000"
 RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO_TENANT], "show_preview": False,
                               "telemetry": False, "sql_warehouse_writes": False,
                               "wh_monitoring_views": False,
-                              "allow_dbconnect_install": False,
+                              "allow_dbconnect_install": False, "allow_snowpark_install": False,
                               "platform_presence": False,
                               "allow_replay_samples": False, "allow_optimize_lakehouse": False,
                               "allow_notebook_packages": False, "allow_pypi_packages": False,
-                              "allow_signed_out_schedules": False, "allow_staging_cleanup": False}
+                              "allow_signed_out_schedules": False, "allow_staging_cleanup": False,
+                              "allow_central_environment": False}
+
+# What each policy setting does when a policy source sets it, so a new setting can't be added without
+# someone deciding (tests/test_policy_classes.py fails until it is listed here):
+#   "loosens"    widens what KratosForge trusts, or where it sends or fetches things (LOOSENING; the two
+#                SHELL_LOOSENING keys are checked by the shell itself, main.rs and engine_folder.rs)
+#   "restricts"  can only take away from what the person could do or choose without it
+#   "preference" the person's own choice, which policy may set for them; it reaches nothing the person
+#                couldn't choose in Settings
+#   "neutral"    policy only, but neither widens trust nor takes anything away; the reason is given
+SHELL_LOOSENING = ("engine_download_url", "engine_folder")  # where the engine's code comes from
+POLICY_NEUTRAL: dict[str, str] = {
+    "platform": "where the platform catalog is; the person can choose their own in Settings > Platform",
+    "local_retention_days": "how long local copies of tables are kept; they can be fetched again, and the person can delete them",
+    "incident_sla": "targets an incident is measured against; changes no access",
+}
+POLICY_RESTRICTS = (*RESTRICTED, "auto_update", "register_link_scheme", "integrations",
+                    "integrations_max_permissions", "integrations_extensions", "integrations_editors",
+                    "receipt_redactions", "appstudio_models", "appstudio_providers", "appstudio_sample_rows")
+
+
+def policy_effect(key: str) -> str:
+    """"loosens", "restricts", "preference" or "neutral" for a policy setting (see POLICY_NEUTRAL's comment);
+    "" for a name that isn't one."""
+    if key in LOOSENING or key in SHELL_LOOSENING:
+        return "loosens"
+    if key in POLICY_RESTRICTS:
+        return "restricts"
+    if key in POLICY_NEUTRAL:
+        return "neutral"
+    return "preference" if key in USER_KEYS and key in POLICY_KEYS else ""
 
 
 def policy_path() -> Path:
@@ -316,7 +397,10 @@ def _read(path: Path) -> dict[str, Any]:
     moved aside as ``<name>.corrupt-<timestamp>`` rather than left for the next save to overwrite (QA-011)."""
     try:
         data = json.loads(jsonfile.read_text(path).lstrip("\ufeff"))
-    except ValueError:  # UnicodeDecodeError too
+        if not isinstance(data, dict):
+            raise ValueError("not one JSON object")
+    except (ValueError, RecursionError):  # UnicodeDecodeError too; RecursionError: nested too deep to parse
+        # Set aside too when it parsed but isn't an object (a list, a number): the next save would replace it.
         try:
             jsonfile.set_aside(path, then="your settings are back to their defaults until you change one")
         except OSError:
@@ -324,7 +408,7 @@ def _read(path: Path) -> dict[str, Any]:
         return {}
     except OSError:
         return {}
-    return {k: v for k, v in data.items() if k in DEFAULTS} if isinstance(data, dict) else {}
+    return {k: v for k, v in data.items() if k in DEFAULTS}
 
 
 def saved_policy_path() -> Path:
@@ -333,8 +417,75 @@ def saved_policy_path() -> Path:
 
 
 def _policy_file(digest: dict[str, str | None] | None = None) -> tuple[dict[str, Any], str | None, bool]:
-    """(settings, why the file can't be used, whether the saved copy stands in for it). With ``digest``,
-    also the SHA-256 of the very bytes it read, as digest["sha256"] (None when it couldn't read any)."""
+    """(settings, why the file can't be used, whether the saved copy stands in for it): the policy file's
+    settings with Group Policy's (registry_policy.py) laid over them, since a value Group Policy sets wins.
+    With ``digest``, also the SHA-256 of the very bytes the file read, as digest["sha256"] (None when it
+    couldn't read any), and of Group Policy's settings, as digest["registry_sha256"] (None for none)."""
+    data, reason, from_copy, registry, _ = _policy_sources(digest)
+    return ({**data, **registry} if registry else data), reason, from_copy
+
+
+def policy_file_untrusted() -> str | None:
+    """Why the policy file can't set LOOSENING settings, or None when only SYSTEM and Administrators
+    could have written it (policy_trust.py, the shell's test). Whether the current account can write it
+    isn't enough: another account may have created it."""
+    from . import policy_trust
+    return policy_trust.admin_only(policy_path())
+
+
+def registry_key_untrusted(lists: list[str]) -> str | None:
+    """Why Group Policy's key can't set LOOSENING settings, or None when only SYSTEM and Administrators
+    could have written it, its parent and the ``lists`` subkeys it sets them in (policy_trust.py)."""
+    from . import policy_trust
+    from .policy_schema import REGISTRY_KEY
+    why = policy_trust.key_admin_only(REGISTRY_KEY, lists)
+    return f"Group Policy's key isn't one only administrators could have written: {why}" if why else None
+
+
+def _policy_sources(digest: dict[str, str | None] | None = None
+                    ) -> tuple[dict[str, Any], str | None, bool, dict[str, Any], dict[str, tuple[list[str], str]]]:
+    """The policy file's settings (as _file_policy reads them) and Group Policy's, each without the
+    LOOSENING settings unless only administrators could have written that source, and which were left
+    out and why ({"file" or "registry": ([keys], why)}). The Group Policy fingerprint is of all it sets.
+    While Group Policy can't be read (or a list in it can't), no source sets a LOOSENING setting it may
+    manage: what it would say is unknown, and the safe side is the setting's default."""
+    from . import registry_policy
+    data, reason, from_copy = _file_policy(digest)
+    registry, _, unknown = registry_policy.read_all()
+    if digest is not None:
+        digest["registry_sha256"] = registry_policy.fingerprint(
+            {**registry, "(unreadable)": sorted(unknown)} if unknown else registry)
+        digest["registry_unreadable"] = ",".join(sorted(unknown)) or None
+    if unknown:
+        data = {k: v for k, v in data.items() if not (k in LOOSENING and _unknown(k, unknown))}
+    ignored: dict[str, tuple[list[str], str]] = {}
+    if any(k in data for k in LOOSENING):
+        why = ("the last copy of the policy file kept in your profile applies, which you can change" if from_copy
+               else policy_file_untrusted())
+        if why:
+            ignored["file"] = (sorted(k for k in data if k in LOOSENING), why)
+            data = {k: v for k, v in data.items() if k not in LOOSENING}
+    if any(k in registry for k in LOOSENING):
+        why = registry_key_untrusted([k for k in registry if k in LOOSENING and isinstance(registry[k], list)])
+        if why:
+            ignored["registry"] = (sorted(k for k in registry if k in LOOSENING), why)
+            registry = {k: v for k, v in registry.items() if k not in LOOSENING}
+    return data, reason, from_copy, registry, ignored
+
+
+def _unknown(key: str, unknown: frozenset[str]) -> bool:
+    from .registry_policy import ALL
+    return key in unknown or (ALL in unknown and key in POLICY_KEYS)
+
+
+def group_policy_unknown() -> frozenset[str]:
+    """The settings Group Policy may set that couldn't be read just now (registry_policy.read_all)."""
+    from . import registry_policy
+    return registry_policy.read_all()[2]
+
+
+def _file_policy(digest: dict[str, str | None] | None = None) -> tuple[dict[str, Any], str | None, bool]:
+    """The policy file alone, as _policy_file says."""
     path = policy_path()
     saved = saved_policy_path()
     if digest is not None:
@@ -346,8 +497,15 @@ def _policy_file(digest: dict[str, str | None] | None = None) -> tuple[dict[str,
         text = raw.decode("utf-8-sig")
         data = json.loads(text)
     except FileNotFoundError:
-        saved.unlink(missing_ok=True)  # IT removed the policy: an old copy mustn't come back later
+        try:  # IT removed the policy: an old copy mustn't come back later
+            jsonfile.unlink(saved)
+            _REMOVED_COPY_KEPT.discard(saved)
+        except OSError as exc:  # held past the wait: the next read tries again; the settings still load
+            _REMOVED_COPY_KEPT.add(saved)  # and a broken file meanwhile doesn't fall back on it
+            _log.warning("Couldn't remove the saved copy of the removed policy file (%s): %s", saved, exc)
         return {}, None, False
+    except RecursionError:
+        reason = "can't be read as JSON (it is nested too deeply)"
     except (OSError, ValueError) as exc:
         reason = f"can't be read as JSON ({exc})" if isinstance(exc, ValueError) else f"can't be opened ({exc})"
     else:
@@ -356,23 +514,25 @@ def _policy_file(digest: dict[str, str | None] | None = None) -> tuple[dict[str,
             return data, None, False
         reason = "must hold one JSON object"
     try:
-        copy = json.loads(saved.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        copy = None if saved in _REMOVED_COPY_KEPT else json.loads(saved.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):
         copy = None
     if isinstance(copy, dict):
         return copy, (f"{path} {reason}, so the last copy that could be read ({_saved_at(saved)}) applies "
-                      "until it's fixed"), True
+                      "until it's fixed. Ask IT to fix or push the policy file again"), True
     return {}, (f"{path} {reason}, so none of it applies and every setting it can restrict takes its most "
                 "restrictive value until it's fixed: no runs in Fabric, Preview features, telemetry, "
-                "external AI tools, package installs, the Optimize lakehouse and data samples in replay bundles off. "
-                "Sign-in still works, and accounts from any tenant can sign in"), False
+                "external AI tools, package installs, the Optimize lakehouse, KratosForge Environments and data samples "
+                "in replay bundles off. "
+                "Sign-in still works, and accounts from any tenant can sign in. Ask IT to fix or push the policy "
+                "file again"), False
 
 
 def _save_copy(saved: Path, text: str) -> None:
     try:
-        if saved.exists() and saved.read_text(encoding="utf-8") == text:
-            return
-        jsonfile.write_text(saved, text)
+        if not (saved.exists() and saved.read_text(encoding="utf-8") == text):
+            jsonfile.write_text(saved, text)
+        _REMOVED_COPY_KEPT.discard(saved)  # the copy is this policy's now, not the removed one's
     except OSError:  # no copy this time; the policy itself still applies
         pass
 
@@ -399,12 +559,20 @@ def policy_fingerprint() -> dict[str, Any]:
     which settings apply ("applied", "last_good" when the saved copy stands in for a broken file,
     "fail_closed" when nothing can, "none" with no file); and whether the account running the app
     could change or replace it."""
+    from . import registry_policy
     path = policy_path()
     digest: dict[str, str | None] = {}
     _, reason, from_copy = _policy_file(digest)  # one read: the hash is of the bytes whose settings apply
     exists = digest["sha256"] is not None or reason is not None
-    state = "last_good" if from_copy else "fail_closed" if reason else "applied" if exists else "none"
-    return {"sha256": digest["sha256"], "state": state, "user_can_change": exists and user_can_change(path)}
+    registry = digest.get("registry_sha256")
+    state = ("last_good" if from_copy else "fail_closed" if reason else "applied" if exists or registry
+             else "none")
+    out = {"sha256": digest["sha256"], "state": state,
+           "user_can_change": (exists and user_can_change(path)) or bool(registry and registry_policy.user_can_change()),
+           "registry_sha256": registry}
+    if digest.get("registry_unreadable"):  # recorded with the change: "*" for the whole key, else list names
+        out["registry_unreadable"] = digest["registry_unreadable"]
+    return out
 
 
 def _restricted(key: str, policy: dict[str, Any], error: str | None) -> bool:
@@ -447,22 +615,40 @@ def package_folder_problem(folder: str) -> str | None:
 
 def policy_problems() -> list[str]:
     """What in the organization's policy file is ignored or restricted, and why; empty when all of it applies."""
-    data, reason, from_copy = _policy_file()
+    from . import registry_policy
+    file_data, reason, from_copy, registry, ignored = _policy_sources()
+    data = {**file_data, **registry}
+    _, left_out = registry_policy.read()
     if reason and not from_copy:
-        return [reason]
+        return [reason, *left_out]
     problems = [reason] if reason else []
+    problems += left_out
+    for where, (keys, cause) in ignored.items():
+        fix = ("Ask IT to reset the Group Policy key's permissions so only administrators can change it" if where == "registry"
+               else "Ask IT to push policy.json as SYSTEM (Intune, Group Policy) or from an elevated prompt")
+        problems.append(f"{', '.join(keys)} {'is' if len(keys) == 1 else 'are'} ignored, because only a source only "
+                        f"administrators could have written may widen what KratosForge trusts, and {cause}. {fix}. "
+                        "Its restrictions still apply")
     if not from_copy and user_can_change(policy_path()):
         problems.append(f"{policy_path()} can be changed by the account you're signed in to this PC with, so "
                         "anyone using it can change what it allows. Ask IT to push it so only administrators can change it")
+    if registry and registry_policy.user_can_change():
+        problems.append("The Group Policy settings (HKLM\\Software\\Policies\\KratosBI\\KratosForge) can be changed by "
+                        "the account you're signed in to this PC with, so anyone using it can change what they allow. "
+                        "Ask IT to reset that key's permissions so only administrators can change it")
     for key, value in data.items():
+        first = len(problems)
         if key not in POLICY_KEYS:
-            problems.append(f"{one_line(key, 80)} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
+            problems.append(f"{one_line(key, 80)} isn't a setting (settings: {', '.join(POLICY_KEYS)}). "
+                            "Ask IT to remove it from the policy file")
         elif key in INTEGRATION_KEYS or key in APPSTUDIO_KEYS:
             continue  # integrations/policy.py and appstudio/policy.py check these, below
         elif key == "fabric_view_sign_in_hosts":
             problems.extend(_sign_in_host_problems(value))
         elif key == "engine_download_url":
             problems.extend(_engine_url_problems(value, data.get("auto_update")))
+        elif key == "engine_folder":
+            problems.extend(_engine_folder_problems(value, data.get("auto_update")))
         elif key == "notebook_package_folder" and isinstance(value, str) and value:
             why = package_folder_problem(value)
             if why:
@@ -480,6 +666,11 @@ def policy_problems() -> list[str]:
             problems.append(f"channel must be one of {', '.join(CHANNELS)}")
         elif key in CHOICES and value not in (*CHOICES[key], *RENAMED.get(key, {})):
             problems.append(f"{key} must be one of {', '.join(CHOICES[key])}")
+        elif key == "editor_font_size" and value and not EDITOR_FONT_SIZES[0] <= value <= EDITOR_FONT_SIZES[1]:
+            problems.append(f"editor_font_size must be 0 (each editor's own size) or {EDITOR_FONT_SIZES[0]} to "
+                            f"{EDITOR_FONT_SIZES[1]}")
+        elif key == "editor_key_overrides" and _editor_keys_problem(value):
+            problems.append(f"editor_key_overrides {_editor_keys_problem(value)}")
         elif key == "motion_level" and not MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]:
             problems.append(f"motion_level must be between {MOTION_LEVELS[0]} and {MOTION_LEVELS[1]}")
         elif key in SQL_RANGES and not SQL_RANGES[key][0] <= value <= SQL_RANGES[key][1]:
@@ -488,6 +679,8 @@ def policy_problems() -> list[str]:
             problems.append("client_id isn't an app (client) ID")
         elif key == "ui_skin" and not _skin_id(value):
             problems.append("ui_skin must be a skin id: lower-case letters, digits or hyphens")
+        elif key in ("audit_retention_days", "receipt_retention_days") and value != 0 and value < RETENTION_MIN_DAYS:
+            problems.append(f"{key} is 0 (keep them) or at least {RETENTION_MIN_DAYS} days")
         elif key == "local_retention_days" and value < 0:
             problems.append("local_retention_days can't be negative (0 keeps local copies)")
         elif key in LIMITS and not 0 <= value <= LIMITS[key]:
@@ -508,13 +701,27 @@ def policy_problems() -> list[str]:
         elif key == "incident_sla":
             from .workloads.sla import targets
             problems.extend(targets(value)[1])
+        for i in range(first, len(problems)):  # each says what IT can do about it
+            if "Ask IT" not in problems[i]:
+                problems[i] = _with_fix(problems[i], ask_it(key))
     if any(key in data for key in INTEGRATION_KEYS):
         from .integrations import policy as integrations_policy
-        problems += integrations_policy.current()["problems"]
+        problems += [_fix(p) for p in integrations_policy.current()["problems"]]
     if any(key in data for key in APPSTUDIO_KEYS):
         from .appstudio import policy as appstudio_policy
-        problems += appstudio_policy.current()["problems"]
+        problems += [_fix(p) for p in appstudio_policy.current()["problems"]]
     return problems
+
+
+def _fix(problem: str) -> str:
+    """``problem`` (one that starts with its setting's key) with what IT can do about it."""
+    key = problem.split(" ", 1)[0]
+    return problem if key not in POLICY_KEYS or "Ask IT" in problem else _with_fix(problem, ask_it(key))
+
+
+def _with_fix(problem: str, fix: str) -> str:
+    """``problem`` as one sentence, then ``fix``: a problem that already ends in a full stop keeps just the one."""
+    return f"{problem.rstrip().rstrip('.')}. {fix}"
 
 
 def dns_name(host: str) -> bool:
@@ -530,11 +737,16 @@ def dns_name(host: str) -> bool:
 def _sign_in_host_problems(value: Any) -> list[str]:
     """What the shell skips in fabric_view_sign_in_hosts (it reads the key itself)."""
     if not isinstance(value, list):
-        return [f"fabric_view_sign_in_hosts should be a list of host names, not {type(value).__name__}, "
-                "so the Fabric view opens no extra sign-in hosts"]
+        return [(f"fabric_view_sign_in_hosts should be a list of host names, not {type(value).__name__}, "
+                "so the Fabric view opens no extra sign-in hosts")]
     bad = [v for v in value if not (isinstance(v, str) and dns_name(v))]
-    return [f"fabric_view_sign_in_hosts: {json.dumps(v)} isn't a host name like adfs.contoso.com "
-            "(no *, https://, port or path), so it's skipped" for v in bad]
+    problems = [f"fabric_view_sign_in_hosts: {json.dumps(v)} isn't a host name like adfs.contoso.com "
+                "(no *, https://, port or path), so it's skipped" for v in bad]
+    ignored = os.environ.get("FABRIC_DESKTOP_SIGN_IN_HOSTS_IGNORED", "")  # the shell's own check, at start
+    if ignored:
+        problems.append(f"fabric_view_sign_in_hosts: {ignored}. Ask IT to push policy.json as SYSTEM (Intune, Group "
+                        "Policy) or from an elevated prompt, so only administrators can change it")
+    return problems
 
 
 def engine_url_ok(url: str) -> bool:
@@ -551,14 +763,34 @@ def engine_url_ok(url: str) -> bool:
 def _engine_url_problems(value: Any, auto_update: Any) -> list[str]:
     """What the shell skips in engine_download_url (it reads the key itself)."""
     if not (isinstance(value, str) and engine_url_ok(value.strip())):
-        return [f"engine_download_url: {json.dumps(value)} isn't an https folder address like "
-                "https://files.contoso.com/kratosforge (no user name, ? or #), so the engine comes from GitHub"]
+        return [(f"engine_download_url: {json.dumps(value)} isn't an https folder address like "
+                "https://files.contoso.com/kratosforge (no user name, ? or #), so the engine comes from GitHub")]
     if auto_update is not False:
-        return ['engine_download_url is used only with "auto_update": false, so the engine comes from GitHub']
+        return [('engine_download_url is used only with "auto_update": false, so the engine comes from GitHub. '
+                 + _auto_update_fix("engine_download_url", auto_update))]
     ignored = os.environ.get("FABRIC_DESKTOP_ENGINE_URL_IGNORED", "")  # the shell's own check, at start
     if ignored:
-        return [f"engine_download_url is ignored, so the engine comes from GitHub: {ignored}. Push policy.json "
-                "as SYSTEM (Intune, Group Policy) or from an elevated prompt, so only administrators can change it"]
+        return [(f"engine_download_url is ignored, so the engine comes from GitHub: {ignored}. Ask IT to push "
+                "policy.json as SYSTEM (Intune, Group Policy) or from an elevated prompt, so only administrators can change it")]
+    return []
+
+
+def _engine_folder_problems(value: Any, auto_update: Any) -> list[str]:
+    """What the shell refuses in engine_folder (Preview; it reads the key and checks the folder's
+    permissions itself, engine_folder.rs). The app then doesn't start its engine, so say why here too."""
+    text = value.strip() if isinstance(value, str) else ""
+    parts = text.split("\\")
+    if not (len(text) >= 3 and text[0].isascii() and text[0].isalpha() and text[1:3] == ":\\"
+            and "/" not in text and not any(p in (".", "..") for p in parts)
+            and not any(ord(c) < 32 or ord(c) == 127 for c in text)):
+        return [(f"engine_folder: {json.dumps(value)} isn't a full folder path on this PC like "
+                 "C:\\Program Files\\KratosForge\\engine, so the engine can't start until it's fixed")]
+    if auto_update is not False:
+        return [('engine_folder is used only with "auto_update": false, so the engine can\'t start until that is set. '
+                 + _auto_update_fix("engine_folder", auto_update))]
+    ignored = os.environ.get("FABRIC_DESKTOP_ENGINE_FOLDER_IGNORED", "")  # the shell's own check, at start
+    if ignored:
+        return [f"engine_folder is ignored, because {ignored}"]
     return []
 
 
@@ -621,8 +853,12 @@ def _typed(key: str, value: Any) -> bool:
 def _in_range(key: str, value: Any) -> bool:
     if key == "local_retention_days":
         return value >= 0
+    if key in ("audit_retention_days", "receipt_retention_days"):
+        return value == 0 or value >= RETENTION_MIN_DAYS
     if key in LIMITS:
         return 0 <= value <= LIMITS[key]
+    if key in SQL_RANGES:  # from any source: an out-of-range policy value never applies (policy_problems says so)
+        return SQL_RANGES[key][0] <= value <= SQL_RANGES[key][1]
     if key == "motion_level":
         return MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]
     if key in CHOICES:
@@ -631,6 +867,10 @@ def _in_range(key: str, value: Any) -> bool:
         return _skin_id(value)
     if key == "sign_in_tenant":
         return _sign_in_tenant(value)
+    if key == "editor_font_size":
+        return value == 0 or EDITOR_FONT_SIZES[0] <= value <= EDITOR_FONT_SIZES[1]
+    if key == "editor_key_overrides":
+        return _editor_keys_problem(value) is None
     return True
 
 
@@ -650,6 +890,30 @@ def _skin_id(value: Any) -> bool:
 def _telemetry_target(text: str) -> bool:
     from .telemetry import valid_connection_string
     return valid_connection_string(text)
+
+
+def policy_source(key: str) -> str:
+    """Which of the organization's sources sets ``key``, in words for a message: "Group Policy" when a value
+    Group Policy sets for it applies, which includes each on/off restriction's most restrictive value while
+    Group Policy's whole key can't be read. Otherwise "the policy file": when only the file sets it, when
+    neither does, when the file can't be read and the restriction takes its most restrictive value, when
+    Group Policy's value for a LOOSENING setting is ignored because its key isn't admin-only, and when
+    the list subkey for ``key`` can't be read (what Group Policy sets for it is then unknown and not used)."""
+    return "Group Policy" if key in _policy_sources()[3] else "the policy file"
+
+
+def _auto_update_fix(key: str, auto_update: Any) -> str:
+    """What IT can do when ``key`` (engine_download_url or engine_folder) is set without "auto_update": false:
+    set auto_update where it is set (that source wins), or where ``key`` is when it isn't set anywhere; or
+    remove ``key``, from where it is when that's elsewhere."""
+    there = policy_source(key)
+    where = policy_source("auto_update") if auto_update is not None else there
+    return f"Ask IT to set auto_update to false in {where}, or to remove {key}" + ("" if where == there else f" from {there}")
+
+
+def ask_it(key: str) -> str:
+    """What IT can do about a setting the organization fixed, as a sentence for an error message."""
+    return f"Ask IT to change {key} in {policy_source(key)}."
 
 
 def tenant_allowed(tenant_id: str | None) -> bool:
@@ -684,6 +948,9 @@ def load() -> dict[str, Any]:
         value, source = default, "default"
         for where, candidate in candidates:
             candidate = RENAMED.get(key, {}).get(candidate, candidate) if isinstance(candidate, str) else candidate
+            if key == "client_id" and where != "policy" and not valid_client_id(str(candidate or "")):
+                continue  # a hand-edited ID that isn't one would only break sign-in. A bad policy value still
+                #           locks it (policy_problems names it): a typo there never hands the choice back
             if candidate not in (None, "") and _typed(key, candidate) and _in_range(key, candidate):
                 value, source = candidate, where
                 break
@@ -708,11 +975,17 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
     """Saves this person's choices. A setting the organization fixed can't be changed here."""
     current = load()
     user = _read(user_path())
+    unknown = group_policy_unknown()
     for key, new in changes.items():
         if key not in USER_KEYS:
             raise ValueError(f"{key} is not a setting you can change")
+        if unknown and _unknown(key, unknown) and not (key in RESTRICTED and new == RESTRICTED[key]):
+            # What Group Policy says about it is unknown: it stays as it is, unless it's made stricter.
+            raise ValueError(f"Group Policy on this PC couldn't be read, and it may set {key}, so {key} can only be made "
+                             "stricter until Group Policy can be read. Try again later. If it doesn't clear, ask IT to "
+                             "check that this PC can read the Group Policy key.")
         if current[key]["source"] == "policy":
-            raise ValueError(f"Your organization sets {key}, so it can't be changed here")
+            raise ValueError(f"Your organization sets {key}, so it can't be changed here. {ask_it(key)}")
         if current[key]["source"] == "environment":
             # Saving would say Saved for a value that never applies: the variable wins over this file.
             raise ValueError(f"The {ENV_VARS[key]} environment variable sets {key} on this PC, so a value saved "
@@ -741,12 +1014,36 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"motion_level must be a whole number from {MOTION_LEVELS[0]} to {MOTION_LEVELS[1]}")
         if key in LIMITS:
             new = _limit(key, new)
+        if key == "editor_font_size" and new not in (None, ""):
+            if isinstance(new, bool) or not isinstance(new, int) or (new and not EDITOR_FONT_SIZES[0] <= new <= EDITOR_FONT_SIZES[1]):
+                raise ValueError(f"editor_font_size must be 0 (each editor's own size) or a whole number from "
+                                 f"{EDITOR_FONT_SIZES[0]} to {EDITOR_FONT_SIZES[1]}")
+            new = new or None
+        if key == "editor_key_overrides" and new not in (None, ""):
+            if (why := _editor_keys_problem(new)) is not None:
+                raise ValueError(f"editor_key_overrides {why}")
+            new = new or None
         if new in (None, ""):
             user.pop(key, None)
         else:
             user[key] = new
     jsonfile.write_json(user_path(), user)  # readers see the old file or the new one, never half (QA-011)
     return load()
+
+
+def _editor_keys_problem(value: Any) -> str | None:
+    """Why ``value`` isn't an editor_key_overrides map (command id to a CodeMirror key, such as "Mod-Shift-f"),
+    or None when it is one. Which keys are free is the editor's to say (editorprefs.js); this checks the shape."""
+    if not isinstance(value, dict):
+        return f"should be a map of command to key, not {type(value).__name__}"
+    if len(value) > EDITOR_KEY_OVERRIDES_MAX:
+        return f"can change at most {EDITOR_KEY_OVERRIDES_MAX} keys"
+    for command, key in value.items():
+        if not isinstance(command, str) or not _EDITOR_COMMAND.fullmatch(command):
+            return f"has a command name that isn't one: {str(command)[:40]!r}"
+        if not isinstance(key, str) or not _EDITOR_KEY.fullmatch(key):
+            return f"has a key for {command} that isn't one, such as Mod-Shift-f: {str(key)[:40]!r}"
+    return None
 
 
 def _limit(key: str, new: Any) -> float | None:
@@ -779,6 +1076,9 @@ def _sql_folder(new: Any) -> str:
     text = str(new or "").strip()
     if text and not Path(text).is_absolute():
         raise ValueError("sql_temp_dir must be a full folder path, like C:\\Temp\\FabricDesktop")
+    from . import known_folders
+    if text and (refusal := known_folders.onedrive_refusal(text, "the SQL page's results and spill files")):
+        raise ValueError(refusal)
     return text
 
 
@@ -786,9 +1086,12 @@ def sql_limits() -> dict[str, Any]:
     """The SQL page's limits as they apply now: a value out of range (an old file, a typo) falls
     back to the default."""
     out: dict[str, Any] = {}
+    settings = load()
     for key in (*SQL_RANGES, "sql_temp_dir"):
-        v = value(key)
+        v = settings[key]["value"]
         if key in SQL_RANGES and not SQL_RANGES[key][0] <= v <= SQL_RANGES[key][1]:
             v = DEFAULTS[key]
         out[key] = v
+    # The organization's limit is a ceiling: a caller's own time limit may be shorter, never longer.
+    out["sql_time_limit_by_policy"] = settings["sql_time_limit_minutes"]["source"] == "policy"
     return out

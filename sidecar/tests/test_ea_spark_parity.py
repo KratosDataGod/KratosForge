@@ -31,8 +31,8 @@ def run(code):
 
 @pytest.mark.parametrize("code", [
     "print(spark.sql('SELECT CAST(3.7 AS INT) a, CAST(-3.7 AS INT) b').collect())",
-    "from pyspark.sql import functions as F\n"
-    "print(spark.createDataFrame([(3.7,), (-3.7,)], 'x double').select(F.col('x').cast('int').alias('a')).collect())",
+    ("from pyspark.sql import functions as F\n"
+    "print(spark.createDataFrame([(3.7,), (-3.7,)], 'x double').select(F.col('x').cast('int').alias('a')).collect())"),
 ])
 def test_float_to_int_casts_truncate_as_in_spark(lake, code):
     status, text = run(code)

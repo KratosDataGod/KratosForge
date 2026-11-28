@@ -191,9 +191,12 @@ def test_walk_blanks_secret_fields_and_removes_secrets_in_every_string():
     assert walked["nested"][0][0] == "x" and token not in walked["nested"][0][1]
     as_text = redact.walk(value, stringify=True)
     assert isinstance(as_text["obj"], str) and token not in as_text["obj"]
-    # The log formatter and integration results are the same walk, one printing objects and one not.
+    # The log formatter prints objects; integration results do too, since that is what the
+    # transports would write (core.redact_result also blanks lists and objects under a secret field).
     assert logs._redacted(value) == as_text
-    assert core.redact_result(value) == walked
+    result = core.redact_result(value)
+    assert result["password"] == redact.REMOVED and result["token_count"] == 3 and result["ok"] is True
+    assert isinstance(result["obj"], str) and token not in result["obj"] and token not in str(result)
 
 
 def test_a_folded_cookie_line_keeps_the_next_lines_text():
@@ -220,3 +223,43 @@ def test_without_webhook_hides_the_urls_percent_encoded_forms_too():
                     "/WEBHOOKB2/abc-123%40DEF/IncomingWebhook/S3CR3T%20PATH/x"):
         out = redact.without_webhook(f"Max retries exceeded with url: {written}", url)
         assert "s3cr3t" not in out.lower() and "[webhook]" in out, written
+
+
+@pytest.mark.parametrize("text", [
+    "C:\\Users\\O'Brien\\proj", "C:\\Users\\ann'2\\proj", "/home/o'brien/proj", "/Users/o'brien/proj",
+    "/home/ann'2/proj", "C:\\Users\\Jo O'Neil\\OneDrive - O'Hare 2'Co\\x",
+    "read_csv('C:\\Users\\o''brien\\x.csv')", "read_csv('/home/o''brien/x.csv')",
+])
+def test_a_user_name_with_an_apostrophe_is_taken_out_whole(text):
+    out = redact.for_support(text)
+    for part in ("Brien", "brien", "'2", "Neil", "Hare", "2'Co"):
+        assert part not in out, (text, out)
+
+
+def test_an_apostrophe_closing_a_quoted_path_still_closes_it():
+    out = redact.for_support("opened 'C:\\Users\\ann' and '/home/bob', then stopped")
+    assert out.endswith("', then stopped") and "ann" not in out and "bob" not in out
+
+
+@pytest.mark.parametrize("unit", ["a.", "a-", "-a", "a", "a_", "a:", "x@", "aB"])
+def test_long_text_is_redacted_in_linear_time(unit):
+    # Each rule used to restart from every word of a long dotted or dashed run, so 40,000
+    # characters took tens of seconds; read once, they take a fraction of one.
+    import time
+
+    text = unit * 20000
+    started = time.perf_counter()
+    redact.for_support(text)
+    redact.one_line(text)
+    assert time.perf_counter() - started < 3
+
+
+def test_rules_that_start_later_still_find_what_they_did():
+    # An address right after another, a name made of words and the user info of an unusual scheme.
+    assert redact.for_support("ann@contoso.com+bob@contoso.com") == "[email][email]"
+    assert redact.secrets("x-y_access_token=abc x__token=def") == "x-y_access_token=[removed] x__token=[removed]"
+    assert redact.secrets("git+ssh://me:" + "pw@host x-ref://tok@host") == "git+ssh://[removed]@host x-ref://[removed]@host"
+    assert redact.secrets("abfss://ws@onelake.dfs.fabric.microsoft.com/x") == "abfss://ws@onelake.dfs.fabric.microsoft.com/x"
+    assert redact.secrets("x.abfss://ws@onelake.dfs.fabric.microsoft.com/x") == "x.abfss://[removed]@onelake.dfs.fabric.microsoft.com/x"
+    assert redact.for_support("a.b-contoso.onmicrosoft.com and a-b.sharepoint.com") == (
+        "[tenant].onmicrosoft.com and [tenant].sharepoint.com")

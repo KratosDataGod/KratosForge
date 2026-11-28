@@ -20,10 +20,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 106 |
-| Differs | 3 |
-| Refused | 15 |
-| Fails | 39 |
+| Runs | 143 |
+| Differs | 7 |
+| Refused | 13 |
+| Fails | 0 |
 | Not checked | 24 |
 | **All** | **187** |
 
@@ -32,27 +32,27 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | Method | Status | Note |
 | --- | --- | --- |
 | `agg` | Runs |  |
-| `alias` | Fails | `joined_df.select( "df_as1.name", "df_as2.name", "df_as2.a...`: BinderException: Binder Error: Referenced table "df_as1" not found! |
+| `alias` | Runs |  |
 | `approxQuantile` | Not checked |  |
 | `cache` | Runs |  |
 | `checkpoint` | Runs |  |
-| `coalesce` | Refused | `df.coalesce(1).rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
+| `coalesce` | Refused | `df.coalesce(1).rdd.getNumPartitions()`: NotImplementedError: RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), or foreach, foreachPartition and mapInPandas, which run here. |
 | `colRegex` | Runs |  |
 | `collect` | Runs |  |
-| `columns` | Fails | `for col_name in df.columns: df = df.withColumn(col_name, ...`: BinderException: Binder Error: No function matches the given name and argument types 'upper(BIGINT)'. You might need to add explicit type casts. |
+| `columns` | Runs |  |
 | `corr` | Runs |  |
 | `count` | Runs |  |
 | `cov` | Runs |  |
-| `createGlobalTempView` | Refused | `df.createGlobalTempView("people")`: NotImplementedError |
-| `createOrReplaceGlobalTempView` | Fails | `df3 = spark.sql("SELECT * FROM global_temp.people")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
-| `createOrReplaceTempView` | Fails | `spark.catalog.dropTempView("people")`: AttributeError: 'Catalog' object has no attribute 'dropTempView' |
-| `createTempView` | Fails | `df.createTempView("people")`: ValueError: Temporary view 'people' already exists. Use createOrReplaceTempView. |
+| `createGlobalTempView` | Runs |  |
+| `createOrReplaceGlobalTempView` | Runs |  |
+| `createOrReplaceTempView` | Runs |  |
+| `createTempView` | Runs |  |
 | `crossJoin` | Runs |  |
 | `crosstab` | Runs |  |
 | `cube` | Runs |  |
 | `describe` | Runs |  |
 | `distinct` | Runs |  |
-| `drop` | Fails | `df3 = df.join(df2)`: TypeError: join(): incompatible function arguments. The following argument types are supported: |
+| `drop` | Runs |  |
 | `dropDuplicates` | Runs |  |
 | `dropDuplicatesWithinWatermark` | Not checked |  |
 | `drop_duplicates` | Not checked |  |
@@ -63,40 +63,40 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `fillna` | Runs |  |
 | `filter` | Runs |  |
 | `first` | Runs |  |
-| `foreach` | Refused | `df.foreach(func)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
-| `foreachPartition` | Refused | `df.foreachPartition(func)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
+| `foreach` | Differs | `df.foreach(func)`: {"printed": "Tom\nAlice\nBob"} here, {} in Spark |
+| `foreachPartition` | Differs | `df.foreachPartition(func)`: {"printed": "Tom\nAlice\nBob"} here, {} in Spark |
 | `freqItems` | Runs |  |
 | `groupBy` | Runs |  |
 | `groupby` | Not checked |  |
 | `head` | Runs |  |
 | `hint` | Not checked |  |
-| `inputFiles` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a single...`: AttributeError: 'LakehouseWriter' object has no attribute 'json' |
+| `inputFiles` | Runs |  |
 | `intersect` | Runs |  |
 | `intersectAll` | Runs |  |
-| `isEmpty` | Fails | `df_non_empty = spark.createDataFrame(["a"], 'STRING')`: PySparkValueError: Provided column names and number of columns in the DataFrame don't match |
+| `isEmpty` | Runs |  |
 | `isLocal` | Runs |  |
-| `isStreaming` | Fails | `df = spark.readStream.format("rate").load()`: ValueError: readStream.load needs a path. |
+| `isStreaming` | Refused | `df = spark.readStream.format("rate").load()`: ValueError: Streaming from 'rate' runs in Fabric. On this PC, streams read Delta tables and csv, json, parquet or text files. |
 | `join` | Runs |  |
 | `limit` | Runs |  |
 | `localCheckpoint` | Runs |  |
 | `mapInArrow` | Runs |  |
-| `mapInPandas` | Fails | `from pyspark.sql.functions import pandas_udf`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
+| `mapInPandas` | Runs |  |
 | `melt` | Not checked |  |
 | `na` | Runs |  |
-| `observe` | Fails | `from pyspark.sql import Observation`: ImportError: cannot import name 'Observation' from 'duckdb.experimental.spark.sql' |
+| `observe` | Refused | `spark.streams.addListener(MyErrorListener())`: NotImplementedError: spark.streams.addListener runs in Fabric: stream listeners and the query manager aren't on this PC. A stream started here is managed by the |
 | `offset` | Runs |  |
 | `orderBy` | Runs |  |
 | `pandas_api` | Runs |  |
-| `persist` | Fails | `from pyspark.storagelevel import StorageLevel`: ModuleNotFoundError: No module named 'pyspark.storagelevel' |
+| `persist` | Runs |  |
 | `printSchema` | Runs |  |
 | `randomSplit` | Differs | `splits[0].count()`: {"value": 2} here, {"value": 1} in Spark |
-| `rdd` | Refused | `type(df.rdd)`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
-| `registerTempTable` | Fails | `spark.catalog.dropTempView("people")`: AttributeError: 'Catalog' object has no attribute 'dropTempView' |
-| `repartition` | Refused | `df.repartition(10).rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
-| `repartitionByRange` | Refused | `df.repartitionByRange(2, "age").rdd.getNumPartitions()`: NotImplementedError: RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in Fabric. On this PC, use DataFrame methods, SQL or toPandas( |
+| `rdd` | Refused | `type(df.rdd)`: NotImplementedError: RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), or foreach, foreachPartition and mapInPandas, which run here. |
+| `registerTempTable` | Runs |  |
+| `repartition` | Refused | `df.repartition(10).rdd.getNumPartitions()`: NotImplementedError: RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), or foreach, foreachPartition and mapInPandas, which run here. |
+| `repartitionByRange` | Refused | `df.repartitionByRange(2, "age").rdd.getNumPartitions()`: NotImplementedError: RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), or foreach, foreachPartition and mapInPandas, which run here. |
 | `replace` | Runs |  |
 | `rollup` | Runs |  |
-| `sameSemantics` | Fails | `df1.withColumn("col1", df1.id * 2).sameSemantics(df2.with...`: AttributeError: 'DataFrame' object has no attribute 'sameSemantics' |
+| `sameSemantics` | Runs |  |
 | `sample` | Runs |  |
 | `sampleBy` | Differs | `sampled.groupBy("key").count().orderBy("key").show()`: {"printed": "+---+-----+\n\|key\|count\|\n+---+-----+\n\|  0\|    7\|\n\|  1\| here, {"printed": "+---+-----+\n\|key\|count\|\n+---+-----+\n\|  0\|    3\|\n\|  1\| in Spark |
 | `schema` | Runs |  |
@@ -109,7 +109,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `sparkSession` | Runs |  |
 | `sql_ctx` | Not checked |  |
 | `stat` | Runs |  |
-| `storageLevel` | Fails | `df1.storageLevel`: AttributeError: 'DataFrame' object has no attribute 'storageLevel' |
+| `storageLevel` | Runs |  |
 | `subtract` | Runs |  |
 | `summary` | Runs |  |
 | `tail` | Runs |  |
@@ -132,9 +132,9 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `withColumnRenamed` | Runs |  |
 | `withColumns` | Runs |  |
 | `withColumnsRenamed` | Runs |  |
-| `withMetadata` | Fails | `df_meta = df.withMetadata('age', {'foo': 'bar'})`: AttributeError: 'DataFrame' object has no attribute 'withMetadata' |
+| `withMetadata` | Runs |  |
 | `withWatermark` | Not checked |  |
-| `write` | Fails | `_ = spark.sql("DROP TABLE IF EXISTS tab2")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
+| `write` | Differs | `df.write.saveAsTable("tab2")`: {"printed": "Wrote 2 rows to dbo.tab2 (Delta version 0). New table: re here, {} in Spark |
 | `writeStream` | Not checked |  |
 | `writeTo` | Runs |  |
 
@@ -142,7 +142,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `alias` | Fails | `df.select(df.age.alias("age3", metadata={'max': 99})).sch...`: TypeError: Column.alias() got an unexpected keyword argument 'metadata' |
+| `alias` | Runs |  |
 | `asc` | Runs |  |
 | `asc_nulls_first` | Runs |  |
 | `asc_nulls_last` | Runs |  |
@@ -179,10 +179,10 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `agg` | Fails | `from pyspark.sql.functions import pandas_udf, PandasUDFType`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
-| `apply` | Fails | `from pyspark.sql.functions import pandas_udf, PandasUDFType`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
-| `applyInPandas` | Fails | `from pyspark.sql.functions import pandas_udf, ceil`: ImportError: cannot import name 'pandas_udf' from 'duckdb.experimental.spark.sql.functions' |
-| `applyInPandasWithState` | Fails | `from pyspark.sql.streaming.state import GroupStateTimeout`: ModuleNotFoundError: No module named 'pyspark.sql.streaming.state'; 'pyspark.sql.streaming' is not a package |
+| `agg` | Runs |  |
+| `apply` | Runs |  |
+| `applyInPandas` | Runs |  |
+| `applyInPandasWithState` | Runs |  |
 | `avg` | Runs |  |
 | `cogroup` | Not checked |  |
 | `count` | Runs |  |
@@ -196,39 +196,39 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `csv` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `format` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'json' to <temp dir> on this PC. |
+| `csv` | Runs |  |
+| `format` | Runs |  |
 | `jdbc` | Not checked |  |
-| `json` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'json' to <temp dir> on this PC. |
-| `load` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `option` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `options` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `orc` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'orc' to <temp dir> on this PC. |
-| `parquet` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `schema` | Refused | `spark.read.schema("col0 INT, col1 DOUBLE")`: NotImplementedError: On this PC, give read.schema() a StructType. A DDL string isn't supported. |
+| `json` | Runs |  |
+| `load` | Runs |  |
+| `option` | Runs |  |
+| `options` | Runs |  |
+| `orc` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: NotImplementedError: ORC files are written in Fabric; DuckDB on this PC can't write ORC. Write Parquet here (df.write.parquet), or run the cell in Fabric. |
+| `parquet` | Runs |  |
+| `schema` | Runs |  |
 | `table` | Runs |  |
-| `text` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'text' to <temp dir> on this PC. |
+| `text` | Runs |  |
 
 ## DataFrameWriter
 
 | Method | Status | Note |
 | --- | --- | --- |
-| `bucketBy` | Fails | `from pyspark.sql.functions import input_file_name`: ImportError: cannot import name 'input_file_name' from 'duckdb.experimental.spark.sql.functions' |
-| `csv` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `format` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `insertInto` | Fails | `_ = spark.sql("DROP TABLE IF EXISTS tblA")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
+| `bucketBy` | Refused | `spark.createDataFrame([ (100, "Hyukjin Kwon"), (120, "Hyu...`: ValueError: Delta tables have no buckets, so this PC refuses bucketBy as Fabric does ("Operation not allowed: Bucketing is not supported for Delta tables"). Lea |
+| `csv` | Runs |  |
+| `format` | Runs |  |
+| `insertInto` | Differs | `df.write.saveAsTable("tblA")`: {"printed": "Wrote 3 rows to dbo.tblA (Delta version 0). New table: re here, {} in Spark |
 | `jdbc` | Not checked |  |
-| `json` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: AttributeError: 'LakehouseWriter' object has no attribute 'json' |
-| `mode` | Fails | `with tempfile.TemporaryDirectory() as d: # Overwrite the ...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `option` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: NotImplementedError: The nullvalue option isn't supported when writing a CSV file on this PC. Leave it out, or run the cell in Fabric. |
-| `options` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: NotImplementedError: The nullvalue option isn't supported when writing a CSV file on this PC. Leave it out, or run the cell in Fabric. |
-| `orc` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: AttributeError: 'LakehouseWriter' object has no attribute 'orc' |
-| `parquet` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `partitionBy` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: IOException: IO Error: Cannot open file "<temp dir>" |
-| `save` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: ValueError: Can't write format 'json' to <temp dir> on this PC. |
-| `saveAsTable` | Fails | `_ = spark.sql("DROP TABLE IF EXISTS tblA")`: RuntimeError: No lakehouse is attached. Use Add data items to attach one. |
-| `sortBy` | Fails | `from pyspark.sql.functions import input_file_name`: ImportError: cannot import name 'input_file_name' from 'duckdb.experimental.spark.sql.functions' |
-| `text` | Fails | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: AttributeError: 'LakehouseWriter' object has no attribute 'text' |
+| `json` | Runs |  |
+| `mode` | Runs |  |
+| `option` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: NotImplementedError: The nullvalue option isn't supported when writing csv files on this PC. Leave it out, or run the cell in Fabric. |
+| `options` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: NotImplementedError: The nullvalue option isn't supported when writing csv files on this PC. Leave it out, or run the cell in Fabric. |
+| `orc` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: NotImplementedError: ORC files are written in Fabric; DuckDB on this PC can't write ORC. Write Parquet here (df.write.parquet), or run the cell in Fabric. |
+| `parquet` | Runs |  |
+| `partitionBy` | Runs |  |
+| `save` | Runs |  |
+| `saveAsTable` | Refused | `_ = spark.sql("DROP TABLE IF EXISTS tblA")`: ValueError: DROP TABLE removes tblA from the lakehouse, which runs in Fabric. Run the cell in Fabric. |
+| `sortBy` | Refused | `spark.createDataFrame([ (100, "Hyukjin Kwon"), (120, "Hyu...`: ValueError: Delta tables have no buckets, so this PC refuses bucketBy as Fabric does ("Operation not allowed: Bucketing is not supported for Delta tables"). Lea |
+| `text` | Runs |  |
 
 ## DataFrameNaFunctions
 

@@ -54,7 +54,7 @@ def cells(text: str) -> list[tuple[bool, int, str]]:
     params, start = False, 1
     lines: list[str] = []
     for n, line in enumerate(text.splitlines(), 1):
-        if _MARKER.match(line):
+        if _MARKER.fullmatch(line):
             if lines:
                 out.append((params, start, "\n".join(lines)))
             params, start, lines = line.startswith(_PARAMETERS), n + 1, []
@@ -128,7 +128,7 @@ class Utils:
     def _notebook(self, name: str) -> Path:
         name = str(name)
         name = name[:-3] if name.endswith(".py") else name
-        if not _NOTEBOOK.match(name):
+        if not _NOTEBOOK.fullmatch(name):
             raise ValueError(f"{name!r} isn't a notebook name like clean_orders.")
         path = self.work / NOTEBOOKS / f"{name}.py"
         if not path.is_file():
@@ -158,7 +158,7 @@ class Utils:
         self.runtime.context._refresh()   # json.dumps reads the dict's own storage, not __getitem__
         try:
             for is_params, start, source in parts:
-                exec(compile("\n" * (start - 1) + source, f"{NOTEBOOKS}/{file.name}", "exec"), ns)  # noqa: S102
+                exec(compile("\n" * (start - 1) + source, f"{NOTEBOOKS}/{file.name}", "exec"), ns)  # noqa: S102 - the learner's exercise notebook, as notebookutils.notebook.run does
                 if is_params:
                     ns.update(args)
         except NotebookExit as done:

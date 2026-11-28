@@ -23,12 +23,13 @@ needs the catalog, so it waits until it can be reached.
 
 - **Export CSV** writes a new file in your Downloads folder and never replaces one. It opens
   in Excel; the `Entity` column is how Import finds each row, so leave it as it is. Text that
-  starts with `=`, `+`, `-` or `@` goes out with a `'` in front, so Excel shows it as text
-  instead of running it as a formula; Import takes the `'` off again.
+  starts with `=`, `+`, `-`, `@`, a tab or a carriage return goes out with a `'` in front, so Excel shows it as text
+  instead of running it as a formula, and the message after the export says how many cells got
+  one; Import takes the `'` off again.
 - **Save to the project** writes `semantic/SM_<Layer>.dictionary.csv` into the metadata
   project's folder, where it shows in Changes, ready to commit.
-- **Import descriptions** reads an edited CSV, from Excel in any language (semicolons work
-  too), and shows every change before anything is saved:
+- **Import descriptions** reads an edited CSV of up to 5 MB, from Excel in any language
+  (semicolons work too), and shows every change before anything is saved:
 
 | Shown as | What it means |
 | --- | --- |
@@ -37,7 +38,7 @@ needs the catalog, so it waits until it can be reached.
 | Skipped | A column that isn't in the table any more, a row listed twice, or a classification that isn't Public, Internal, Confidential or Restricted |
 
 A blank cell leaves the text as it is, so an import never erases a description. Measure rows
-are skipped, since their descriptions are written for you. **Save** saves the changes to the
+are skipped, since their descriptions are written for you. **Save N changes** saves them to the
 catalog through the same call as the About card; a catalog in Fabric uses capacity to save.
 The model in Fabric doesn't change until you **Update model**.
 

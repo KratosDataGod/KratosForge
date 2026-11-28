@@ -1,0 +1,12 @@
+version: 0.2.0.dev0
+name: wrong_dialects_object
+datasets:
+- name: orders
+  source: dbo.orders
+  fields:
+  - name: order_id
+    expression: {dialects: [{dialect: ANSI_SQL, expression: order_id}]}
+metrics:
+- name: total
+  expression:
+    dialects: {dialect: ANSI_SQL, expression: SUM(orders.order_id)}

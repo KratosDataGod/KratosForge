@@ -98,6 +98,11 @@ def _after(previous: str | None) -> str:
     return timestamp(at)
 
 
+def _clean(text: Any) -> Any:
+    """Free text as everyone who reads the lakehouse will see it: anything credential-shaped removed."""
+    return redact.secrets(text) if isinstance(text, str) and text else text
+
+
 def recommendation_id(fp: str, kind: str) -> str:
     return record_id("recommendation", fp, kind)
 
@@ -117,6 +122,7 @@ class Shared:
         self.batch = max(1, int(batch))
         self.rows_sent = 0  # rows handed to an insert, including ones already there
         self.commits = 0
+        self.version: int | None = None  # the schema version the lakehouse is at, found by _check_writable
 
     # Writing
 
@@ -126,7 +132,9 @@ class Shared:
                                   "To add them, ask for Contributor on its workspace.")
         version = max(setup.applied_versions(self.lake), default=0)
         if version > schema.latest():
-            raise PermissionError(setup.MESSAGES[setup.NEWER])
+            raise setup.SchemaMismatch(setup.NEWER)
+        # An older lakehouse is written with its own version's columns until someone upgrades it.
+        self.version = version or None
 
     def _write(self, name: str, rows: list[dict[str, Any]]) -> int:
         """Insert ``rows`` in batches; returns how many rows were sent. A batch that fails after its
@@ -135,7 +143,7 @@ class Shared:
         # The MERGE skips rows already in the table, not repeats within what it is given.
         rows = list({r["record_id"]: r for r in reversed(rows)}.values())[::-1]
         for i in range(0, len(rows), self.batch):
-            setup.write(self.lake, self.installation, name, rows[i:i + self.batch])
+            setup.write(self.lake, self.installation, name, rows[i:i + self.batch], self.version)
             self.commits += 1
             self.rows_sent += len(rows[i:i + self.batch])
         return len(rows)
@@ -174,8 +182,8 @@ class Shared:
                 raise ValueError(f"Severity must be one of {', '.join(SEVERITIES)}, not {severity}.")
             found.append({"record_id": record_id("observation", fp, run_key), "fingerprint": fp,
                           "rule_id": f["rule_id"], "rule_version": f.get("rule_version"), "artifact_key": key,
-                          "target": f.get("target") or "", "severity": severity, "title": f.get("title"),
-                          "detail": f.get("detail"), "evidence": f.get("evidence"), "run_id": run_key,
+                          "target": f.get("target") or "", "severity": severity, "title": _clean(f.get("title")),
+                          "detail": _clean(f.get("detail")), "evidence": _clean(f.get("evidence")), "run_id": run_key,
                           "observed_at": observed})
         fps = {r["fingerprint"] for r in found}
         recs = []
@@ -191,8 +199,8 @@ class Shared:
             # One "opened" event per recommendation, whichever PC sees it first; seeing it again,
             # even after it was dismissed, adds nothing.
             recs.append({"record_id": record_id("recommendation-opened", rid), "recommendation_id": rid,
-                         "fingerprint": fp, "kind": kind, "state": OPEN, "reason": r.get("reason"),
-                         "impact": r.get("impact"), "effort": r.get("effort"), "confidence": r.get("confidence"),
+                         "fingerprint": fp, "kind": kind, "state": OPEN, "reason": _clean(r.get("reason")),
+                         "impact": _clean(r.get("impact")), "effort": r.get("effort"), "confidence": r.get("confidence"),
                          "at": observed})
         self._write("artifacts", arts)
         self._write("findings", found)

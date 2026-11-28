@@ -279,7 +279,7 @@ def test_a_lease_throttled_on_every_try_fails_without_outliving_the_lease():
     with pytest.raises(requests.HTTPError) as err:
         backend.replace("k", b"{}", "e1")
     assert len(session.calls) == 3 and sum(slept) == 10.0
-    assert str(err.value) == "OneLake didn't write the lease for k (429)." and err.value.response.status_code == 429
+    assert str(err.value) == "OneLake didn't write the lease for k (429). OneLake is limiting requests. Try again in a few minutes." and err.value.response.status_code == 429
 
 
 def test_a_throttled_renewal_stops_once_a_third_of_the_lease_has_gone_by():

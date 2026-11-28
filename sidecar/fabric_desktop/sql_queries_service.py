@@ -39,7 +39,7 @@ def parse(text: str, stem: str = "") -> dict[str, Any]:
     lines = text.replace("\r\n", "\n").split("\n")
     i = 0
     while i < len(lines):
-        m = _HEADER.match(lines[i])
+        m = _HEADER.fullmatch(lines[i])
         if not m:
             break
         meta["title" if m.group(1).lower() == "query" else m.group(1).lower()] = m.group(2)

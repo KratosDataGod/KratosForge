@@ -42,6 +42,7 @@ class When:
     action: str                     # update | update_all | delete | insert | insert_all
     condition: exp.Expression | None = None
     sets: list[tuple[str, exp.Expression]] = field(default_factory=list)
+    values: list[exp.Expression] = field(default_factory=list)  # INSERT VALUES (...) without columns: in order
 
 
 @dataclass
@@ -57,6 +58,8 @@ class Change:
     whens: list[When] = field(default_factory=list)
     sets: list[tuple[str, exp.Expression]] = field(default_factory=list)   # UPDATE
     where: exp.Expression | None = None                                     # UPDATE and DELETE
+    schema_evolution: bool = False  # MERGE: UPDATE SET * and INSERT * add the source's new columns
+    tsql: bool = False  # read from T-SQL: the caller checks SQL Server's error 8672, not Delta's rule
 
     @property
     def name(self) -> str:
@@ -90,7 +93,7 @@ def parse(statement: str, dialect: str = "spark") -> Change | None:
     if not looks_like(statement):
         return None
     try:
-        tree = sqlglot.parse_one(statement, read=dialect)
+        tree = sql_dialects.parse_one(statement, read=dialect)
     except sqlglot.errors.ParseError as exc:
         raise ValueError(f"Could not read the statement: {sql_dialects.parse_problem(exc)}") from None
     return parse_tree(cast(exp.Expression, tree))  # sqlglot types parse_one as its Expr base
@@ -140,12 +143,17 @@ def _merge(tree: exp.Merge) -> Change:
     source_alias = using.alias or (using.name if isinstance(using, exp.Table) else "")
     if not source_alias:
         raise ValueError("Give the MERGE source an alias: USING (SELECT ...) AS s.")
-    source = using.copy()
-    source.set("alias", None)
-    if isinstance(source, exp.Subquery):
-        source = source.this
+    named = using.args.get("alias")
+    if isinstance(named, exp.TableAlias) and named.columns:
+        # USING (VALUES ...) AS s(k, w): the alias names the columns, so it stays on the rows it names (WR-253)
+        source = exp.select("*").from_(using.copy())
+    else:
+        source = using.copy()
+        source.set("alias", None)
+        if isinstance(source, exp.Subquery):
+            source = source.this
     on = tree.args.get("on")
-    if on is None:
+    if not isinstance(on, exp.Expression):  # sqlglot gives on=False, not None, when ON is left out
         raise ValueError("MERGE INTO needs ON (how a source row finds its row in the table).")
     whens_node = tree.args.get("whens")
     whens: list[When] = []
@@ -175,6 +183,9 @@ def _merge(tree: exp.Merge) -> Change:
                 continue
             columns = then.this.expressions if isinstance(then.this, exp.Tuple) else []
             values = then.expression.expressions if isinstance(then.expression, exp.Tuple) else []
+            if not columns and values and then.this is None:  # INSERT VALUES (...): every column, in order
+                whens.append(When(match, "insert", condition, values=values))
+                continue
             if not columns or len(columns) != len(values):
                 raise ValueError("INSERT (columns) VALUES (values) needs as many values as columns.")
             whens.append(When(match, "insert", condition, [(c.name, v) for c, v in zip(columns, values, strict=True)]))
@@ -208,6 +219,73 @@ def equi_keys(change: Change) -> list[tuple[str, str]] | None:
             return None
         pairs.append((sides[change.alias.lower()], sides[change.source_alias.lower()]))
     return pairs
+
+
+MULTIPLE_MATCH = "DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE"
+
+
+def needs_one_match(change: Change) -> bool:
+    """Whether Delta checks that each table row matches at most one source row (Delta 3.2's
+    MergeIntoCommandBase): every MERGE but one that only inserts, and one whose only WHEN MATCHED is
+    an unconditional DELETE (every match deletes the same row, so the result is defined). The check
+    counts the rows ON matches, whatever the clauses' own conditions say."""
+    if change.kind != "merge" or all(w.match == "not_matched" for w in change.whens):
+        return False
+    matched = [w for w in change.whens if w.match == "matched"]
+    return not (len(matched) == 1 and matched[0].action == "delete" and matched[0].condition is None)
+
+
+def multiple_match(con: Any, change: Change, target_from: str, source_from: str, on: str) -> str | None:
+    """What shows a table row matched by more than one source row (the source key, or the number of
+    source rows), or None when each table row matches one at most. ``target_from`` and ``source_from``
+    are DuckDB relations on ``con``; ``on`` is the MERGE's ON as DuckDB SQL, with the statement's
+    aliases."""
+    from .duckdb_rows import first_row
+    ta, sa = _quoted(change.alias), _quoted(change.source_alias)
+    keys = equi_keys(change)
+    if keys:  # each table row of key k matches every source row of key k: count the source's keys
+        group = ", ".join(f"{sa}.{_quoted(s)}" for _t, s in keys)
+        row = first_row(con.execute(f"SELECT {group} FROM {source_from} AS {sa} WHERE EXISTS (SELECT 1 FROM {target_from} "
+                          f"AS {ta} WHERE {on}) GROUP BY {group} HAVING count(*) > 1 LIMIT 1"))
+        return None if row is None else "source key " + ", ".join(str(v) for v in row)
+    row = first_row(con.execute(f"SELECT count(*) FROM (SELECT *, row_number() OVER () AS kf_target_row FROM {target_from}) "
+                      f"AS {ta} JOIN {source_from} AS {sa} ON {on} GROUP BY kf_target_row HAVING count(*) > 1 "
+                      "LIMIT 1"))
+    return None if row is None else f"{row[0]} source rows"
+
+
+def _quoted(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def multiple_match_error(name: str, detail: str) -> ValueError:
+    return ValueError(f"[{MULTIPLE_MATCH}] More than one source row matches the same row of {name} ({detail}), so "
+                      "which one changes it is undefined. Delta refuses this MERGE in Fabric and Databricks too, and "
+                      "nothing was changed. Keep one source row per key, for example with QUALIFY row_number() "
+                      "OVER (PARTITION BY key ORDER BY ...) = 1.")
+
+
+def _one_match_each(change: Change, table: Any, source: Any, names: _Names) -> None:
+    """Delta's check (needs_one_match), made before delta-rs runs the MERGE: delta-rs checks only
+    the rows a WHEN MATCHED clause's condition takes, so a duplicate the condition leaves out, or one
+    under WHEN NOT MATCHED BY SOURCE alone, got through."""
+    import duckdb
+    con = duckdb.connect()
+    try:
+        con.register("kf_target", table.to_pyarrow_dataset())
+        con.register("kf_source", source)
+        on = names.render(cast(exp.Expression, change.on))
+        try:
+            detail = multiple_match(con, change, "kf_target", "kf_source", on)
+        except duckdb.Error as exc:
+            raise ValueError(f"MERGE INTO {change.name} isn't run here, because this PC couldn't check that each of its "
+                             "rows matches at most one source row, as Delta requires "
+                             f"({MULTIPLE_MATCH}). The check stopped on: {exc}. Write ON as column comparisons, such "
+                             "as t.key = s.key AND ...") from None
+    finally:
+        con.close()
+    if detail is not None:
+        raise multiple_match_error(change.name, detail)
 
 
 class _Names:
@@ -254,24 +332,40 @@ class _Names:
 
 
 def apply(change: Change, table: Any, source: Any = None, source_names: list[str] | None = None,
-          commit_properties: Any = None) -> dict[str, Any]:
+          commit_properties: Any = None, one_match_checked: bool = False,
+          post_commithook_properties: Any = None) -> dict[str, Any]:
     """Run ``change`` on ``table`` (a deltalake DeltaTable) in one commit; ``source`` is the MERGE's
-    rows (an Arrow table or stream). Returns what changed."""
+    rows (an Arrow table, or a stream whose caller ran multiple_match: ``one_match_checked``).
+    ``post_commithook_properties`` go to the commit (maintenance.WRITE_HOOKS). Returns what changed."""
     target_names = [f.name for f in table.schema().fields]
     names = _Names(change, target_names, source_names or [])
+    for when in change.whens:
+        if when.values and not when.sets:
+            if len(when.values) != len(target_names):
+                raise ValueError(f"INSERT VALUES without a column list gives a value for each column of "
+                                 f"{change.name} in order, and it has {len(target_names)} "
+                                 f"({', '.join(target_names)}), but VALUES gives {len(when.values)}. Give one "
+                                 "for each, or list the columns: INSERT (a, b) VALUES (...).")
+            when.sets = list(zip(target_names, when.values, strict=True))
     if change.kind == "delete":
         metrics = table.delete(names.render(change.where) if change.where is not None else None,
-                               commit_properties=commit_properties)
+                               commit_properties=commit_properties, post_commithook_properties=post_commithook_properties)
         return _result(metrics, deleted="num_deleted_rows")
     if change.kind == "update":
         updates = {names.key(col): names.render(value) for col, value in change.sets}
         metrics = table.update(updates=updates,
                                predicate=names.render(change.where) if change.where is not None else None,
-                               commit_properties=commit_properties)
+                               commit_properties=commit_properties, post_commithook_properties=post_commithook_properties)
         return _result(metrics, updated="num_updated_rows")
+    if needs_one_match(change) and not one_match_checked:
+        if not isinstance(source, pa.Table):
+            raise ValueError(f"MERGE INTO {change.name}: a streamed source must be checked for {MULTIPLE_MATCH} "
+                             "by the caller (multiple_match), so nothing was changed.")
+        _one_match_each(change, table, source, names)
     source = _keeping_values(change, source, names, pa.schema(table.schema().to_arrow()))
     merger = table.merge(source, names.render(cast(exp.Expression, change.on)), source_alias=change.source_alias,
-                         target_alias=change.alias, commit_properties=commit_properties)
+                         target_alias=change.alias, merge_schema=change.schema_evolution,
+                         commit_properties=commit_properties, post_commithook_properties=post_commithook_properties)
     for when in change.whens:
         condition = names.render(when.condition) if when.condition is not None else None
         sets = {names.key(col): names.render(value) for col, value in when.sets}

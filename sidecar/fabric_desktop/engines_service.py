@@ -24,7 +24,11 @@ Every other engine runs through one ``engines.sessions.SessionManager``:
 - ``databricks_billing`` is Optimize > Cost (Preview): DBUs billed, from system.billing.usage. It runs
   one query on a SQL warehouse, which may start and bill, so it first answers ``needs_confirm`` with the
   warehouse's state, and runs only with ``confirmed`` (a RemoteAuthorization for that warehouse).
-  ``databricks_billing_last`` is the last read kept on this PC.
+  ``databricks_billing_last`` is the last read kept on this PC. With ``job_ids`` (jobs linked to a
+  workload) the same confirmed session also reads those jobs' DBUs per run, for Compare platforms.
+- ``snowflake_query_credits`` is Compare platforms for one workload (Preview): credits of the queries
+  carrying a workload's query tag, worked out from QUERY_HISTORY. It runs one SELECT on a warehouse,
+  which may resume and use credits, so it asks first exactly as ``databricks_billing`` does.
 - ``databricks_sync_*`` is Workspaces > Databricks (Preview): folder pairs between this PC and a
   workspace folder (engines/databricks_workspace_sync.py). Compare only reads; push never overwrites a
   file changed in Databricks since the last sync and deletes only with ``confirm_deletes``.
@@ -32,6 +36,12 @@ Every other engine runs through one ``engines.sessions.SessionManager``:
   Asset Bundle with the person's own Databricks CLI, as the connection's CLI profile
   (engines/databricks_bundles.py). Validate and plan change nothing; deploy plans again, stops if the
   plan changed, and needs the target's name typed for a plan that deletes or rebuilds, or for production.
+- ``snowflake_check`` (Preview, SF-002) checks a Snowflake connection from a profile: sign-in, role,
+  database, schema and warehouse, each with what to fix (engines/snowflake_remote.py). It sends no
+  warehouse, so nothing resumes and no warehouse credits are used.
+- ``snowpark_api_check`` (Preview, SF-007) is the Snowpark API compatibility check of one Python cell
+  (snowpark_api.py): each Snowpark call, method and keyword it can place, against one pinned Snowpark
+  version's signatures, and the calls that need Snowflake's own servers. It reads the code only.
 - ``engine_start_cell`` and ``engine_poll_cell`` run one cell at a time per notebook, like
   ``start_cell`` and ``poll_cell``; ``engine_cancel`` and ``engine_close`` stop them.
 
@@ -61,12 +71,18 @@ METHODS = {"engine_catalog", "engine_connections", "engine_prepare", "engine_sel
            "databricks_runs", "databricks_run", "databricks_billing", "databricks_billing_last",
            "databricks_sync_pairs", "databricks_sync_pair_save", "databricks_sync_pair_remove", "databricks_sync_compare",
            "databricks_sync_push", "databricks_sync_pull",
-           "databricks_bundle_targets", "databricks_bundle_validate", "databricks_bundle_plan", "databricks_bundle_deploy"}
+           "databricks_bundle_targets", "databricks_bundle_validate", "databricks_bundle_plan", "databricks_bundle_deploy",
+            "snowflake_check", "snowflake_query_credits", "snowpark_api_check"}
 # Answered at once even while a cell or a session start runs (server.QUICK).
 QUICK = {"engine_state", "engine_poll_cell", "engine_cancel"}
 
 KERNEL = "local-python"          # the notebook's own kernel; runs through start_cell, not here
-BILLS = {"databricks_dbu": "bills DBUs", "fabric_capacity": "uses Fabric capacity", "none": ""}
+BILLS = {"databricks_dbu": "bills DBUs", "fabric_capacity": "uses Fabric capacity",
+         "snowflake_credits": "uses Snowflake credits", "none": ""}
+# Engines with an adapter that the notebook's engine menu doesn't offer yet, and why. The menu picks
+# Databricks connections only, so it lists these as planned, and choosing one is refused here.
+NOT_IN_PICKER = {"snowflake-sql": "Read-only SQL cells on a Snowflake warehouse are built (Preview), and choosing "
+                                  "them for a notebook comes when the engine menu lists Snowflake connections."}
 _MAGIC = re.compile(r"^\s*(%%sql|%sql)[^\n]*\n?", re.IGNORECASE)
 _WRITES = re.compile(r"\b(INSERT|UPDATE|DELETE|MERGE|CREATE|DROP|ALTER|TRUNCATE|OPTIMIZE|VACUUM)\b|"
                      r"\.(saveAsTable|insertInto|save)\(|\.write\b", re.IGNORECASE)
@@ -83,6 +99,14 @@ def cell_request(source: str) -> CellRequest:
 
 _COMPUTE_ID = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
 _NAME_TEXT = re.compile(r"^[^\x00-\x1f\x7f]{1,255}$")
+
+
+def _pickable(desc: Any) -> None:
+    """Refuse an engine the notebook can't choose in this version, saying what's planned."""
+    if not desc.adapter:
+        raise ValueError(f"{desc.label} can't run cells in this version. {desc.planned}")
+    if desc.id in NOT_IN_PICKER:
+        raise ValueError(f"{desc.label} can't be chosen for a notebook in this version. {NOT_IN_PICKER[desc.id]}")
 
 
 def _connection_view(profile_id: str, c: dict[str, Any]) -> dict[str, Any]:
@@ -165,6 +189,8 @@ class EnginesMixin:
         for e in out["engines"]:
             e["bills"] = BILLS.get(e.get("billing", "none"), "")
             e["kernel"] = e["id"] == KERNEL
+            if e["id"] in NOT_IN_PICKER:
+                e["adapter"], e["planned"] = False, NOT_IN_PICKER[e["id"]]
         return out
 
     def engine_connections(self) -> dict[str, Any]:
@@ -267,6 +293,21 @@ class EnginesMixin:
                     "error": redact.secrets(str(exc))}
         return redact.walk(databricks_discovery.Discovery(client, catalogs=bool(catalogs)).run())
 
+    def snowflake_check(self, connection: str) -> dict[str, Any]:
+        """Check a Snowflake connection (a ``profile:<id>:<connection>`` key) field by field: sign-in,
+        role, database, schema, warehouse. Metadata only: no warehouse is resumed."""
+        from .engines import snowflake_remote
+        conn, _, _ = self._connection(connection)
+        if conn.get("platform") != "snowflake":
+            raise ValueError("That connection isn't a Snowflake connection.")
+        return redact.walk(snowflake_remote.check_connection(conn))
+
+    def snowpark_api_check(self, code: str) -> dict[str, Any]:
+        """The Snowpark API compatibility check of one Python cell's code. Reads the code only: nothing
+        is executed and nothing reaches Snowflake."""
+        from . import snowpark_api
+        return snowpark_api.check(str(code))
+
     def _runs_reader(self, connection: str) -> Any:
         from .engines import databricks_jobs
         conn, _, _ = self._connection(connection)
@@ -299,10 +340,11 @@ class EnginesMixin:
         return Path(data_dir()) / "databricks-billing"
 
     def databricks_billing(self, connection: str, warehouse_id: str = "", days: int = 7,
-                           confirmed: bool = False) -> dict[str, Any]:
+                           confirmed: bool = False, job_ids: list[str] | None = None) -> dict[str, Any]:
         """DBUs billed in the last ``days`` days by job, pipeline, warehouse and cluster. Without
         ``confirmed`` nothing runs: the answer says which warehouse would run the query and its state
-        (a GET). With it, the query runs on that warehouse under a confirmed authorization."""
+        (a GET). With it, the query runs on that warehouse under a confirmed authorization. With
+        ``job_ids`` (jobs linked to a workload), the same session also reads those jobs' DBUs per run."""
         from .engines import databricks_auth, databricks_billing, databricks_discovery, databricks_sql
         conn, policy, profile = self._connection(connection)
         warehouse = warehouse_id or str((conn.get("compute") or {}).get("warehouse_id") or "")
@@ -311,6 +353,7 @@ class EnginesMixin:
         if not _COMPUTE_ID.fullmatch(warehouse):
             raise ValueError("That warehouse id isn't one Databricks gives (letters, digits, - . and _).")
         databricks_billing.query(int(days))   # refuses a number of days it doesn't offer
+        jobs = databricks_billing.job_ids(job_ids)   # refuses anything but job ids, before anything runs
         # The profile's execution policy first, as for any remote cell: "never" refuses before anything,
         # "policy" with this engine allowed runs without asking, and otherwise the person confirms.
         try:
@@ -330,11 +373,52 @@ class EnginesMixin:
         authorization = standing or auth.confirmed(registry.DATABRICKS_SQL.id, warehouse, who or "this PC's user")
         try:
             result = databricks_billing.read(self._engine_adapter(registry.DATABRICKS_SQL.id), conn, warehouse,
-                                             int(days), authorization)
+                                             int(days), authorization, jobs or None)
         except databricks_auth.DatabricksAuthError as exc:
             return {"ok": False, "error": redact.secrets(str(exc))}
         if result.get("ok"):
             databricks_billing.save(self._billing_root(), str(conn.get("host") or ""), result)
+        return redact.walk(result)
+
+    def _snowflake_credits_root(self) -> Path:
+        from .service import data_dir
+        return Path(data_dir()) / "snowflake-credits"
+
+    def snowflake_query_credits(self, connection: str, warehouse: str = "", days: int = 30,
+                                tags: list[str] | None = None, confirmed: bool = False) -> dict[str, Any]:
+        """Credits of the queries carrying ``tags`` in the last ``days`` days, worked out from
+        QUERY_HISTORY (engines/snowflake_query_credits.py). The read runs one SELECT on ``warehouse``,
+        which resumes it if it is suspended, so without ``confirmed`` nothing runs: the answer names
+        the warehouse. The profile's execution policy answers first, as for Databricks billing."""
+        from .engines import snowflake_query_credits as sqc
+        from .engines.snowflake_auth import SnowflakeAuthError
+        from .engines.snowflake_warehouse import target_for
+        conn, policy, profile = self._connection(connection)
+        if conn.get("platform") != "snowflake":
+            raise ValueError("That connection isn't a Snowflake connection.")
+        name = warehouse or str(conn.get("warehouse") or "")
+        if not name:
+            raise ValueError("Pick a Snowflake warehouse to read query history with.")
+        if not re.fullmatch(r"[A-Za-z0-9_$]{1,255}", name):
+            raise ValueError("That warehouse name isn't one KratosForge can use (letters, digits, _ and $).")
+        sqc.query(int(days), tags)   # refuses days it doesn't offer and tags that aren't plain text
+        target = target_for(conn, name)
+        try:
+            standing = auth.from_policy(policy, profile, registry.SNOWFLAKE_SQL.id, target)
+        except auth.RemoteNotAuthorized as exc:
+            return {"ok": False, "refused": True, "error": str(exc)}
+        if standing is None and not confirmed:
+            return {"needs_confirm": True, "warehouse": {"name": name, "account": conn.get("account") or ""}}
+        signer = getattr(self, "_auth", None)
+        who = signer.signed_in_user() or "" if signer is not None and hasattr(signer, "signed_in_user") else ""
+        authorization = standing or auth.confirmed(registry.SNOWFLAKE_SQL.id, target, who or "this PC's user")
+        try:
+            result = sqc.read(self._engine_adapter(registry.SNOWFLAKE_SQL.id), conn, name, int(days), tags,
+                              authorization)
+        except SnowflakeAuthError as exc:
+            return {"ok": False, "error": redact.secrets(str(exc))}
+        if result.get("ok"):
+            sqc.save(self._snowflake_credits_root(), str(conn.get("account") or ""), result)
         return redact.walk(result)
 
     def databricks_billing_last(self, connection: str) -> dict[str, Any]:
@@ -564,8 +648,7 @@ class EnginesMixin:
                        lakehouse_id: str = "", lakehouse_name: str = "", cells: list[str] | None = None) -> dict[str, Any]:
         """What choosing ``engine`` for ``notebook`` would do. Starts nothing and changes nothing."""
         desc = registry.get(engine)
-        if not desc.adapter:
-            raise ValueError(f"{desc.label} can't run cells in this version. {desc.planned}")
+        _pickable(desc)
         mgr = self._engine_manager()
         current = mgr.engine_of(notebook) or KERNEL
         transition = {"needed": False, "loses": [], "decisions": [], "message": ""}
@@ -575,8 +658,8 @@ class EnginesMixin:
                 "decisions": ["close"], "message": ""}
         elif current == KERNEL and engine != KERNEL:
             transition = {"needed": True, "decisions": ["close", "keep"], "message": "",
-                          "loses": ["nothing: the Python session on this PC stays open, and comes back when you "
-                                    "switch back"]}
+                          "loses": [("nothing: the Python session on this PC stays open, and comes back when you "
+                                    "switch back")]}
         out: dict[str, Any] = {"engine": desc.as_dict() | {"bills": BILLS.get(desc.billing, "")}, "from": current,
                                "transition": transition, "confirm": False, "target": None, "cells": []}
         for i, source in enumerate(cells or []):
@@ -607,7 +690,8 @@ class EnginesMixin:
             from . import app_settings
             if not app_settings.value("allow_fabric_runs"):
                 lines.append({"outcome": "warning", "text": "Your organization's policy doesn't allow runs in "
-                                                            "Fabric from KratosForge, so the session will be refused."})
+                                                            "Fabric from KratosForge, so the session will be refused. "
+                                                            + app_settings.ask_it("allow_fabric_runs")})
             lines.append({"outcome": "info", "text": "A Spark session uses Fabric capacity from its start until it "
                                                      "closes or times out."})
         else:
@@ -660,8 +744,7 @@ class EnginesMixin:
             self._engine_jobs.pop(notebook, None)
             return _with_notes({"engine": KERNEL, "status": "ready"}, mgr.notes(notebook))
         desc = registry.get(engine)
-        if not desc.adapter:
-            raise ValueError(f"{desc.label} can't run cells in this version. {desc.planned}")
+        _pickable(desc)
         authorization = None
         config_options: dict[str, Any] = {}
         target = ""

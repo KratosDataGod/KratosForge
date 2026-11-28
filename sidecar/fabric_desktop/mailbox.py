@@ -75,6 +75,7 @@ import requests
 
 from . import jsonfile
 from .errors import NotSetUp
+from .jobqueue import QueueFull
 from .leases import LocalBackend, OneLakeBackend, Stored
 from .logs import fields
 from .onelake import DFS_HOST, _onelake_error, item_url
@@ -245,7 +246,7 @@ class Mailbox:
         if runs_file is not None:
             loaded = jsonfile.read_json(runs_file, {})
             self._runs = {env: {run: dict(e) for run, e in runs.items()  # a hand-edited entry without a time is dropped
-                                if isinstance(e, dict) and isinstance(e.get("at"), (int, float)) and not isinstance(e["at"], bool)}
+                                if isinstance(e, dict) and _finite_time(e.get("at"))}
                           for env, runs in loaded.items() if isinstance(runs, dict)} if isinstance(loaded, dict) else {}
         self._lost_seen: dict[tuple[str, str], bool] = {}  # per poll: each owner's record is read once
         self.entities, self.allow_backfill = list(entities or []), allow_backfill
@@ -273,7 +274,7 @@ class Mailbox:
             return None, None
         try:
             body = json.loads(stored.data)
-        except ValueError:
+        except (ValueError, RecursionError):  # torn, not JSON, or nested too deep: not a status this agent can use
             return None, stored
         return (body if isinstance(body, dict) else None), stored
 
@@ -304,20 +305,28 @@ class Mailbox:
             rid = name[:-5]
             if not _ID.fullmatch(rid):
                 continue  # can't name a status file after it; the docs say what ids may contain
-            with self._lock:
-                status, stored = self._read(env, f"status/{rid}.json")
-                if stored is None:
-                    if self.claim == "when_free" and not self.agent.has_free_worker():
-                        continue  # another agent with room takes it; this one looks again next poll
-                    self._claim(env, rid)
-                elif status and status.get("state") in FINAL:
-                    self._expire_files(env, rid, status, stored)
-                elif status and status.get("agent") == self.agent.config.name:
-                    self._sync(env, rid, status, stored)
-                elif status:
-                    self._handed_over(rid, status)
-                    if self.take_over:
-                        self._take_over(env, rid, status, stored)
+            try:
+                with self._lock:
+                    self._poll_one(env, rid)
+            except (ValueError, TypeError, AttributeError, KeyError, RecursionError, OverflowError) as exc:
+                # One damaged status (a hand edit, another build) doesn't hold up the requests after it.
+                self.log.warning("couldn't handle a pipeline request; the others go on",
+                                 extra=fields(env=env, request_id=rid, error=f"{type(exc).__name__}: {exc}"))
+
+    def _poll_one(self, env: str, rid: str) -> None:
+        status, stored = self._read(env, f"status/{rid}.json")
+        if stored is None:
+            if self.claim == "when_free" and not self.agent.has_free_worker():
+                return  # another agent with room takes it; this one looks again next poll
+            self._claim(env, rid)
+        elif status and status.get("state") in FINAL:
+            self._expire_files(env, rid, status, stored)
+        elif status and status.get("agent") == self.agent.config.name:
+            self._sync(env, rid, status, stored)
+        elif status:
+            self._handed_over(rid, status)
+            if self.take_over:
+                self._take_over(env, rid, status, stored)
 
     def job_changed(self, job: dict[str, Any]) -> None:
         """Called by the agent when a pipeline job starts or ends, so the status doesn't wait for the next poll."""
@@ -429,6 +438,9 @@ class Mailbox:
             raw = json.loads(data)
         except ValueError as exc:
             return {}, f"the request isn't JSON: {exc}"
+        except RecursionError:
+            return {}, ("the request can't be read because it's nested too deeply, "
+                        "so write it as one flat JSON object, as the contract shows")
         if not isinstance(raw, dict):
             return {}, "the request is a JSON object"
         problems = []
@@ -533,10 +545,20 @@ class Mailbox:
             job = None  # this agent held it once before and was taken over; this is a new go at it
         # A copy still queued or running here (this agent was paused, then got the request back) is
         # carried on as it is: the request is this agent's again, so taken_over() lets it continue.
-        if job is None:
-            job = self.agent.enqueue(env, status.get("entities") or [], status.get("backfill", ""),
-                                     bool(status.get("cascade")), source=key, dedupe_key=key)
         cancel = self.control(env).read(f"cancel/{rid}.json") is not None
+        if job is None:
+            deadline = status.get("deadline")
+            # Not queued yet (it waited for room, or a crash left it unqueued): a cancel file or a passed
+            # deadline ends it here, the same way as at the door, and nothing is queued for it.
+            if cancel or (deadline and _epoch(deadline) < now):
+                self._end_unqueued(env, rid, status, stored, cancel)
+                return
+            try:
+                job = self.agent.enqueue(env, status.get("entities") or [], status.get("backfill", ""),
+                                         bool(status.get("cascade")), source=key, dedupe_key=key)
+            except QueueFull as exc:
+                self._wait_for_room(env, rid, status, stored, exc)
+                return
         if job["state"] == "queued":
             deadline = status.get("deadline")
             if cancel:
@@ -547,6 +569,7 @@ class Mailbox:
         state = "expired" if job["state"] == "cancelled" and (job.get("error") or "").startswith("its deadline") \
             else _JOB_STATE.get(job["state"], "accepted")
         new = status | {"state": state, "job_id": job["id"], "attempts": job["attempts"]}
+        new.pop("waiting", None)  # queued now: no longer waiting for room
         if job.get("started_at"):
             new["started_at"] = _iso(job["started_at"])
         if job.get("finished_at") and state in FINAL:
@@ -567,6 +590,28 @@ class Mailbox:
         latest, _ = self._read(env, f"status/{rid}.json")  # changed since read: was it taken over?
         if latest and latest.get("agent") != self.agent.config.name:
             self._handed_over(rid, latest)
+
+    def _end_unqueued(self, env: str, rid: str, status: dict[str, Any], stored: Stored, cancel: bool) -> None:
+        """A request accepted but never queued (its wait for room outlasted its deadline, or the pipeline
+        cancelled it meanwhile) ends cancelled or expired with its reason, without a job."""
+        if cancel:
+            end = {"state": "cancelled", "reason": "a cancel file arrived before it was queued"}
+        else:
+            end = {"state": "expired", "reason": f"its deadline {status['deadline']} passed before it started"}
+        new = {k: v for k, v in status.items() if k != "waiting"} | end | {"updated_at": _iso(self.clock())}
+        if self._write_status(env, rid, new, stored):
+            self.log.info(f"pipeline request {end['state']}", extra=fields(env=env, request_id=rid, reason=end["reason"]))
+
+    def _wait_for_room(self, env: str, rid: str, status: dict[str, Any], stored: Stored, exc: QueueFull) -> None:
+        """The agent's queue is full (agent.max_queued): the request stays this agent's and is queued
+        at a later poll, once there is room. Its status says why it waits, written once, never dropped."""
+        reason = f"the agent's queue is full (agent.max_queued = {exc.limit}); it is queued when there is room"
+        if status.get("waiting") == reason:
+            return
+        new = status | {"waiting": reason, "updated_at": _iso(self.clock())}
+        if self._write_status(env, rid, new, stored):
+            self.log.warning("pipeline request waiting: the agent's queue is full", extra=fields(
+                env=env, request_id=rid, waiting=exc.waiting, max_queued=exc.limit))
 
     # ---- takeover
 
@@ -604,7 +649,7 @@ class Mailbox:
                 fresh_for = max(0.0, stale_after - _epoch(str(record["heartbeat_at"])))  # a record out of order never shortens the grace
                 return _age(stored, self.clock()) > fresh_for + TAKEOVER_GRACE
             return self.clock() > stale_after + TAKEOVER_GRACE
-        except (ValueError, KeyError, TypeError, AttributeError):
+        except (ValueError, KeyError, TypeError, AttributeError, RecursionError, OverflowError):
             return False
 
     def _take_over(self, env: str, rid: str, status: dict[str, Any], stored: Stored) -> None:
@@ -663,6 +708,11 @@ def control_backend_for(store: Any, meta_lakehouse_id: str | None, token: Callab
     if isinstance(store, LocalStore):
         return LocalControl(Path(store.root) / "_control")
     raise TypeError(f"no control files for {type(store).__name__}")
+
+
+def _finite_time(at: Any) -> bool:
+    """Whether ``at`` is a time in epoch seconds this agent can count with (not a bool, NaN or infinite)."""
+    return isinstance(at, (int, float)) and not isinstance(at, bool) and abs(at) < 1e12
 
 
 def _age(stored: Stored, now: float) -> float:

@@ -145,8 +145,8 @@ def test_a_conflict_brings_back_the_result_when_it_can(tmp_path, monkeypatch):
 
 
 def test_a_run_past_the_network_limit_is_reported_as_timed_out(tmp_path, monkeypatch):
-    git_says(monkeypatch, "import sys; sys.exit(128)")
-    monkeypatch.setattr(cli, "NETWORK_TIMEOUT", 1)  # every run counts as having taken the whole limit
+    git_says(monkeypatch, "import time; time.sleep(30)")
+    monkeypatch.setattr(cli, "NETWORK_TIMEOUT", 1)  # the limit stops it
     o = ops.Operations()
     op = wait(o, o._start("fetch", None, ["fetch"], cwd=tmp_path)["id"])
     assert op["status"] == "failed" and op["error_kind"] == "timeout" and "was stopped" in op["message"]
@@ -238,10 +238,11 @@ def test_git_that_has_ended_isnt_stopped_again(monkeypatch):
 def test_on_windows_git_and_its_helpers_are_ended_together(monkeypatch):
     ran = []
     monkeypatch.setattr(ops, "_WINDOWS", True)
+    monkeypatch.setenv("SystemRoot", r"C:\Windows")
     monkeypatch.setattr(ops.subprocess, "run", lambda args, **kw: ran.append(args))
     proc = Proc()
     ops._kill(proc)
-    assert ran == [["taskkill", "/F", "/T", "/PID", "4242"]] and proc.killed
+    assert ran == [[r"C:\Windows\System32\taskkill.exe", "/F", "/T", "/PID", "4242"]] and proc.killed
 
 
 def test_a_process_group_already_gone_and_a_kill_that_fails_are_both_fine(monkeypatch):

@@ -35,6 +35,8 @@ import json
 import math
 from typing import Any
 
+from .timeutil import iso as _iso, parse_time
+
 MEASURED, ESTIMATED, SCENARIO, UNKNOWN = "measured", "estimated", "scenario", "unknown"
 CLASSIFICATIONS = (MEASURED, ESTIMATED, SCENARIO, UNKNOWN)
 LABELS = {MEASURED: "Measured", ESTIMATED: "Estimated", SCENARIO: "Scenario", UNKNOWN: "Unknown"}
@@ -69,21 +71,6 @@ def convert(value: float, from_unit: str, to_unit: str) -> float:
     raise ValueError(f"{from_unit} can't be converted to {to_unit}: they measure different things")
 
 
-def _iso(at: Any) -> str | None:
-    t = parse_time(at)
-    return t.astimezone(dt.timezone.utc).isoformat(timespec="seconds") if t else None
-
-
-def parse_time(at: Any) -> dt.datetime | None:
-    if isinstance(at, dt.datetime):
-        return at if at.tzinfo else at.replace(tzinfo=dt.timezone.utc)
-    if not at:
-        return None
-    try:
-        t = dt.datetime.fromisoformat(str(at).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
 
 
 def problems(m: dict[str, Any]) -> list[str]:

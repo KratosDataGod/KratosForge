@@ -49,7 +49,7 @@ A check that depends on an earlier one that failed is marked Skipped, with the r
 
 ## Opt-in checks
 
-These take longer, create items besides the lakehouse, and use capacity, so the default run leaves them out. Add `--all` to run all but `notebook.run`, or name one or more with `--check <id>`:
+These take longer, create items besides the lakehouse, and use capacity, so the default run leaves them out. Add `--all` to run all but `notebook.run` and `model.bpa`, or name one or more with `--check <id>`:
 
 ```powershell
 fabric-desktop live-test --workspace <workspace id> --all --dry-run              # lists them, with what each writes
@@ -68,6 +68,18 @@ fabric-desktop live-test --workspace <workspace id> --all --run-in-fabric       
 | `notebook.run` | Runs `fdlt_<run id>_nb` in Fabric the way **Run in Fabric** does and waits up to 30 minutes (then cancels it). Spends Spark capacity. | Fabric's job scheduler runs a notebook the app published. |
 
 `notebook.run` only runs with `--run-in-fabric` (which also publishes the notebook). Without it the result says `skipped: needs --run-in-fabric`. It also stays skipped when `notebook.publish` failed, for example when the cells read back differ, so no capacity is spent running a notebook that wasn't published as written. Your organization's policy can block runs in Fabric; the check then fails with that reason.
+
+### Semantic model best practices (`model.bpa`)
+
+`model.bpa` runs the app's semantic model best practices check (the semantic-link-labs Best Practice Analyzer, PB-115) once, on a semantic model that is already in the test workspace. Name it with `--check model.bpa`. It isn't part of `--all`, and like `notebook.run` it only runs with `--run-in-fabric`, because it spends capacity:
+
+```
+fabric-desktop live-test --workspace <workspace id> --check model.bpa --run-in-fabric --bpa-model SM_Gold
+```
+
+- It checks the model `--bpa-model` names. Without that option, it checks the only semantic model in the workspace. If there are none, or more than one and none is named, it fails without running anything. It never creates or changes a model, and reads it through XMLA.
+- It publishes the same check notebook the app uses, as `fdlt_<run id>_bpa`, and runs it once with the run's own test lakehouse holding the result file. It waits up to 30 minutes, then cancels the run. Afterwards it deletes the notebook and the lakehouse along with everything else in the ledger.
+- It passes when the check finishes and its findings read back. The detail line gives the counts per severity and the semantic-link-labs version. When the check fails in Fabric, the detail gives the error the notebook saved. Either way, `model_bpa.json` in the run's results folder holds the findings, or the error with its traceback and pip output, redacted and capped.
 
 Every item these checks create is named `fdlt_<run id>_...`, goes into the ledger the moment it exists, and is deleted in cleanup before the lakehouse. If an item with that name already exists, the check fails rather than overwrite it. The same production refusals apply.
 
@@ -95,7 +107,7 @@ If your tenant has item recovery turned on, Fabric may keep a deleted lakehouse 
 
 ## The tenant smoke test
 
-The [tenant smoke test](product/smoke-test/README.md) runs this live test with every opt-in check as one of ten core flows of the app (`fabric-desktop smoke-test`), adds sign-in, catalog and support-bundle checks, and lists the by-hand part of each flow.
+The [tenant smoke test](product/smoke-test/README.md) runs this live test with every opt-in check that `--all` runs as one of ten core flows of the app (`fabric-desktop smoke-test`), adds sign-in, catalog and support-bundle checks, and lists the by-hand part of each flow.
 
 ## Fakes follow what live runs refused
 
@@ -110,6 +122,23 @@ The tests that stand in for Fabric use fakes. A fake that accepts what Fabric re
 | A User Data Functions `dict` parameter with a default value: `MetadataValidationError` ("Default values are not allowed for 'dict' type parameters") | Live run 7, 2026-11-07 | Refuse the create or update when a `@udf.function()` in `function_app.py` gives a `dict` parameter a default (UDF_Platform's dict and list parameters have none; the app sends `{}` or `[]` for one it leaves out, and the function takes an empty one as not given) |
 
 When a live run finds a new refusal, add it there with the run it came from, and add a row here.
+
+## KratosForge Environment live run (CP-012)
+
+The [KratosForge Environment](user-guide.md#kratosforge-environment-preview) stays Preview until this run is recorded. It runs only in the test workspace `kf_tenant_test`, never a Prod workspace, and only after the product owner types the go for it. It runs on a PC that is signed in to KratosForge, from a separate worktree of `main`.
+
+Part 1, one PC:
+
+1. `cp_discover()` finds `kf_tenant_test`; `cp_plan` for a new lakehouse in it (`KratosForgeLakehouse_cp012`). Nothing may be blocked, and `typed_name` must be empty (the workspace isn't marked Prod).
+2. `cp_create(token, confirmed=True)` creates the lakehouse, the shared tables and the manifest. No workspace is created.
+3. `cp_check()` says Connected; `cp_discover(<kf_tenant_test's workspace id>)` lists the environment (`cp_discover()` without an id gives the id); `cp_upgrade_plan()` says there's nothing to upgrade; `cp_cost(days=7)` reads; `cp_inventory()` lists every registered family, with no unclaimed tables in the new lakehouse.
+4. The manifest (`Files/_kratosforge/environment.json`) holds ids and versions only: no secret, email or name of a person.
+5. `cp_disconnect`, `cp_connect`, `cp_disconnect`: the PC is left as it was.
+6. Adopt, only on a PC whose central lakehouse is in `kf_tenant_test` and whose Platform is a test one: `cp_adopt_preview` shows the Platform's Prod database ids as the operational store (and Keys when it shares the functions item); `cp_adopt` with its token records them, ids only. Then `cp_disconnect`.
+
+Part 2, a second installation and a reader (needs its own go): connect a second installation, write optimization rows from both, read them from each, and try a write from an account that isn't a workspace member, which Fabric must refuse.
+
+The lakehouse is left in place; deleting it is a separate, confirmed step. Each run's outputs (secrets redacted), timings and any refusal go in [platforms.md](platforms.md#live-runs), and a refusal the fakes accepted becomes a row in the table above.
 
 ## What it doesn't check yet
 

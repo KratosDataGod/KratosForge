@@ -206,10 +206,27 @@ def status_of(exc: BaseException) -> int | None:
 
 def windows_log_race(exc: BaseException) -> bool:
     """Windows refuses to open a Delta log file another process or thread is writing or renaming
-    (os error 5 "Access is denied", os error 32 "being used by another process"). The file is
-    complete a moment later, so the call is safe to repeat."""
+    (os error 5 "Access is denied", os error 32 "being used by another process", os error 33 "another
+    process has locked a portion of the file"). The file is complete a moment later, so the call is safe
+    to repeat."""
     text = str(exc)
-    return isinstance(exc, OSError) and "_delta_log" in text and ("os error 5)" in text or "os error 32)" in text)
+    return isinstance(exc, OSError) and "_delta_log" in text and (
+        "os error 5)" in text or "os error 32)" in text or "os error 33)" in text)
+
+
+def windows_file_held(exc: BaseException) -> bool:
+    """delta-rs stopped because Windows says another program has one of the table's files open: a
+    virus scanner, the search indexer or OneDrive reading a data file just written, or one VACUUM is
+    deleting (os error 32, a sharing violation, or 33, a lock violation). Any file of the table, not only
+    its log. Only a call that is safe to repeat (VACUUM, compaction) waits it out this way."""
+    text = str(exc)
+    return isinstance(exc, OSError) and ("os error 32)" in text or "os error 33)" in text)
+
+
+def held_file_message(what: str) -> str:
+    """What to say when a table's file is still held after ``local_retry`` waited it out (windows_file_held)."""
+    return (f"{what} stopped because another program has one of the table's files open, such as a virus scanner, "
+            "the search indexer or OneDrive. The table's rows are unchanged. Try again in a moment.")
 
 
 _STAGED_COMMIT = re.compile(r"\d{20}\.json#\d+")
@@ -248,6 +265,18 @@ def log_commit_dropped(exc: BaseException) -> bool:
     return "Error performing PUT" in text and "_delta_log" in text and any(d in text.lower() for d in _DROPPED)
 
 
+_TOKEN_REFUSED = ("status code: 401", "invalidauthenticationinfo", "token is expired", "lifetime validation failed")
+
+
+def write_token_refused(exc: BaseException) -> bool:
+    """A table write that OneLake stopped because its sign-in token ran out partway through (401, or
+    Azure's expired-token answer). delta-rs is given one token for the whole write, and a long write
+    can outlast it (HD-034). The refused request wrote nothing; the caller checks the table's version
+    before writing again, since the error's wording can't say whether the commit went in."""
+    low = str(exc).lower()
+    return "error performing" in low and any(m in low for m in _TOKEN_REFUSED)
+
+
 T = TypeVar("T")
 
 
@@ -267,17 +296,48 @@ def retry_call(fn: Callable[[], T], retry_on: Callable[[BaseException], bool], a
     raise ValueError("attempts must be at least 1")
 
 
-def local_retry(fn: Callable[[], T], attempts: int = 6, backoff: float = 0.05) -> T:
-    """Repeat ``fn`` while it hits the Windows Delta log race, a bounded number of times. Only
-    calls that are safe to repeat go through here; any other error is raised at once."""
+def local_retry(fn: Callable[[], T], attempts: int = 6, backoff: float = 0.05,
+                when: Callable[[BaseException], bool] = windows_log_race) -> T:
+    """Repeat ``fn`` while it hits the Windows Delta log race (or what ``when`` accepts), a bounded
+    number of times: about 1.5 s in all. Only calls that are safe to repeat go through here; any other
+    error is raised at once."""
     for attempt in range(attempts):
         try:
             return fn()
         except OSError as exc:
-            if attempt == attempts - 1 or not windows_log_race(exc):
+            if attempt == attempts - 1 or not when(exc):
                 raise
             time.sleep(backoff * (2 ** attempt))
     raise AssertionError("unreachable")
+
+
+def lost_commit(exc: BaseException, what: str) -> Exception | None:
+    """The commit conflict a staged-commit race on Windows stands for (staged_commit_race), or None for any
+    other error. Elsewhere delta-rs reports a writer that lost the race for a version as CommitFailedError,
+    or makes it on the next version; on Windows it can surface as os error 5 on ``NNN.json#1`` instead.
+    Nothing was committed, so the caller's change didn't happen: the same answer, in the same type."""
+    return commit_conflict(what) if staged_commit_race(exc) else None
+
+
+def commit_conflict(what: str) -> Exception:
+    """delta-rs's CommitFailedError for a commit that lost the staged-commit race (see lost_commit)."""
+    from deltalake.exceptions import CommitFailedError
+    return CommitFailedError(f"Another writer committed {what} at the same moment, so this change wasn't "
+                             "committed (Windows refused its staged commit). Nothing was changed by it; run it again.")
+
+
+def local_commit(fn: Callable[[], T], what: str, attempts: int = 6, backoff: float = 0.05,
+                 when: Callable[[BaseException], bool] = windows_log_race) -> T:
+    """local_retry for a call that commits to a Delta table on this PC and is safe to repeat (OPTIMIZE,
+    VACUUM, a table property). One that still loses the staged-commit race after its tries fails as
+    delta-rs's own CommitFailedError (lost_commit), not as a raw OSError."""
+    try:
+        return local_retry(fn, attempts, backoff, when)
+    except OSError as exc:
+        conflict = lost_commit(exc, what)
+        if conflict is None:
+            raise
+        raise conflict from exc
 
 
 def is_retryable(exc: BaseException) -> bool:

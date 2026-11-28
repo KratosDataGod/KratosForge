@@ -58,7 +58,23 @@ HIDDEN_FAILED = "On data you haven't seen, your code didn't finish. Check it han
 Runner = Callable[[Path, str], dict[str, Any]]
 
 # The process's first code: put kf_learner first on the path, make spark, run answer.py, exit at once
-# (os._exit, so no interpreter shutdown can hang on a worker thread after the answer finished).
+# (so no interpreter shutdown can hang on a worker thread after the answer finished). On Windows it ends
+# with TerminateProcess, not os._exit: os._exit is ExitProcess, which stops delta-rs's and DuckDB's worker
+# threads wherever they are and then runs each library's shutdown code, and that code can crash on what
+# a stopped thread left behind. C1's reference crashed that way on Windows CI three times (access
+# violation 0xC0000005 with faulthandler's frame on the os._exit line, after the answer had finished);
+# sql_worker._end_now ends the same way for the same reason. Nothing is lost: output is flushed first.
+# END_NOW is that ending, for any ``python -I`` process that loads kf_learner (the tests' probes use it too).
+END_NOW = """
+sys.stdout.flush(); sys.stderr.flush()
+if sys.platform == "win32":
+    import ctypes
+    k = ctypes.windll.kernel32
+    k.GetCurrentProcess.restype = ctypes.c_void_p
+    k.TerminateProcess.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+    k.TerminateProcess(k.GetCurrentProcess(), rc)
+os._exit(rc)   # elsewhere, or if TerminateProcess returned
+"""
 BOOTSTRAP = """
 import faulthandler, os, sys, traceback
 faulthandler.enable()   # a crash in native code (DuckDB, delta-rs) still leaves a trace on stderr
@@ -74,9 +90,7 @@ except pyspark_shim.NotebookExit:   # notebookutils.notebook.exit ends the noteb
 except BaseException:
     traceback.print_exc(limit=3)
     rc = 1
-sys.stdout.flush(); sys.stderr.flush()
-os._exit(rc)
-"""
+""" + END_NOW
 
 
 def prepare(work: Path, setup_sql: str, assets: dict[str, bytes] | None = None) -> list[str]:
@@ -114,9 +128,9 @@ def asset_problems(ex: dict[str, Any]) -> list[str]:
     if not isinstance(notebooks, list) or not isinstance(files, list):
         return ["notebooks and files are lists of file names in the exercise's folder"]
     out += [f"notebook {n!r} is a .py file named like a notebook (clean_orders.py)" for n in notebooks
-            if not (isinstance(n, str) and n.endswith(".py") and _FOLDER.match(n[:-3]))]
+            if not (isinstance(n, str) and n.endswith(".py") and _FOLDER.fullmatch(n[:-3]))]
     folder = ex.get("files_folder")
-    if folder is not None and not (isinstance(folder, str) and all(_FOLDER.match(p) for p in folder.split("/"))):
+    if folder is not None and not (isinstance(folder, str) and all(_FOLDER.fullmatch(p) for p in folder.split("/"))):
         out.append("files_folder is a folder under Files/, like landing or landing/orders")
     return out
 
@@ -170,8 +184,7 @@ except pyspark_shim.NotebookExit:   # notebookutils.notebook.exit ends the noteb
 except BaseException:
     traceback.print_exc(limit=3)
     rc = 1
-sys.stdout.flush(); sys.stderr.flush()
-os._exit(rc)
+kf_end_now(rc)   # the learner process's own ending (academy/_bootstrap.py _ender): on Windows not os._exit
 """
 LEARNER_FILE = "kf_run.py"
 
@@ -285,6 +298,32 @@ def _error(run: dict[str, Any]) -> str:
     return "Your code stopped with an error: no message"
 
 
+_FRAME = re.compile(r'^File "(?P<path>[^"]+)", line (?P<line>\d+) in (?P<func>\S+)$')
+_SEP = re.compile(r"[\\/]")   # the dump names Windows or POSIX paths; only the file name is kept
+CRASH_FRAMES = 4
+
+
+def _crash_frames(run: dict[str, Any]) -> str:
+    """Where a native crash happened, from faulthandler's dump of the crashing thread: its innermost
+    Python frames as ``file:line in function``, the call that went into DuckDB or delta-rs first. Only
+    for the pack's own reference solution (never a learner's answer): the frames name files and
+    functions, never data. Empty when the run didn't crash in native code."""
+    lines = [ln.strip() for ln in (run.get("stderr") or "").splitlines()]
+    try:
+        start = next(i for i, ln in enumerate(lines) if ln.startswith(("Fatal Python error:", "Windows fatal exception:")))
+    except StopIteration:
+        return ""
+    # With other Python threads alive the dump lists each; the crashing one is "Current thread".
+    start = next((i for i, ln in enumerate(lines) if i > start and ln.startswith("Current thread")), start)
+    frames: list[str] = []
+    for ln in lines[start + 1:]:
+        if ln.startswith(("Thread 0x", "Extension modules:")):
+            break   # the next thread's stack, or the module list: the crashing thread's ends here
+        if (m := _FRAME.fullmatch(ln)) and len(frames) < CRASH_FRAMES:
+            frames.append(f"{_SEP.split(m['path'])[-1]}:{m['line']} in {m['func']}")
+    return f" Innermost frames: {'; '.join(frames)}." if frames else ""
+
+
 def _lower_first(text: str) -> str:
     return text[:1].lower() + text[1:]
 
@@ -374,7 +413,7 @@ def grade(ex: dict[str, Any], setup: str, hidden: str | None, answer: str, solut
                         rw = fresh(f"ref-{data}-{table.replace('.', '-')}", hidden if data == "hidden" and hidden else setup)
                         rrun = runner(rw, solution)
                         if rrun["status"] != "ok":
-                            raise RuntimeError(f"{ex['id']}: the reference solution failed: {_error(rrun)}")
+                            raise RuntimeError(f"{ex['id']}: the reference solution failed: {_error(rrun)}{_crash_frames(rrun)}")
                         refs[key] = _rows(rw, table)
                         if refs[key] is None:
                             raise RuntimeError(f"{ex['id']}: the reference solution didn't write {table}")

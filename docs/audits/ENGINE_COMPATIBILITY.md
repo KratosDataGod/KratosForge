@@ -26,6 +26,9 @@ As found at the baseline (`b75dcf5`, 2026-11-02). Rows marked FIXED were re-chec
 | Null and NaN sort order (asc / desc) | nulls first, NaN last / NaN first, nulls last | same | OK | |
 | `sum(int)` result type, written to Delta | `HUGEINT`, `Decimal128(38,0)` (confirmed) | `bigint` | FIXED (#1646, #1647) | EA-004 |
 | `decimal(10,2) / decimal(10,2)` | `double`, written as `Float64` | decimal | FIXED (#1645) | EA-004 |
+| `decimal div decimal`, such as `10.00 div 3` (found 2026-11-16) | 3.333..., a `double` | 3, a `bigint` | FIXED (WR-105, #2769) | |
+| Decimal type of `%`, `pmod`, `round`, `bround`, `ceil` and `floor` (found 2026-11-16) | DuckDB's, such as `decimal(12,2)` for `decimal(10,2) % 3` | Spark's, such as `decimal(3,2)` | FIXED (WR-105, #2769) | |
+| Decimal sum, difference or product past 38 digits (found 2026-11-16) | DuckDB's type, such as `decimal(38,36)`; fails when the result doesn't fit | Spark's narrower scale, such as `decimal(38,6)`; null when it doesn't fit | GAP (LOC-005, [SQL compatibility](../sql-compatibility.md#decimal-results-on-this-pc-loc-005)) | |
 | Bad string to date or int, SQL | null | null (ANSI off) | OK | |
 | Bad string to date, DataFrame `cast` and `to_date` | error | null (ANSI off) | FIXED (#1607) | EA-015 |
 | `CAST(timestamp AS BIGINT)`, `CAST(bigint AS TIMESTAMP)` | null | epoch seconds, timestamp | FIXED (#1609) | EA-014 |

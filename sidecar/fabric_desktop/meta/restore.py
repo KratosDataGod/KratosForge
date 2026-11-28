@@ -12,7 +12,7 @@ from typing import Any
 
 from deltalake import CommitProperties, DeltaTable
 
-from .. import delta_profile
+from .. import delta_profile, maintenance
 
 _MAINTENANCE = ("OPTIMIZE", "VACUUM START", "VACUUM END", "SET TBLPROPERTIES")
 _KEEPS_FILES = ("VACUUM", "SET TBLPROPERTIES")
@@ -45,7 +45,9 @@ def versions(uri: str, options: dict[str, str] | None, retention_days: int, limi
 
     VACUUM deletes files that were removed more than its retention ago (the VACUUM commit says
     how long; ``retention_days`` is the fallback). The files of version v start being removed at
-    version v+1, so v survives a VACUUM at time T when v+1 is newer than T minus the retention.
+    version v+1, so v survives a VACUUM at time T when v+1 is newer than T minus the retention. One
+    removed at exactly that millisecond is counted as gone: saying a version can't be restored when it
+    could is the safe way to be wrong.
     Without any VACUUM, every version still in the log can be restored."""
     table = DeltaTable(uri, storage_options=options)
     history = table.history(limit)  # newest first
@@ -57,7 +59,7 @@ def versions(uri: str, options: dict[str, str] | None, retention_days: int, limi
         params = h.get("operationParameters") or {}
         kept: Any = params.get("specifiedRetentionMillis") or params.get("defaultRetentionMillis")
         hours = int(kept) / 3_600_000 if str(kept or "").isdigit() else int(retention_days) * 24
-        cut = _at(h["timestamp"]) - dt.timedelta(hours=hours)  # files removed before this are gone
+        cut = _at(h["timestamp"]) - dt.timedelta(hours=hours)  # files removed at or before this are gone
         horizon = cut if horizon is None or cut > horizon else horizon
     # When each version's files started being removed: the next commit that removes files
     # (VACUUM's and table property commits don't).
@@ -85,15 +87,18 @@ def versions(uri: str, options: dict[str, str] | None, retention_days: int, limi
 
 
 def restore(uri: str, options: dict[str, str] | None, version: int, metadata: dict[str, str] | None = None) -> dict[str, Any]:
-    """Restore the table to ``version`` as a new commit. Fails, changing nothing, if files it needs are gone."""
-    table = DeltaTable(uri, storage_options=options)
-    before = table.version()
-    if int(version) >= before:
-        raise ValueError(f"Version {version} isn't earlier than the current version ({before}).")
-    metrics = table.restore(int(version), ignore_missing_files=False,
-                            commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
-    after = DeltaTable(uri, storage_options=options)
-    delta_profile.note_after_write(after)
-    return {"from_version": before, "to_version": int(version), "new_version": after.version(),
-            "files_restored": int(metrics.get("numRestoredFile", 0) or 0),
-            "files_removed": int(metrics.get("numRemovedFile", 0) or 0)}
+    """Restore the table to ``version`` as a new commit. Fails, changing nothing, if files it needs are gone.
+    Under the table's compaction lock, so a Compact on this PC can't delete a file it brings back meanwhile."""
+    with maintenance.compaction_lock(uri):
+        table = DeltaTable(uri, storage_options=options)
+        before = table.version()
+        if int(version) >= before:
+            raise ValueError(f"Version {version} isn't earlier than the current version ({before}).")
+        metrics = table.restore(int(version), ignore_missing_files=False,
+                                commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None,
+                                post_commithook_properties=maintenance.KEEP_LOG)
+        after = DeltaTable(uri, storage_options=options)
+        delta_profile.note_after_write(after)
+        return {"from_version": before, "to_version": int(version), "new_version": after.version(),
+                "files_restored": int(metrics.get("numRestoredFile", 0) or 0),
+                "files_removed": int(metrics.get("numRemovedFile", 0) or 0)}

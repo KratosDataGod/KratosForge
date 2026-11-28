@@ -301,19 +301,26 @@ class Queue:
         with self._lock:
             pending, self._pending = self._pending, []
             self._last.clear()
-        if cancel:
-            for _, f in pending:
-                f.cancel()
-        failed = []
-        for label, f in pending:
-            if f.cancelled():
-                failed.append(f"{label}: not written (the cell was cancelled)")
-                continue
-            exc = f.exception()
-            if exc is not None:
-                failed.append(f"{label}: {type(exc).__name__}: {exc}")
-            elif getattr(f.result(), "warning", None):
-                self.warnings.append(f.result().warning)
+        try:
+            if cancel:
+                for _, f in pending:
+                    f.cancel()
+            failed = []
+            for label, f in pending:
+                if f.cancelled():
+                    failed.append(f"{label}: not written (the cell was cancelled)")
+                    continue
+                exc = f.exception()
+                if exc is not None:
+                    failed.append(f"{label}: {type(exc).__name__}: {exc}")
+                elif getattr(f.result(), "warning", None):
+                    self.warnings.append(f.result().warning)
+        except BaseException:
+            # Cancel landed while waiting: the writes go back, so the next flush (the cell's, with
+            # cancel=True) still drops the ones not started and reports the rest.
+            with self._lock:
+                self._pending[:0] = pending
+            raise
         return failed
 
     def busy(self) -> bool:

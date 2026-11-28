@@ -56,7 +56,7 @@ def add(root: Path, rule_id: str, scope: str, where: str = "", line: str = "") -
         raise ValueError(f"where must name the notebook or SQL tab, in at most {MAX_WHERE} characters")
     if scope == "file":
         line = ""
-    elif scope == "line" and not _HASH.match(line):
+    elif scope == "line" and not _HASH.fullmatch(line):
         raise ValueError("line must be the SHA-256 of the line, as 64 hex characters")
     rows = load(root)
     key = _key(rule_id, scope, where, line)

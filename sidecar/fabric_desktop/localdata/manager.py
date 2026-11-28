@@ -26,6 +26,7 @@ class LocalData:
         self._engines: dict[str, LocalEngine] = {}
         self._lock = threading.Lock()
         self._queries: dict[str, dict[str, Any]] = {}
+        self._queries_lock = threading.Lock()  # a query's thread finishes its record while status() reads it
 
     # Projects
 
@@ -103,40 +104,48 @@ class LocalData:
     def start(self, pid: str, sql: str, **options: Any) -> dict[str, Any]:
         engine = self.engine(pid)
         query_id = uuid.uuid4().hex
-        record = {"query_id": query_id, "project": pid, "state": "running", "started_at": time.time()}
-        self._queries[query_id] = record
+        record = {"query_id": query_id, "project": pid, "state": "running", "started_at": time.time(),
+                  "_clock": time.monotonic()}  # elapsed comes from this, unmoved by a change to the PC's clock
+        with self._queries_lock:
+            self._queries[query_id] = record
 
         def run() -> None:
+            # The outcome is built apart and put in the record in one step, so status() never sees a
+            # finished state without its result or error (and collects it), or a record changing size.
             try:
-                record["result"] = engine.execute(sql, query_id=query_id, **options)
-                record["state"] = "done"
+                end: dict[str, Any] = {"result": engine.execute(sql, query_id=query_id, **options), "state": "done"}
             except Exception as exc:  # noqa: BLE001 - every failure goes back to the page
-                record["state"] = "cancelled" if isinstance(exc, QueryCancelled) else "error"
-                record["error"] = str(exc)
-            record["finished_at"] = time.time()
+                end = {"state": "cancelled" if isinstance(exc, QueryCancelled) else "error", "error": str(exc)}
+            end["finished_at"] = time.time()
+            with self._queries_lock:
+                record.update(end)
         threading.Thread(target=run, name=f"local query {query_id[:8]}", daemon=True).start()
         self._sweep()
         return {"query_id": query_id, "state": "running"}
 
     def status(self, query_id: str) -> dict[str, Any]:
-        record = self._queries.get(query_id)
-        if record is None:
-            raise KeyError("That query isn't running and has no result waiting (results are kept for 10 minutes).")
-        out = {k: v for k, v in record.items() if k != "started_at"} | \
-            {"elapsed": round(time.time() - record["started_at"], 1)}
-        if record["state"] != "running":
-            self._queries.pop(query_id, None)  # collected
-        return out
+        with self._queries_lock:
+            record = self._queries.get(query_id)
+            if record is None:
+                raise KeyError("That query isn't running and has no result waiting (results are kept for 10 minutes).")
+            snapshot = dict(record)
+            if snapshot["state"] != "running":
+                self._queries.pop(query_id, None)  # collected
+        return {k: v for k, v in snapshot.items() if k not in ("started_at", "_clock")} | \
+            {"elapsed": round(max(0.0, time.monotonic() - snapshot["_clock"]), 1)}
 
     def cancel(self, query_id: str) -> dict[str, Any]:
-        record = self._queries.get(query_id)
-        if record is None or record["state"] != "running":
+        with self._queries_lock:
+            record = self._queries.get(query_id)
+            running = record is not None and record["state"] == "running"
+        if record is None or not running:
             return {"cancelled": False}
         # The query's thread may not have reached the engine yet: it is then stopped as it starts.
         return {"cancelled": self.engine(record["project"]).cancel(query_id, not_started=True)}
 
     def _sweep(self) -> None:
         now = time.time()
-        for qid, record in list(self._queries.items()):
-            if record.get("finished_at") and now - record["finished_at"] > _KEEP_FINISHED:
-                self._queries.pop(qid, None)
+        with self._queries_lock:
+            for qid, record in list(self._queries.items()):
+                if record.get("finished_at") and now - record["finished_at"] > _KEEP_FINISHED:
+                    self._queries.pop(qid, None)

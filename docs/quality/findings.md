@@ -251,6 +251,8 @@ The fakes themselves are good: `test_fabric_api.py:22-33` checks method, URL and
 
 **Fix.** PR-QA-14: one shared `FakeFabric` in `conftest.py` that records request shape; a request-shape test for each of the 22 methods against `FakeSession`; `FileStore` tests against a fake DFS; rename the two tests; extend `livetest.py` to the write paths. **Verify:** `fabric_api.py` and `onelake.py` coverage above 90%.
 
+**Status.** Reach fixed. On 2026-11-16 the tests that touch them cover `fabric_api.py` 100% and `onelake.py` 99% (lines 174 and 280-281 left). `tests/test_fabric_writes.py` walks all 30 `FabricClient` write methods with 400, 403, 404, 409, 500 and 503: each raises `FabricError` and sends its write exactly once (reads answer, so the `save_*` methods reach their create, and over an existing item their update). A guard fails when a new write method isn't in its list, found by name or by a write verb in its source. The same file covers `FileStore.upload` failing at each of its four steps (it raises, never renames, and removes only its own new file), `delete` (sent once, 404 is done) and `mkdir` (a 5xx is retried, 409 is done). With either retry rule loosened, these tests fail (64 and 2). Still open: the seven `FakeFabric` copies, and the two over-named tests.
+
 ### QA-019 UI components re-implemented per page (Medium)
 
 **Evidence: Count.**
@@ -286,7 +288,7 @@ The fakes themselves are good: `test_fabric_api.py:22-33` checks method, URL and
 
 **Fix.** PR-QA-06: `sqlite_util.connect(path, durable=)` and `tx()`. **Verify:** the six modules use it; a `ResourceWarning` filter turned into an error in the notify tests.
 
-**Status.** Leak fixed: `workloads/notify.py` `Outbox` and `workloads/platform_notify.py` `Ledger` now close every connection (`notify.transaction`: commit, rollback on error, then close; `tests/test_sqlite_connections_closed.py`). The other sites don't leak per call: `jobqueue.py:63-71` and `integrations/store.py:77-84` (with `integrations/audit.py`) keep one connection per thread by design; `workloads/store.py:55-63` and `backup.py:68-74,227-242` close in `finally` (counted over 20-40 operations each). Unifying the idioms and the durability drift (only `jobqueue` sets `synchronous=full`) remain open.
+**Status.** Leak fixed: `workloads/notify.py` `Outbox` and `workloads/platform_notify.py` `Ledger` now close every connection (`notify.transaction`: commit, rollback on error, then close; `tests/test_sqlite_connections_closed.py`). The other sites don't leak per call: `jobqueue.py:63-71` and `integrations/store.py:77-84` (with `integrations/audit.py`) keep one connection per thread by design; `workloads/store.py:55-63` and `backup.py:68-74,227-242` close in `finally` (counted over 20-40 operations each). Durability drift fixed: every store opens its file through `sqlitefile.connect` or `sqlitefile.transaction`, which set `synchronous=full` (`jobqueue.py` moved onto them), and `tests/test_sqlite_durability.py` fails on a `sqlite3.connect` outside the helper and checks each store commits durably. [sqlite-stores.md](sqlite-stores.md) lists every store, what it holds and the measured cost. Journal modes (WAL for the queue and integrations, rollback journal elsewhere) and transaction styles still differ; both journal modes are durable with `synchronous=full`.
 
 ### QA-023 Prove and side by side are clones (Low)
 
@@ -300,11 +302,15 @@ The fakes themselves are good: `test_fabric_api.py:22-33` checks method, URL and
 
 **Fix.** PR-QA-06: `workloads/model`'s helpers become `timeutil`. **Verify:** tests for naive, aware, epoch and malformed input.
 
+**Status.** Partly fixed 2026-11-16. `fabric_desktop/timeutil.py` holds one rule: a time without an offset is UTC, and a missing or unreadable time is `None`, never an error. `prove_service`, `side_by_side_service`, `cloud_service`, `schedule_service`, `git/ops`, `costs`, `measurement`, `progress` and `opportunities/inventory` now use it. This fixes a crash: a notebook's Runs panel raised TypeError when a Fabric run had ended, because Fabric's `endTimeUtc` has no offset and the app's `started_at` has one. `progress`'s report could hit the same TypeError on a naive time. `tests/test_timeutil.py` covers naive, aware, epoch and malformed input. Still open: `central/core` (it ships alone as the Function app's `platform_logic.py`, so it can't import `timeutil`; its owner and grant-review day counts can still raise TypeError on a naive time), `workloads/model` and `workloads/agents` (they need a workload sign-off; `agents._when` still treats a naive time as unreadable), `meta/freshness` (its run log only holds the engine's own aware times), the local-time run ids, and hand-written parsers in `audit_chain`, `central/policy`, `central/policy_package`, `fabric_pipeline_runs_service`, `governance_checks`, `local_schedules`, `localdata/delta`, `shortcut_service`, `workloads/run_as`, `xray` and `xray_service`.
+
 ### QA-025 Table URIs rebuilt by hand (Low)
 
 **Evidence: Code.** `onelake.TableRef.uri` (`onelake.py:37-45`) validates names. `side_by_side_service.OneLakeTables._uri` (`:46-49`) rebuilds it without validation and turns a dotless name with schemas on into `Tables//name`. `prove_service.py:214` and `fabric_run.py:39` build roots by hand; `fabric_run` hard-codes the host instead of `DFS_HOST`.
 
 **Fix.** PR-QA-08.
+
+**Status.** Fixed 2026-11-16. `onelake.lakehouse_root` and `onelake.table_uri` build every OneLake address. They check the ids (no slash, @, ?, #, %, :, or . or .. alone) and the names (`check_name`, which now also refuses . and .. alone), and `TableRef.uri` uses them too. `side_by_side_service`, `prove_service` (both sites), `pipeline_data`, `fabric_step` and `proof` now call them. A name without a schema now goes to `dbo`, not `Tables//name`. The two notebooks the app generates for Fabric (`fabric_run`'s shim and `model_bpa`) take `DFS_HOST` instead of spelling the host out. `tests/test_table_uris.py` fails on an f-string that puts a value into an `abfss://` address or straight before `/Tables/`. Three files are allowed, each with its reason: `proof_runtime.py` (self-contained in Fabric), and `xray_service.py` and `notebook_practices.py` (they match addresses but build none).
 
 ### QA-026 Notebook file helpers that pretend (Low)
 

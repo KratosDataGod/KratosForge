@@ -35,6 +35,7 @@ from . import drift as drift_mod
 from . import keys as keys_mod
 from . import preflight
 from .project import (
+    sql_expr,
     SYSTEM_COLUMNS,
     Entity,
     GateError,
@@ -288,8 +289,7 @@ class HookContext:
         self.notes: list[str] = []
 
     def read_table(self, name: str) -> pl.DataFrame:
-        allowed = self._entity.spec.get("hooks", {}).get("reads", []) + self._entity.spec.get("step", {}).get("reads", [])
-        if name not in allowed:
+        if name not in self._entity.code_reads():
             raise PermissionError(f"{self._entity.name} custom code read {name} without declaring it in reads")
         df = self._engine.read_entity(name)
         if df is None:
@@ -317,6 +317,10 @@ class Engine:
                  run_context: dict[str, Any] | None = None, link_table: Callable[[str], str] | None = None,
                  merge_writes: bool = True):
         self.project, self.store = project, store
+        # Each table's own Delta features choice (delta_features), checked by every write to it.
+        if project is not None and store is not None:  # some callers only want its helpers
+            store.delta_policies = project.delta_policies()
+            store.history_days = {l.lakehouse: l.retention_days for l in project.layers}
         # Incremental and replayed rows go into the table with a Delta MERGE (or an append), which
         # rewrites only the files they touch. False always reads the whole table and overwrites it,
         # as before 0.20; kept for comparison (examples/benchmark/large_tables.py).
@@ -440,8 +444,8 @@ class Engine:
         deps = self.store.meta_where("deployments", pl.col("env") == self.store.env)
         deployed = deps["version"][-1] if deps.height else None
         if deployed != self.project.version:
-            raise GateError("promote", [f"{self.store.env} is on metadata {deployed or 'nothing yet'}, and this "
-                                        f"project is {self.project.version}. Promote it first."])
+            raise GateError("promote", [(f"{self.store.env} is on metadata {deployed or 'nothing yet'}, and this "
+                                        f"project is {self.project.version}. Promote it first.")])
 
     def run(self, name: str, backfill: str | None = None, batch_id: str = "") -> RunResult:
         try:
@@ -603,6 +607,7 @@ class Engine:
             if committed or logged.height:  # committed: _record_unlogged records it; logged: nothing to do
                 path.unlink(missing_ok=True)
                 continue
+            self._stopped_leftovers(e, run, note, res)
             message = ("Stopped: the engine ended during this run (the app closed, the engine was restarted, "
                        "the PC shut down, or it ran out of memory), so nothing was written to the table. "
                        f"Run it again. Recorded by run {self.run_id}.")
@@ -623,6 +628,38 @@ class Engine:
                 res.steps.append(Step("record", 0, 0.0, f"recorded run {run}, which stopped before it "
                                                         "wrote anything"))
                 path.unlink(missing_ok=True)
+
+    def _stopped_leftovers(self, e: Entity, run: str, note: dict[str, Any], res: RunResult) -> None:
+        """The files run ``run`` left in ``e``'s table when its process ended mid-write (PB-067), as a dry
+        run: they are counted on this run's steps, and nothing is deleted. Only on this PC, and only under
+        this run's lease on the table, so no other metadata run is writing it. That lease doesn't stop
+        compaction or a notebook or SQL write to the table, so the list is reported, never deleted from
+        (maintenance.stopped_run_leftovers says what counts). Never fails the run."""
+        from .. import maintenance
+        from ..leases import holding, table_key
+        lh = self.lakehouse(e)
+        if not isinstance(self.store, LocalStore) or not holding(table_key(lh, e.schema, e.table)):
+            return
+        t0 = time.perf_counter()
+        try:
+            since = dt.datetime.fromisoformat(str(note.get("started_at"))).timestamp()
+            found = maintenance.stopped_run_leftovers(self.store.uri(lh, e.schema, e.table), since)
+        except Exception as exc:  # noqa: BLE001 - only the dry run is missed; Compact still finds them later
+            _log.warning("Couldn't look for the files run %s left in %s: %s", run, e.name, exc)
+            res.steps.append(Step("clean up", 0, 0.0, f"couldn't look for the files run {run} left "
+                                                      f"({type(exc).__name__}): Compact finds them later"))
+            return
+        if found["refused"]:
+            res.steps.append(Step("clean up", 0, round(time.perf_counter() - t0, 3),
+                                  f"run {run} stopped mid-write; {found['refused']}"))
+            return
+        n = len(found["files"])
+        if not n:
+            return
+        res.steps.append(Step("clean up", n, round(time.perf_counter() - t0, 3),
+                              f"dry run: run {run} stopped mid-write and left {n} file{'' if n == 1 else 's'} "
+                              f"({found['bytes'] / 1024 / 1024:.1f} MB) that no version of the table names; "
+                              "nothing was removed"))
 
     def _record_unlogged(self, e: Entity, res: RunResult) -> None:
         """Record the last run that committed to ``e``'s table but has no run-log row: it stopped between
@@ -1245,7 +1282,7 @@ class Engine:
         lookups = {c for lk in e.spec.get("lookup", []) for c in (lk.get("on"), lk.get("at")) if c}
         exprs = set()
         for d in e.spec.get("derive", []):
-            exprs |= set(pl.sql_expr(d["expr"]).meta.root_names())
+            exprs |= set(sql_expr(d["expr"]).meta.root_names())
         bks = {c for k in keys_mod.entity_keys(e) for c in k["business_key"]}
         needed = own | lookups | exprs | bks | (set(columns) if e.spec.get("step") else set())
         return expected, needed
@@ -1382,7 +1419,7 @@ class Engine:
         if s.get("derive"):
             t0 = time.perf_counter()
             for d in s["derive"]:
-                df = df.with_columns(pl.sql_expr(d["expr"]).alias(d["column"]))
+                df = df.with_columns(sql_expr(d["expr"]).alias(d["column"]))
             self._step(res, "derive", t0, df.height, ", ".join(e.derived))
         ctx = HookContext(self, e)
         if "after_clean" in s.get("hooks", {}):
@@ -1408,7 +1445,7 @@ class Engine:
         redone = []
         t0 = time.perf_counter()
         for d in e.spec.get("derive", []):
-            expr = pl.sql_expr(d["expr"])
+            expr = sql_expr(d["expr"])
             if all(c in df.columns for c in expr.meta.root_names()):
                 df = df.with_columns(expr.alias(d["column"]))
                 redone.append(d["column"])
@@ -1479,7 +1516,7 @@ class Engine:
                 if hi is not None:
                     bad = bad | (df[col] > hi).fill_null(False)
             elif "expr" in c:
-                bad = ~df.select(pl.sql_expr(c["expr"]).fill_null(False)).to_series()
+                bad = ~df.select(sql_expr(c["expr"]).fill_null(False)).to_series()
             elif "python" in c:
                 out = load_python(c["python"])(df, HookContext(self, e))
                 bad = ~(out if isinstance(out, pl.Series) else df.select(out).to_series()).fill_null(False)

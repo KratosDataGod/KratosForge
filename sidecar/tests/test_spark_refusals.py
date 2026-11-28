@@ -33,30 +33,20 @@ def test_every_refusal_in_spark_local_is_listed_with_how_the_check_finds_it():
 
 # One notebook per refusal in CHECKED_REFUSALS: the check blocks it on this PC.
 BLOCKED = {
-    "option": ("df.write.option('replaceWhere', 'd = 1').mode('overwrite').saveAsTable('dbo.t')", "replaceWhere"),
     "_check_options": ("df.write.option('someOption', 'x').saveAsTable('dbo.t')", "saveAsTable doesn't take"),
-    "_refuse_dynamic_overwrite": ("spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'dynamic')",
-                                  "dynamic partitionOverwriteMode"),
-    "_refuse_auto_merge": ("spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')\n"
-                           "spark.sql('MERGE INTO dbo.t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET *')",
-                           "autoMerge"),
     "schema": ("df = spark.read.schema('a INT, b STRING').csv('Files/x.csv')", "DDL string"),
     "_no_schema": ("df = spark.read.schema(my_schema).table('dbo.t')", "read.schema() to a read of a table"),
-    "sql": ("spark.sql('MERGE WITH SCHEMA EVOLUTION INTO dbo.t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET *')",
-            "WITH SCHEMA EVOLUTION"),
     "_statement": ("spark.sql('INSERT INTO dbo.t PARTITION (d = 1) SELECT * FROM s')", "PARTITION or REPLACE WHERE"),
     "forPath": ("from delta.tables import DeltaTable\nt = DeltaTable.forPath(spark, 'Files/raw/t')", "forPath"),
-    "_in_fabric": ("from delta.tables import DeltaTable\nt = DeltaTable.forName(spark, 'dbo.t')\nt.vacuum(168)",
-                   "DeltaTable.vacuum"),
-    "withSchemaEvolution": ("t.merge(s, 'a = b').withSchemaEvolution().whenMatchedUpdateAll().execute()",
-                            "withSchemaEvolution"),
     "_refusal": ("df = spark.read.option('ignoreLeadingWhiteSpace', 'true').csv('Files/x.csv')", "ignoreLeadingWhiteSpace"),
-    "_catalog_call_in_fabric": ("tables = [t.name for t in spark.catalog.listTables()]", "lists the catalog"),
+    "save": ("df.write.mode('overwrite').orc('Files/out')", "ORC"),
 }
 
 
 def test_every_listed_refusal_but_the_settings_one_has_a_notebook_here():
-    assert set(BLOCKED) == set(spark_local.CHECKED_REFUSALS) - {"_preview_on"}  # covered by test_spark_merge
+    # _preview_on is covered by test_spark_merge; _catalog_call_in_fabric (currentDatabase) depends on the
+    # lakehouse, which the check can't see, so it isn't flagged.
+    assert set(BLOCKED) == set(spark_local.CHECKED_REFUSALS) - {"_preview_on", "_catalog_call_in_fabric"}
 
 
 @pytest.mark.parametrize("site", sorted(BLOCKED))
@@ -79,9 +69,22 @@ def test_code_this_pcs_spark_refuses_is_blocked_on_this_pc(site):
     "df = spark.read.csv('Files/x.csv', header=True, inferSchema=True, nullValue='NA', multiLine=True)",
     "df = spark.read.schema(my_schema).option('mode', 'DROPMALFORMED').csv('Files/x.csv')",
     "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'static')",
+    "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'dynamic')\ndf.write.mode('overwrite').saveAsTable('dbo.t')",
+    "df.write.option('partitionOverwriteMode', 'dynamic').mode('overwrite').saveAsTable('dbo.t')",
     "spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')",  # no MERGE in the notebook
+    ("spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')\nspark.sql('MERGE INTO dbo.t USING s "
+    "ON t.id = s.id WHEN MATCHED THEN UPDATE SET *')"),  # schema evolution runs here (Preview)
+    "spark.sql('MERGE WITH SCHEMA EVOLUTION INTO dbo.t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET *')",
+    "t.merge(s, 'a = b').withSchemaEvolution().whenMatchedUpdateAll().execute()",
     "from delta.tables import DeltaTable\nt = DeltaTable.forPath(spark, 'Tables/dbo/t')\nt.toDF().show()",
     "import scipy.optimize\nresult = model.optimize(x)",  # not a DeltaTable
+    # OPTIMIZE, VACUUM and RESTORE run here (Preview, spark_maint).
+    "from delta.tables import DeltaTable\nt = DeltaTable.forName(spark, 'dbo.t')\nt.vacuum(168)",
+    "from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'dbo.t').optimize().executeCompaction()",
+    "from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'dbo.t').restoreToVersion(2)",
+    "spark.sql('OPTIMIZE dbo.t ZORDER BY (id)')",
+    "spark.sql('VACUUM dbo.t RETAIN 200 HOURS')",
+    "spark.sql('RESTORE TABLE dbo.t TO VERSION AS OF 3')",
     "spark.sql('INSERT INTO dbo.t SELECT * FROM s')",
     "spark.sql('DROP VIEW IF EXISTS v')",
     "cols = spark.catalog.listColumns('dbo.t')\nspark.catalog.tableExists('dbo.t')",
@@ -116,7 +119,7 @@ def test_saving_a_table_as_another_format_is_blocked():
 
 
 def test_sql_cells_and_the_sql_line_magic_read_the_same_refusals():
-    cells = [{"type": "code", "source": "%%sql\nRESTORE TABLE dbo.t TO VERSION AS OF 3", "meta": {}},
+    cells = [{"type": "code", "source": "%%sql\nRESTORE TABLE dbo.t", "meta": {}},  # no version: not a form this PC reads
              {"type": "code", "source": "%%sql\nTRUNCATE TABLE t", "meta": {}},
              {"type": "code", "source": "rows = %sql DROP TABLE dbo.old", "meta": {}}]
     out = compute_check(cells, LH)["local"]
@@ -144,11 +147,14 @@ def test_a_clean_run_doesnt_ask_to_confirm_what_the_check_cant_read():
     assert validate.run_plan(cells, LH, spark=True)["uncontained"] == []
 
 
-def test_a_refused_option_on_a_writer_held_in_a_variable_is_blocked():
+def test_replace_where_runs_here_on_save_as_table_and_is_refused_on_insert_into():
+    """replaceWhere runs on this PC (WR-115), on a writer held in a variable too; insertInto doesn't take it."""
     for source in ("w = df.write\nw.option('replaceWhere', 'd = 1').saveAsTable('dbo.t')",
-                   "w = df.write.mode('overwrite')\nw = w.option('partitionOverwriteMode', 'dynamic')\nw.saveAsTable('dbo.t')"):
-        local = check(source)["local"]
-        assert local["status"] == "blocked" and "write option" in local["reasons"][0]["text"], source
+                   "w = df.write.mode('overwrite')\nw = w.option('replaceWhere', 'd = 1')\nw.saveAsTable('dbo.t')",
+                   "df.write.option('replaceWhere', 'd = 1').mode('overwrite').saveAsTable('dbo.t')"):
+        assert check(source)["local"]["status"] != "blocked", source
+    local = check("df.write.option('replaceWhere', 'd = 1').insertInto('dbo.t')")["local"]
+    assert local["status"] == "blocked" and "insertInto doesn't take" in local["reasons"][0]["text"]
 
 
 def test_a_path_option_is_blocked_on_a_table_write_and_fine_on_save():

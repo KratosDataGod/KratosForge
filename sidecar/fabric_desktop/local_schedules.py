@@ -22,9 +22,10 @@ from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
 
-from . import signed_out_tasks
+from . import app_settings, signed_out_tasks
 from .fabric_run import WEEKDAYS, describe_schedule, schedule_configuration
 from .jsonfile import read_json, read_text, write_json
+from .winexe import system32
 
 TASK_FOLDER = "FabricDesktop"
 RUNS_FILE = "schedule_runs.jsonl"
@@ -219,7 +220,7 @@ class TaskScheduler:
         try:
             # schtasks answers in a second; one that doesn't (a hung Task Scheduler service) would
             # otherwise hold every page's engine calls behind it, with no Stop to reach.
-            res = subprocess.run(["schtasks", *args], capture_output=True, text=True, errors="replace", creationflags=flags,
+            res = subprocess.run([system32("schtasks.exe"), *args], capture_output=True, text=True, errors="replace", creationflags=flags,
                                  timeout=SCHTASKS_SECONDS)
         except subprocess.TimeoutExpired:
             raise RuntimeError(f"Task Scheduler didn't answer in {SCHTASKS_SECONDS} seconds. Check that the "
@@ -278,7 +279,7 @@ class LocalSchedules:
         if s.get("signed_out"):
             if not self.allow_signed_out:
                 raise PermissionError("Your organization doesn't allow schedules that run while you're signed out of "
-                                      "Windows (allow_signed_out_schedules in its policy file).")
+                                      "Windows. " + app_settings.ask_it("allow_signed_out_schedules"))
             self.scheduler.register(s, self.executable, str(self.root), self.launcher)
             s["launcher"] = self.launcher or ""
         else:
@@ -358,7 +359,9 @@ class LocalSchedules:
                 if s.get("signed_out"):
                     if s["enabled"] and not self.allow_signed_out:
                         raise PermissionError("Your organization doesn't allow schedules that run while you're signed "
-                                              "out of Windows. Edit it to run only while you're signed in, then resume it.")
+                                              "out of Windows. Edit it to run only while you're signed in, then resume it, "
+                                              "or ask IT to change allow_signed_out_schedules in "
+                                              f"{app_settings.policy_source('allow_signed_out_schedules')}.")
                     self.scheduler.set_enabled(schedule_id, s["enabled"])
                 else:
                     self._register(s)

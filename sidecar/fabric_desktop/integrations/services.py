@@ -26,7 +26,7 @@ from ..auth import default_cache_path
 from ..fabric_run import compute_check
 from ..redact import describe
 from . import scope
-from .core import CallContext, IntegrationError, redact_secrets
+from .core import CallContext, IntegrationError, error_from, redact_secrets
 
 _log = logging.getLogger(__name__)
 
@@ -74,7 +74,11 @@ def list_projects(svc: Any, ctx: CallContext) -> dict[str, Any]:
     """The work on this PC: the notebooks folder, and the metadata project if one is open."""
     projects = [{"id": "notebooks", "kind": "notebooks", "name": "Notebooks on this PC",
                  "items": len(_notebooks(svc, ctx))}]
-    meta = svc.meta_project()
+    try:
+        meta = _meta_project(svc)
+    except IntegrationError as exc:  # its files can't be read: the notebooks are still listed, and it says why
+        row = {"id": "metadata", "kind": "metadata", "name": "Metadata project", "error": exc.message}
+        return {"projects": projects + scope.keep(ctx, [row], lambda _: None)}  # a limited tool can't place it
     if meta.get("path") and scope.keep(ctx, [meta], scope.metadata_of):
         projects.append({"id": "metadata", "kind": "metadata", "name": (meta.get("project") or {}).get("name") or "Metadata project",
                          "path": meta["path"], "entities": len(meta.get("entities", [])),
@@ -87,7 +91,7 @@ def get_project(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa:
         return {"id": "notebooks", "kind": "notebooks", "notebooks": [
             {"name": n["name"], "modified": n["modified"]} for n in _notebooks(svc, ctx)]}
     if id == "metadata":
-        meta = svc.meta_project()
+        meta = _meta_project(svc)
         if not meta.get("path"):
             raise IntegrationError("not_found", "No metadata project is open in KratosForge.",
                                    hint="Open or create one on the Data mesh page first.")
@@ -100,7 +104,8 @@ def get_project(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa:
 
 def _environments(envs: dict[str, Any]) -> dict[str, Any]:
     keep = ("target", "compute", "workspace_id", "workspace_name", "tables_in", "runs_on")
-    return {name: {k: v for k, v in (cfg or {}).items() if k in keep} for name, cfg in envs.items()}
+    return {name: {k: v for k, v in (cfg or {}).items() if k in keep} if isinstance(cfg or {}, dict)
+            else {"error": f"[{name}] in environments.toml isn't a table of settings"} for name, cfg in envs.items()}
 
 
 def _entity(e: dict[str, Any]) -> dict[str, Any]:
@@ -111,11 +116,95 @@ def _entity(e: dict[str, Any]) -> dict[str, Any]:
 
 def validate_project(svc: Any, ctx: CallContext) -> dict[str, Any]:
     """The open metadata project's own validation (the same list the Data mesh page shows)."""
-    meta = svc.meta_project()
+    meta = _meta_project(svc)
     if not meta.get("path"):
         raise IntegrationError("not_found", "No metadata project is open in KratosForge.")
     errors = meta.get("errors", [])
     return {"project": "metadata", "ok": not errors, "errors": errors, "entities": len(meta.get("entities", []))}
+
+
+def _meta_project(svc: Any) -> dict[str, Any]:
+    """The open metadata project's summary. Its files are the person's to edit: one that can't be read
+    (TOML that doesn't parse, text that isn't UTF-8, a file that is a folder) is said plainly."""
+    try:
+        return svc.meta_project()
+    except (ValueError, TypeError, AttributeError, OSError, RecursionError) as exc:
+        reason = error_from(exc).message
+        raise IntegrationError("failed", f"The metadata project's files can't be read: {reason}",
+                               hint="Open the project on the Data mesh page to see and fix the file.") from None
+
+
+def _open_metadata(svc: Any) -> None:
+    if not _meta_project(svc).get("path"):
+        raise IntegrationError("not_found", "No metadata project is open in KratosForge.",
+                               hint="Open or create one on the Data mesh page first.")
+
+
+def get_lineage(svc: Any, ctx: CallContext, entity: str, column: str = "") -> dict[str, Any]:
+    """Column lineage from the metadata project's files (meta/lineage.py): every column of an entity, or
+    one column's steps upstream and the columns built from it downstream. Runs nothing, reads no table."""
+    _open_metadata(svc)
+    return svc.meta_lineage(entity, column or None)
+
+
+def list_project_runs(svc: Any, ctx: CallContext, env: str = "dev", offset: int = 0, limit: int = 50) -> dict[str, Any]:
+    """The metadata project's run log in one environment, newest first: status, rows read and written,
+    rows quarantined and where each run ran. The per-step detail is left to fabric_desktop_get_project_run."""
+    _open_metadata(svc)
+    rows = svc.meta_runs(env, limit=ALL)
+    return page([{k: v for k, v in r.items() if k != "steps"} for r in rows], offset, limit) | {"env": env}
+
+
+def get_project_run(svc: Any, ctx: CallContext, run_id: str, env: str = "dev") -> dict[str, Any]:
+    """One run of the metadata project: its steps and its data quality results (each check, the rows that
+    failed it and what was done with them). Counts only: no rows of data."""
+    _open_metadata(svc)
+    run = svc.meta_run_detail(run_id, env)
+    quality = run.pop("dq", None) or []
+    return run | {"env": env, "quality": quality,
+                  "quality_failed": sum(1 for q in quality if (q.get("failed") or 0) > 0)}
+# ---- local data projects (localdata/): files on this PC, read from each project's saved catalog
+
+# What a table entry of a project's saved catalog (project.json) shows: never rows, never the database.
+_LOCAL_TABLE = ("schema", "table", "kind", "format", "source", "folder", "files", "bytes", "status", "error", "columns")
+
+
+def _local_project(svc: Any, project: str) -> Any:
+    """A local data project as last saved (project.json), without opening its database: the app may
+    have it open, and a DuckDB file has one writer, so an external tool must never take it."""
+    try:
+        return svc.local_data.store.load(project)
+    except KeyError:
+        raise IntegrationError("not_found", f"No local data project {project!r}.",
+                               hint="List them with fabric_desktop_list_local_projects.") from None
+
+
+def list_local_projects(svc: Any, ctx: CallContext) -> dict[str, Any]:
+    """The local data projects on this PC: each one's name, folder, registered source folders and table count."""
+    return {"projects": [p.summary() for p in svc.local_data.store.list()]}
+
+
+def get_local_tables(svc: Any, ctx: CallContext, project: str, offset: int = 0, limit: int = 100) -> dict[str, Any]:
+    """The tables a local data project found in its folders and made as Delta, with their columns, as the
+    project last saved them. Tables made only inside the database aren't in the saved catalog."""
+    proj = _local_project(svc, project)
+    # An entry that isn't one JSON object (a hand edit, another program) is named, not shown as a table.
+    unreadable = sorted(k for k, e in proj.catalog.items() if not isinstance(e, dict))
+    rows = sorted(({k: e[k] for k in _LOCAL_TABLE if k in e} | {"kind": e.get("kind", "file")}
+                   for e in proj.catalog.values() if isinstance(e, dict)),
+                  key=lambda t: (str(t.get("schema", "")).lower(), str(t.get("table", "")).lower()))
+    out = page(rows, offset, limit) | {"project": proj.id, "refreshed": proj.refreshed}
+    return out | ({"unreadable": unreadable} if unreadable else {})
+
+
+def get_local_table_history(svc: Any, ctx: CallContext, project: str, table: str, limit: int = 50) -> dict[str, Any]:
+    """The versions of one of a local data project's Delta tables, newest first, from its Delta log.
+
+    The table is looked up in the catalog as saved now, not in an engine kept from an earlier call:
+    this process never opens the project, so nothing else would tell that engine about a table the
+    app made since. The engine made here is never opened (no database); it only reads the table's log."""
+    from ..localdata.engine import LocalEngine
+    return LocalEngine(_local_project(svc, project), svc.local_data.store).delta_history(table, limit)
 
 
 # ---- Fabric workspaces and items
@@ -209,7 +298,8 @@ def _metadata_only(record: dict[str, Any]) -> dict[str, Any]:
     from ..receipts import redact
     out = redact(record, ["values"])
     for side in ("pc", "local"):
-        cells = (out.get(side) or {}).get("cells")
+        part = out.get(side)
+        cells = part.get("cells") if isinstance(part, dict) else None
         if isinstance(cells, dict):
             for cell in cells.values():
                 if isinstance(cell, dict):
@@ -246,14 +336,16 @@ def list_semantic_models(svc: Any, ctx: CallContext, env: str = "test") -> dict[
 
 
 def export_semantic_model_ossie(svc: Any, ctx: CallContext, env: str, name: str, translate_dax: bool = True) -> dict[str, Any]:
-    """A semantic model as Apache Ossie YAML, with counts and what isn't portable. Writes no file."""
-    return svc.meta_model_ossie_export(env, name, translate_dax)
+    """A semantic model as Apache Ossie YAML, with counts and what isn't portable. Writes no file. Role filters and
+    members are withheld (model_ossie_redact): the app's Semantic model tab shows them, a tool doesn't get them."""
+    return svc.ossie_export_roles_withheld(env, name, translate_dax)
 
 
 def preview_ossie_import(svc: Any, ctx: CallContext, env: str, text: str, name: str = "", mode: str = "update",
                          remove: list[str] | None = None) -> dict[str, Any]:
-    """What importing an Ossie document would change in a semantic model. Writes nothing."""
-    return svc.meta_model_ossie_preview(env, text, name, mode, remove or [])
+    """What importing an Ossie document would change in a semantic model. Writes nothing. Role filters and members
+    are withheld, as in Export."""
+    return svc.ossie_preview_roles_withheld(env, text, name, mode, remove or [])
 
 
 def check_run_risk(svc: Any, ctx: CallContext, workload_id: str, action: str, env: str = "") -> dict[str, Any]:

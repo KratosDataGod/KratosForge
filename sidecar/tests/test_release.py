@@ -98,8 +98,8 @@ def test_uncommitted_files_are_a_note_unless_the_target_requires_a_commit(svc, p
     assert "1 uncommitted file" in status["message"]
     check = svc.meta_promote_check("dev", "test")
     assert check["errors"] == []
-    assert check["notes"] == ["The release record can't name a pushed commit that holds these files: "
-                              "1 file changed since the last commit; commit them"]
+    assert check["notes"] == [("The release record can't name a pushed commit that holds these files: "
+                              "1 file changed since the last commit; commit them")]
 
     envs = svc._project().environments
     svc._write_environments(svc._project(), envs | {"test": envs["test"] | {"require_commit": True}})
@@ -112,8 +112,8 @@ def test_uncommitted_files_are_a_note_unless_the_target_requires_a_commit(svc, p
     assert svc._store(svc._project(), "test").meta("deployments").height == 0  # nothing was promoted
 
     commit_all(pushed)
-    assert svc.meta_promote_check("dev", "test")["errors"] == ["Test only takes released files: "
-                                                               "1 commit not pushed; push them"]
+    assert svc.meta_promote_check("dev", "test")["errors"] == [("Test only takes released files: "
+                                                               "1 commit not pushed; push them")]
     git(pushed, "push", "-q")
     result = svc.meta_promote("dev", "test")
     assert result["release"]["pushed"] and "notes" not in result["release"]

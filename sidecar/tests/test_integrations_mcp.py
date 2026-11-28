@@ -5,15 +5,21 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 
 import anyio
 import pytest
 from mcp import Client, StdioServerParameters
 
+import fabric_desktop
 from fabric_desktop.integrations.capabilities import register_core
 from fabric_desktop.integrations.mcp_server import MAX_RESULT_BYTES, build_server
 from fabric_desktop.integrations.registry import Capability, Registry, schema
 from fabric_desktop.service import Service
+
+# The engine's own folder, for a child process. Not all of sys.path: other tests add project folders
+# to it, and on Windows a variable longer than 32,767 characters stops the child starting.
+ENGINE = str(Path(fabric_desktop.__file__).resolve().parent.parent)
 
 MODES = ["legacy", "auto"]  # handshake era (2025-11-25) and 2026-07-28
 
@@ -134,10 +140,15 @@ def test_a_failing_service_never_ends_the_connection(svc, monkeypatch):
 
 
 def test_cancelling_a_call_tells_the_handler_to_stop():
-    stopped = []
+    """The call is cancelled only once its handler is running: cancelled any sooner (a loaded runner can
+    take longer than a fixed wait to dispatch it), the handler never starts and there is nothing to stop."""
+    import threading
+
+    started, stopped = threading.Event(), []
     reg = Registry()
 
     def slow(svc, ctx):
+        started.set()
         while not ctx.cancelled:
             time.sleep(0.01)
         stopped.append(True)
@@ -147,14 +158,19 @@ def test_cancelling_a_call_tells_the_handler_to_stop():
 
     async def go():
         async with connect(build_server(reg), "legacy") as c:
-            with anyio.move_on_after(0.5):
-                await c.call_tool("ext_slow", {})
-            for _ in range(100):
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(c.call_tool, "ext_slow", {})
+                for _ in range(1000):  # up to 20 s for the handler to start
+                    if started.is_set():
+                        break
+                    await anyio.sleep(0.02)
+                tg.cancel_scope.cancel()
+            for _ in range(500):
                 if stopped:
                     break
                 await anyio.sleep(0.02)
     run(go)
-    assert stopped
+    assert started.is_set() and stopped
 
 
 def test_the_real_stdio_process_speaks_mcp(tmp_path):
@@ -163,7 +179,7 @@ def test_the_real_stdio_process_speaks_mcp(tmp_path):
     store.set_setting("enabled", True)
     client, _ = store.add_client("Test tool", grants=["READ_METADATA"])
     env = dict(os.environ, LOCALAPPDATA=str(tmp_path), HOME=str(tmp_path), ProgramData=str(tmp_path),
-               PYTHONPATH=os.pathsep.join(sys.path))
+               PYTHONPATH=ENGINE)
 
     def params(client_id):
         return StdioServerParameters(command=sys.executable, args=["-m", "fabric_desktop.cli", "mcp", "--client", client_id],

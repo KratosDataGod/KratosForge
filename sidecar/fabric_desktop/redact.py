@@ -23,6 +23,11 @@ from urllib.parse import quote, urlsplit
 REMOVED = "[removed]"
 
 _SECRETS: list[tuple[re.Pattern[str], str]] = [
+    # A PEM private key (a Snowflake key pair's .p8, an SSH or TLS key), whole or cut off before its end
+    # line. First, so no rule that runs to the end of a line (a Cookie header, a quoted value) takes its
+    # BEGIN line and leaves the key's body behind.
+    (re.compile(r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)"),
+     REMOVED),
     # A JSON Web Token: what Entra ID access, refresh-able id and Fabric tokens look like.
     (re.compile(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]*"), REMOVED),
     (re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=\-]{8,}"), r"\1" + REMOVED),
@@ -43,12 +48,14 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     # An OAuth authorization code in a redirect's query or fragment (?code=...): it can be traded for tokens.
     (re.compile(r"(?i)([?&#]code=)[^&\s\"'<>#]+"), r"\1" + REMOVED),
     # A password or token in a URL's user info: https://user:token@dev.azure.com/...
-    (re.compile(r"(?i)(\b[a-z][a-z0-9+.\-]*://)[^/\s:@\"'<>]+:[^@/\s\"'<>]+@"), r"\1" + REMOVED + "@"),
+    # The rule starts at "://", not at the scheme, so a long run of scheme-like text is read once.
+    (re.compile(r"(?i)(?<=[a-z0-9+.\-])(://)[^/\s:@\"'<>]+:[^@/\s\"'<>]+@"), r"\1" + REMOVED + "@"),
     # A user name alone, since Git remotes carry a token there too (https://<token>@github.com/...).
     # Not storage addresses on a storage host (abfss://workspace@onelake..., wasbs://container@acct.blob
     # .core.windows.net), where the part before @ names a container.
-    (re.compile(r"(?i)\b(?!(?:abfss?|wasbs?)://[^/\s:@\"'<>]+@(?:onelake\.(?:dfs|blob)\.fabric\.microsoft\.com(?=[/:?#\s\"'<>]|$)|[a-z0-9\-]+\.(?:dfs|blob)\.core\.windows\.net(?=[/:?#\s\"'<>]|$)))"
-                r"([a-z][a-z0-9+.\-]*://)[^/\s:@\"'<>]+@"), r"\1" + REMOVED + "@"),
+    (re.compile(r"(?i)(?<=[a-z0-9+.\-])(?!(?:" + "|".join(rf"(?<=(?<![a-z0-9+.\-]){s})" for s in ("abfs", "abfss", "wasb", "wasbs"))
+                + r")://[^/\s:@\"'<>]+@(?:onelake\.(?:dfs|blob)\.fabric\.microsoft\.com(?=[/:?#\s\"'<>]|$)|[a-z0-9\-]+\.(?:dfs|blob)\.core\.windows\.net(?=[/:?#\s\"'<>]|$)))"
+                r"(://)[^/\s:@\"'<>]+@"), r"\1" + REMOVED + "@"),
     # A Teams incoming webhook: anyone with the address can post to the channel. The legacy
     # Office 365 connector form lives under outlook.office.com/webhook/ (or office365.com).
     (re.compile(r"(?i)https://(?:[A-Za-z0-9.\-]+\.webhook\.office\.com/|outlook\.office(?:365)?\.com/webhook(?:b2)?/)"
@@ -73,10 +80,10 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bnpm_[A-Za-z0-9]{36}\b"), REMOVED),
     # A Slack incoming webhook or workflow trigger: anyone with the address can post to the channel.
     (re.compile(r"(?i)(?:https?://)?\bhooks\.slack\.com/(?:services|workflows|triggers)/[^\s\"'<>]+"), REMOVED),
-    # A PEM private key (a Snowflake key pair's .p8, an SSH or TLS key), whole or cut off before its end
-    # line. Before the quoted-value rules, so a key inside quotes is still found by its BEGIN line.
-    (re.compile(r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)"),
-     REMOVED),
+    # A Power BI embed token: gzip'd, base64 text (it starts H4sI), not a JWT, so nothing above finds it.
+    (re.compile(r"\bH4sI[A-Za-z0-9+/_\-]{40,}={0,2}"), REMOVED),
+    # An API Management subscription key (Ocp-Apim-Subscription-Key), as a header or name=value.
+    (re.compile(r"(?i)(\b(?:ocp-apim-)?subscription[_-]?key\"?\s*[=:]\s*\"?)[^\s\"'&;,]+"), r"\1" + REMOVED),
     # A quoted secret value runs to its closing quote, spaces and all: JSON ("name": "value") and a
     # Python dict's repr ('name': 'value'). The names are the generic rule's, at the end. With a
     # closing quote the value runs to it, across lines; without one it stops at the end of its line,
@@ -85,34 +92,48 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?i)('(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)"), r"\1" + REMOVED),
     # An unquoted name with a quoted value (password="two words", token='a b'): the value runs to its
     # closing quote too, so the generic rule below doesn't stop at the first space.
-    (re.compile(r"(?i)\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*\")(?:(?:[^\"\\]|\\.)*(?=\")|(?:[^\"\\\n]|\\.)*)"), r"\1" + REMOVED),
-    (re.compile(r"(?i)\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)"), r"\1" + REMOVED),
+    (re.compile(r"(?i)((?:\b|(?<=_)(?=passphrase|token))(?:client_secret|password|passwd|passphrase|pwd|accountkey|sharedaccesskey|token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*\")(?:(?:[^\"\\]|\\.)*(?=\")|(?:[^\"\\\n]|\\.)*)"), r"\1" + REMOVED),
+    (re.compile(r"(?i)((?:\b|(?<=_)(?=passphrase|token))(?:client_secret|password|passwd|passphrase|pwd|accountkey|sharedaccesskey|token|api[_-]?key|secret(?:[_-]?key)?)\s*[=:]\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)"), r"\1" + REMOVED),
     (re.compile(r"\bxox[abposr]-[A-Za-z0-9\-]{10,}\b"), REMOVED),
     # name=value or "name": "value" for names that hold secrets.
-    # Any *_token or *-token name, and a bare token= (access_token, sas_token, x-auth-token, token).
-    (re.compile(r"(?i)\b(client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token"
+    # Any *_token or *-token name, and a bare token= (access_token, sas_token, x-auth-token, token):
+    # these rules start at the keyword, not at the name's first word, so that a long run of
+    # word-dash-word text is read once, not once from every word in it.
+    (re.compile(r"(?i)(?:\b|(?<=_)(?=passphrase|token))(client_secret|password|passwd|passphrase|pwd|accountkey|sharedaccesskey|token"
                 r"|api[_-]?key|secret(?:[_-]?key)?)(\"?\s*[=:]\s*\"?)[^\s\"'&;,]+"), r"\1\2" + REMOVED),
 ]
 # Field names whose value is a secret, compared without case, "-" or "_" (Api-Key, client_secret).
 # "sas" only at either end (sas_url, blob_sas), so names that merely contain the letters stay.
-_SECRET_KEYS = ("password", "passwd", "passphrase", "secret", "token", "apikey", "connectionstring", "authorization")
+_SECRET_KEYS = ("password", "passwd", "passphrase", "secret", "token", "apikey", "subscriptionkey", "connectionstring",
+                "authorization")
 # A guest's sign-in name carries "#EXT#" before the "@" (name_home.com#EXT#@tenant.onmicrosoft.com).
-_EMAIL = re.compile(r"[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")
+# A run of name characters with no address after it is skipped whole (the second branch), so a
+# long run is read once, not again from every character in it. A name or domain may be in any script
+# (王@contoso.cn, josé@bücher.de), with its combining marks, so a character is anything but a
+# separator; an apostrophe counts between letters (o'brien@x.ie) but not as a quote around the address.
+_EMAIL_CHAR = r"(?:[^\s@\"'<>()\[\]{},;:\\/|=&?!*`^$~\x00-\x1f]|(?<=[^\W_])'(?=[^\W_]))"
+_DOMAIN_LABEL = r"[^\s@\"'<>()\[\]{},;:\\/|=&?!*`^$~\x00-\x1f._%+#]+"
+_EMAIL = re.compile(rf"({_EMAIL_CHAR}+@{_DOMAIN_LABEL}(?:\.{_DOMAIN_LABEL})+)|{_EMAIL_CHAR}+")
 # The tenant's own domain, and the organization's name on a OneDrive for Business folder, name the company.
-_TENANT_DOMAIN = re.compile(r"(?i)\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b")
+# Tried only where a suffix lies within a host name's length (253, as DNS allows), so long
+# dotted or dashed text without one is not read again from every word in it.
+_TENANT_DOMAIN = re.compile(r"(?i)\b(?=[a-z0-9.\-]{0,253}\.onmicrosoft\.(?:com|us|de|cn)\b)[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b")
 # contoso.sharepoint.com, contoso-my.sharepoint.com (OneDrive) and contoso-admin.sharepoint.com
-_SHAREPOINT_HOST = re.compile(r"(?i)\b[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b")
+_SHAREPOINT_HOST = re.compile(r"(?i)\b(?=[a-z0-9\-]{0,253}\.sharepoint\.(?:com|us|de|cn)\b)[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b")
 # a site or team name often carries the organization's: /sites/ContosoFinance. One with spaces
 # (/sites/Contoso Finance/...) is hidden whole when its words run to a "/", a quote or the line's end.
 _SHAREPOINT_SITE = re.compile(r"(?im)(\.sharepoint\.(?:com|us|de|cn)/(?:sites|teams)/)"
                               r"[^/\s\"'<>?#]+(?:(?: [^/\s\"'<>?#]+)+(?=[/\"'<>?#\r]|$))?")
 # a OneDrive web address names its owner: /personal/ann_contoso_com/
-_ONEDRIVE_PERSONAL = re.compile(r"(?i)(/personal/)[a-z0-9][a-z0-9_.\-]*")
-_ONEDRIVE_ORG = re.compile(r"(OneDrive - )([^\\/\"'<>:\r\n]+)")
+_ONEDRIVE_PERSONAL = re.compile(r"(?i)(/personal/)[^/\\\s\"'<>?#&]+")  # the owner's name in any script
+# A name runs to the next separator or quote, but an apostrophe followed by a letter or a digit is part
+# of it (O'Brien, ann'2, and o''brien as SQL text quotes it), where one before a space, a comma or the end closes a quoted path.
+_NAME_RUN = r"(?:[^\\/\"'<>\r\n]|'{1,2}(?=[^\W_]))+"
+_ONEDRIVE_ORG = re.compile(r"(OneDrive - )((?:[^\\/\"'<>:\r\n]|'{1,2}(?=[^\W_]))+)")
 _SLASH = r"(?:\\\\|\\|/)+"
 # Windows user names can hold spaces ("Ann Lee"), so a drive path's name runs to the next separator.
-_WIN_USER_PATH = re.compile(rf"(?i)([a-z]:{_SLASH}(?:users|documents and settings){_SLASH})([^\\/\"'<>\r\n]+)")
-_UNIX_USER_PATH = re.compile(r"(/home/|/Users/)([^\\/\s\"'<>]+)")
+_WIN_USER_PATH = re.compile(rf"(?i)([a-z]:{_SLASH}(?:users|documents and settings){_SLASH})({_NAME_RUN})")
+_UNIX_USER_PATH = re.compile(r"(/home/|/Users/)((?:[^\\/\s\"'<>]|'{1,2}(?=[^\W_]))+)")
 _GUID = re.compile(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
 
 
@@ -167,15 +188,19 @@ def for_support(text: str) -> str:
     """``text`` safe to paste into a public issue: no secrets, emails (a guest's too), the tenant's
     onmicrosoft.com and SharePoint names, the organization on OneDrive folders, user names in paths or ids."""
     text = secrets(text)
-    text = _EMAIL.sub("[email]", text)
+    text = _EMAIL.sub(lambda m: "[email]" if m.group(1) else m.group(0), text)
     text = _TENANT_DOMAIN.sub(r"[tenant]\1", text)
     text = _SHAREPOINT_HOST.sub(r"[tenant]\1\2", text)
     text = _SHAREPOINT_SITE.sub(r"\1[site]", text)
     text = _ONEDRIVE_PERSONAL.sub(r"\1[user]", text)
     text = _ONEDRIVE_ORG.sub(r"\1[organization]", text)
-    text = _WIN_USER_PATH.sub(r"\1[user]", text)
-    text = _UNIX_USER_PATH.sub(r"\1[user]", text)
+    text = user_paths(text)
     return _GUID.sub("[id]", text)
+
+
+def user_paths(text: str) -> str:
+    """``text`` with the user name in home folder paths replaced (C:\\Users\\[user]\\..., /home/[user]/...)."""
+    return _UNIX_USER_PATH.sub(r"\1[user]", _WIN_USER_PATH.sub(r"\1[user]", text))
 
 
 DESCRIBE_MAX = 1000  # characters of an exception's message that describe keeps

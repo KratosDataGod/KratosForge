@@ -49,6 +49,25 @@ def test_in_engine_notebooks_share_one_kernel_one_cell_at_a_time(svc):
     assert rows["process"] is False and len(rows["sessions"]) == 1 and rows["sessions"][0]["notebook"] is None
 
 
+def test_own_process_variable_detail_and_hover_read_the_notebook_asked_for(svc):
+    """The Variables pane and hover docs name their notebook: another notebook may be the open one."""
+    call(svc, "save_app_settings", changes={"kernel_process": True})
+    call(svc, "start_cell", code="import polars as pl\ndf = pl.DataFrame({'a': [1], 'b': ['x']})", notebook="B")
+    call(svc, "start_cell", code="df = 1", notebook="A")
+    finish(svc, "A"), finish(svc, "B")
+    svc.sessions.active = "A"
+    detail = call(svc, "kernel_variable_detail", name="df", notebook="B")
+    assert [c["name"] for c in detail["columns"]] == ["a", "b"]
+    assert call(svc, "kernel_variable_detail", name="df", notebook="C") == {"name": "df", "missing": True}
+    hover = call(svc, "kernel_inspect", code="df", cursor=2, notebook="B")
+    assert "DataFrame" in str(hover)
+    # A cell's table output pages from the kernel that ran it.
+    call(svc, "start_cell", code="df", notebook="B")
+    frame = next(o["frame"] for o in finish(svc, "B")["outputs"] if o.get("frame"))
+    assert call(svc, "notebook_frame_page", frame=frame, notebook="B")["total"] == 1
+    assert call(svc, "notebook_frame_page", frame=frame, notebook="C")["gone"]
+
+
 def test_own_process_gives_each_notebook_its_variables_and_runs_them_together(svc):
     call(svc, "save_app_settings", changes={"kernel_process": True})
     call(svc, "start_cell", code="x = 'from A'", notebook="A")

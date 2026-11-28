@@ -111,8 +111,8 @@ def test_transform_keys_refuses_a_null_key(dialect):
 @pytest.mark.parametrize("query, want", [
     # Databricks docs examples
     ("SELECT aggregate(array(1, 2, 3), 0, (acc, x) -> acc + x, acc -> acc * 10)", 60),
-    ("SELECT aggregate(array(1, 2, 3, 4), named_struct('sum', 0, 'cnt', 0), "
-     "(acc, x) -> named_struct('sum', acc.sum + x, 'cnt', acc.cnt + 1), acc -> acc.sum / acc.cnt)", 2.5),
+    (("SELECT aggregate(array(1, 2, 3, 4), named_struct('sum', 0, 'cnt', 0), "
+     "(acc, x) -> named_struct('sum', acc.sum + x, 'cnt', acc.cnt + 1), acc -> acc.sum / acc.cnt)"), 2.5),
     ("SELECT reduce(array(1, 2, 3), 0, (acc, x) -> acc + x, acc -> acc * 10)", 60),
     # without finish, unchanged
     ("SELECT aggregate(array(1, 2, 3), 0, (acc, x) -> acc + x)", 6),
@@ -138,7 +138,9 @@ def test_columns_keep_spark_names(dialect):
     statements = (_databricks if dialect == "databricks" else lambda q: sql.parse(q, dialect))(
         "SELECT map_filter(map(1, 0), (k, v) -> k > v)")
     cursor = duckdb.connect().execute(sql.duckdb_sql(statements[-1]))
-    assert cursor.description[0][0] == "map_filter(map(1, 0), (k, v) -> k > v)"
+    assert cursor.description[0][0] == (  # Spark 3.5.3's name
+        "map_filter(map(1, 0), lambdafunction((namedlambdavariable() > namedlambdavariable()), "
+        "namedlambdavariable(), namedlambdavariable()))")
 
 
 @pytest.mark.parametrize("query", [
@@ -190,16 +192,16 @@ def test_a_kf_name_in_aggregate_without_finish_is_left_alone():
 
 @pytest.mark.parametrize("dialect", ["databricks", "spark"])
 @pytest.mark.parametrize("query, want", [
-    ("SELECT array_sort(array(5, 6, 1), (left, right) -> CASE WHEN left < right THEN -1 "
-     "WHEN left > right THEN 1 ELSE 0 END)", [1, 5, 6]),
-    ("SELECT array_sort(array('bc', 'ab', 'dc'), (left, right) -> CASE WHEN left IS NULL AND right IS NULL THEN 0 "
-     "WHEN left IS NULL THEN -1 WHEN right IS NULL THEN 1 WHEN left < right THEN 1 WHEN left > right THEN -1 ELSE 0 END)",
+    (("SELECT array_sort(array(5, 6, 1), (left, right) -> CASE WHEN left < right THEN -1 "
+     "WHEN left > right THEN 1 ELSE 0 END)"), [1, 5, 6]),
+    (("SELECT array_sort(array('bc', 'ab', 'dc'), (left, right) -> CASE WHEN left IS NULL AND right IS NULL THEN 0 "
+     "WHEN left IS NULL THEN -1 WHEN right IS NULL THEN 1 WHEN left < right THEN 1 WHEN left > right THEN -1 ELSE 0 END)"),
      ["dc", "bc", "ab"]),
     # ties keep their order, as Spark's stable sort keeps them
-    ("SELECT array_sort(array('b1', 'a2', 'b3', 'a4'), (l, r) -> CASE WHEN substr(l, 1, 1) < substr(r, 1, 1) THEN -1 "
-     "WHEN substr(l, 1, 1) > substr(r, 1, 1) THEN 1 ELSE 0 END)", ["a2", "a4", "b1", "b3"]),
-    ("SELECT array_sort(array(3, NULL, 1), (l, r) -> CASE WHEN l IS NULL AND r IS NULL THEN 0 WHEN l IS NULL THEN 1 "
-     "WHEN r IS NULL THEN -1 WHEN l < r THEN -1 WHEN l > r THEN 1 ELSE 0 END)", [1, 3, None]),
+    (("SELECT array_sort(array('b1', 'a2', 'b3', 'a4'), (l, r) -> CASE WHEN substr(l, 1, 1) < substr(r, 1, 1) THEN -1 "
+     "WHEN substr(l, 1, 1) > substr(r, 1, 1) THEN 1 ELSE 0 END)"), ["a2", "a4", "b1", "b3"]),
+    (("SELECT array_sort(array(3, NULL, 1), (l, r) -> CASE WHEN l IS NULL AND r IS NULL THEN 0 WHEN l IS NULL THEN 1 "
+     "WHEN r IS NULL THEN -1 WHEN l < r THEN -1 WHEN l > r THEN 1 ELSE 0 END)"), [1, 3, None]),
     ("SELECT array_sort(array(3, 1, 2), (l, r) -> r - l)", [3, 2, 1]),
     ("SELECT array_sort(CAST(array() AS ARRAY<INT>), (l, r) -> l - r)", []),
     ("SELECT array_sort(CAST(NULL AS ARRAY<INT>), (l, r) -> l - r)", None),

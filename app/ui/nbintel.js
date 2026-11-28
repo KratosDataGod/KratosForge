@@ -6,6 +6,7 @@
 
 let intelTip = null;
 let intelHoverTimer = 0;
+let intelLeaveTimer = 0;
 let intelSigTimer = 0;
 let intelSigSeq = 0;
 
@@ -15,11 +16,29 @@ function intelLive() {
 
 function intelFloat(cls) {
   if (!intelTip) {
-    intelTip = h("div", { class: "nb-intel", role: "tooltip", hidden: true });
+    // WCAG 1.4.13: the pointer can move onto a hover card (to read or scroll it), and it goes when the pointer leaves.
+    intelTip = h("div", { class: "nb-intel", role: "tooltip", hidden: true,
+      onmouseenter: () => clearTimeout(intelLeaveTimer),
+      onmouseleave: () => intelHide("hover") });
     document.body.append(intelTip);
+    // Esc closes a hover card wherever focus is, and only the card: it doesn't also leave the cell.
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || !intelTip || intelTip.hidden || !intelTip.classList.contains("hover")) return;
+      clearTimeout(intelHoverTimer);
+      intelHide("hover");
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
   }
   intelTip.className = `nb-intel ${cls}`;
   return intelTip;
+}
+
+// The pointer left the editor: the hover card goes, unless the pointer is on its way onto it.
+function intelLeave() {
+  clearTimeout(intelHoverTimer);
+  clearTimeout(intelLeaveTimer);
+  intelLeaveTimer = setTimeout(() => { if (!intelTip?.matches(":hover")) intelHide("hover"); }, 300);
 }
 
 function intelHide(kind = null) {
@@ -64,10 +83,7 @@ function intelHover() {
         const { clientX: x, clientY: y } = e;
         intelHoverTimer = setTimeout(() => intelShowHover(view, x, y), 450);
       },
-      mouseleave() {
-        clearTimeout(intelHoverTimer);
-        intelHide("hover");
-      },
+      mouseleave() { intelLeave(); },
       keydown() { intelHide("hover"); },
     },
   });
@@ -82,7 +98,7 @@ async function intelShowHover(view, x, y) {
   const line = view.state.doc.lineAt(pos);
   let info = null;
   try {
-    info = await rpc("kernel_inspect", { code: line.text, cursor: pos - line.from });
+    info = await rpc("kernel_inspect", { code: line.text, cursor: pos - line.from, notebook: state.notebook?.name });
   } catch {
     return;  // the engine is busy or stopped: no card
   }
@@ -115,7 +131,7 @@ async function intelShowSignature(view) {
   const seq = ++intelSigSeq;
   let help = null;
   try {
-    help = await rpc("kernel_inspect", { code, call: true });
+    help = await rpc("kernel_inspect", { code, call: true, notebook: state.notebook?.name });
   } catch {
     help = null;
   }
@@ -138,7 +154,7 @@ function intelCompletionInfo(base, label) {
     const code = `${base}${label}`;
     let info = null;
     try {
-      info = await rpc("kernel_inspect", { code, cursor: code.length });
+      info = await rpc("kernel_inspect", { code, cursor: code.length, notebook: state.notebook?.name });
     } catch {
       return null;
     }
@@ -176,7 +192,8 @@ function intelLinter() {
 
 // What languageFor (notebook.js) adds to a Python cell's editor.
 function intelExtensions() {
-  return [intelHover(), intelSignature(), intelLinter()];
+  return [intelHover(), intelSignature(), intelLinter(), symKeys()];  // symKeys: nbsymbols.js
 }
 
-document.addEventListener("scroll", () => { intelHide(); }, true);
+// A scrolled page moves the text the card points at, so the card goes; scrolling the card's own doc keeps it.
+document.addEventListener("scroll", (e) => { if (!intelTip?.contains(e.target)) intelHide(); }, true);

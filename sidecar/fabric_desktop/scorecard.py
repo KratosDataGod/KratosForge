@@ -22,7 +22,7 @@ Shape::
 
 Each cost side also carries ``measurement``, a FinOps measurement of the Fabric *job* CU it used
 (measurement.make), with its own ``classification`` (measured, estimated, scenario or unknown, as
-in Monitor > Cost). Fabric's side repeats it as ``classification``; this PC's side doesn't, so it
+in Optimize > Cost and savings). Fabric's side repeats it as ``classification``; this PC's side doesn't, so it
 can't be read as its total. A side whose job CU isn't known is ``unknown`` with value None,
 never 0. Neither side counts OneLake reads and writes, which use capacity wherever the notebook
 runs, so this PC's total capacity use is ``not available``: only its job CU (0, no job started)
@@ -62,14 +62,14 @@ def fabric_cost(job_seconds: float | None, engine: str, cfg: dict[str, Any], *, 
     cu_seconds = round(job_seconds * cu, 1)
     amount = round(cu_seconds / 3600 * float(cfg["price_per_cu_hour"]), 4)
     what = "Python" if engine == "python" else "Spark"
-    timing = f"Job time {job_seconds:,.1f} s (from Fabric's job API) x {cu:g} CU for a {what} notebook (Monitor > Cost settings)."
+    timing = f"Job time {job_seconds:,.1f} s (from Fabric's job API) x {cu:g} CU for a {what} notebook (Optimize > Cost and savings > Prices)."
     billed = "Billed numbers are in Fabric's Capacity Metrics app."
     return {"cu_seconds": cu_seconds, "amount": amount, "currency": cfg["currency"], "kind": "estimated",
             "classification": ms.ESTIMATED,
             "assumptions": [
                 timing,
-                f"Priced at {cfg['price_per_cu_hour']} {cfg['currency']} per CU hour (pay-as-you-go). On a reserved "
-                "or already-running capacity this is a share of capacity you pay for anyway, not an added charge.",
+                (f"Priced at {cfg['price_per_cu_hour']} {cfg['currency']} per CU hour (pay-as-you-go). On a reserved "
+                "or already-running capacity this is a share of capacity you pay for anyway, not an added charge."),
                 billed],
             "measurement": ms.make(ms.ESTIMATED, "fabric_job_cu", ms.CU_SECONDS, job_seconds * cu,
                                    source="Fabric job API", method="run time x configured CUs", period_start=at,

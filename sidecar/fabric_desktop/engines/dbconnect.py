@@ -119,8 +119,8 @@ def check(spark_version: str, client: str | None, python: str = "%d.%d" % sys.ve
                         "cluster on Databricks Runtime 16 or later.")
     elif line not in supported_lines():
         # No pinned lock file, so nothing to install: saying "install it" would be a dead end.
-        return [f"Databricks Connect for Databricks Runtime {line} isn't supported in this version of "
-                f"KratosForge. Supported: {', '.join(supported_lines())}."]
+        return [(f"Databricks Connect for Databricks Runtime {line} isn't supported in this version of "
+                f"KratosForge. Supported: {', '.join(supported_lines())}.")]
     if not client:
         problems.append(f"databricks-connect {line} isn't installed yet. Install it for this runtime first.")
     elif ".".join(client.split(".")[:2]) != line:

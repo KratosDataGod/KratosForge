@@ -334,7 +334,7 @@ def test_a_dict_or_list_left_out_is_sent_empty(fabric, client, tmp_path, who, wa
     empty one for a parameter it leaves out, or passes as None; the function takes it as not given."""
     client.call("policy_snapshot")
     client.call("resolve_policies", project="p", context=None)
-    assert [b for _, b in fabric.sent] == [{"policies": []}, {"project": "p", "context": {}, "local": []}]
+    assert [b for _, b in fabric.sent] == [{"policies": []}, {"project": "p", "callContext": {}, "local": []}]
     older = Fabric(tmp_path / "older.sqlite", who, once=False)
     FabricPlatform(lambda: "tok", "ws", "fn", session=older, sleep=waits.append).call(
         "save_change_window", window=None)

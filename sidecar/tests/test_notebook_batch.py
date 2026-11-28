@@ -1,7 +1,6 @@
 """Home: each recent notebook's details, running several notebooks at once, and items pinned to Home."""
 
 import json
-import subprocess
 import threading
 import time
 
@@ -29,11 +28,11 @@ def in_process(svc, monkeypatch):
 
     one_at_a_time = threading.Lock()  # each would be a process of its own; here they share one kernel
 
-    def run(args, **kw):
+    def run(args, root, stop):
         with one_at_a_time:
             row = svc.run_batch_notebook(args[-2], int(args[-1]))
-        return subprocess.CompletedProcess(args, 0, stdout="cell output\n" + json.dumps(row) + "\n", stderr="")
-    monkeypatch.setattr(nbs.subprocess, "run", run)
+        return "cell output\n" + json.dumps(row) + "\n", 0, False
+    monkeypatch.setattr(nbs, "_run_notebook_process", run)
     return started
 
 

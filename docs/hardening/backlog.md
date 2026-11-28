@@ -118,7 +118,7 @@ Complexity is S (under a day, one module), M (a few modules, new tests), L (cros
 | HD-031 | Fixed (#147) | EP-6: label "Block" as not enforced until GOV-002 | Governance | none | S |
 | HD-032 | Fixed (#141) | EP-7: T-SQL key import chunking; T-SQL contract test | Data mesh | none | S |
 | HD-033 | Fixed (#245) | DI-5: bounded previews | Staged roadmap (FD-114) | SQL-003 #134 covers desktop SQL | S |
-| HD-034 | Fixed (#243) | DI-6: fresh token before long writes (done: storage tokens have at least 30 minutes left) | Local data engine | none | S |
+| HD-034 | Fixed (#243, write-outlasts-token follow-up) | DI-6: fresh token before long writes (done: storage tokens have at least 30 minutes left; the lease renews with a current token and a refused write with nothing committed is sent again) | Local data engine | none | S |
 | HD-035 | Fixed (#306) | UI-2: bounded status polling | Prove | none | S |
 | HD-058 | Fixed (#272) | EN-12: followed URLs keep the token on Fabric, OneLake and Power BI hosts (done) | Hardening | none | S |
 
@@ -157,7 +157,7 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 | HD-050 | Partly fixed (#305, #927, #965, #1049, #1087, #1153, #1156) | AR-2: replace the 18-mixin `Service` with small injected services; narrow `server.METHODS` to what the UI calls. First slice: METHODS guard test with listed exceptions (no behaviour change; `sidecar/tests/test_rpc_surface.py`). Second slice: the RPC no longer accepts `export_sql_csv`, `integrations_approvals`, `all_shortcuts`, `list_shortcuts`, `git_path_info` and `git_repos`, which no screen called (the `Service` methods stay for in-process callers). Third slice: the RPC no longer accepts `run_cell`; the app and the engine tests run cells with `start_cell` / `poll_cell` (`Service.run_cell` stays for in-process tests). Fourth slice: the RPC no longer accepts `placement_advice`, `notebook_environment`, `pipeline_activity_registry`, `pipeline_inspect`, `pipeline_validate`, `receipt_export`, `receipts_list`, `run_sql`, `preview_job`, `run_job` and `environment_fabric_drift`, whose only callers (the MCP tools, the local HTTP API, the CLI and the headless agent) call the `Service` methods in-process. Fifth slice (QA-017): the RPC no longer accepts `audit_log`, `delete_notebook`, `git_ops`, `git_scan`, `meta_diff`, `meta_preview`, `notebook_diff`, `workload_actions`, `governance_version`, `meta_git_status` and `usage_reconciliation`, which nothing called; the app deletes notebooks with `notebook_delete`. `meta_preflight` stays for the PB-067 run dialog. Sixth slice: the RPC no longer accepts `optimize_inspect`, `risk_acknowledgements` and `usage_imports`, which only tests called (in-process). Seventh slice: the RPC no longer accepts `kernel_info`, `sql_compat_profiles`, `sql_dialects` and `sql_executions`, which no screen called; they also leave `QUICK` and watchdog.rs. | L |
 | HD-055 | Fixed (#263) | AR-4: lint rule against new silent `except Exception`; clear the 53 existing ones | M |
 | HD-056 | Partly fixed (#274) | Split `app.js` along `registerFeature` boundaries | L |
-| HD-057 | Open | Registry (ADMX) policy alongside `policy.json` | M |
+| HD-057 | Fixed (#2258) | Registry (ADMX) policy alongside `policy.json` | M |
 
 ## Not duplicated
 

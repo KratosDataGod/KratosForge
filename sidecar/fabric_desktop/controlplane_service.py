@@ -14,6 +14,8 @@
     cp_inventory      the service registry and the active environment's tables, family by family (CP-015; reads only)
     cp_upgrade_plan   what upgrading the active environment's shared tables would do (reads only), with a token
     cp_upgrade        run that plan, by its token, after the person confirms (CP-010)
+    cp_export         a connection file for an environment this PC knows, for another PC (CP-010; reads only)
+    cp_connect_file   connect this PC with a connection file; the manifest it points to must name its environment
 
 Approval path (Security QC on #3121): the engine never runs a plan or manifest the caller sends. A
 preview keeps the request and what was shown on the engine, under a single-use token that binds the
@@ -50,7 +52,7 @@ from .redact import describe
 
 METHODS = {"cp_status", "cp_discover", "cp_plan", "cp_create", "cp_adopt_preview", "cp_adopt",
            "cp_connect", "cp_switch", "cp_disconnect", "cp_check", "cp_cost", "cp_inventory",
-           "cp_upgrade_plan", "cp_upgrade"}
+           "cp_upgrade_plan", "cp_upgrade", "cp_export", "cp_connect_file"}
 PREVIEW_SECONDS = 15 * 60
 MAX_PREVIEWS = 20
 OFF = "Your organization has turned off KratosForge Environments."  # then app_settings.ask_it("allow_central_environment")
@@ -399,10 +401,8 @@ class ControlPlaneMixin:
             out["environment"] = self.cp_cache.remember(out["manifest"])
         return out
 
-    def cp_connect(self, workspace_id: str, lakehouse_id: str) -> dict[str, Any]:
-        """Connect this PC to the environment in this lakehouse and make it the active one. Reads the
-        manifest; changes nothing in Fabric."""
-        self._cp_allowed()
+    def _cp_read_to_connect(self, workspace_id: str, lakehouse_id: str) -> dict[str, Any]:
+        """The manifest in this lakehouse, when it may be trusted: it must say it lives there."""
         got = self._cp_store(workspace_id, lakehouse_id).read()
         if got is None:
             raise ValueError("This lakehouse doesn't hold a KratosForge Environment. Create one, or adopt it.")
@@ -411,7 +411,44 @@ class ControlPlaneMixin:
         if (store.get("workspace_id"), store.get("lakehouse_id")) != (workspace_id, lakehouse_id):
             raise ValueError("This manifest names another lakehouse, so it wasn't trusted. Connect to the "
                              "environment where its manifest says it is.")
-        return {"environment": self.cp_cache.remember(got.manifest), "writable": mf.writable(got.manifest)}
+        return got.manifest
+
+    def cp_connect(self, workspace_id: str, lakehouse_id: str) -> dict[str, Any]:
+        """Connect this PC to the environment in this lakehouse and make it the active one. Reads the
+        manifest; changes nothing in Fabric."""
+        self._cp_allowed()
+        manifest = self._cp_read_to_connect(workspace_id, lakehouse_id)
+        return {"environment": self.cp_cache.remember(manifest), "writable": mf.writable(manifest)}
+
+    def cp_export(self, environment_id: str = "") -> dict[str, Any]:
+        """A connection file for an environment this PC is connected to (the active one by default), so
+        another PC can connect without browsing for it. Ids and labels only. Reads this PC's cache only."""
+        self._cp_allowed()
+        cache = self.cp_cache
+        entry = next((e for e in cache.all() if e.get("environment_id") == environment_id), None) \
+            if environment_id else cache.active()
+        if not entry:
+            raise ValueError("This PC isn't connected to that environment." if environment_id else
+                             "Connect this PC to a KratosForge Environment first.")
+        file = mf.connection(entry)
+        safe = "".join(c if c.isalnum() or c in "-_ " else "_" for c in (entry.get("name") or "environment"))[:60].strip()
+        return {"connection": file, "file_name": f"{safe or 'environment'}.kfenv.json"}
+
+    def cp_connect_file(self, connection: dict[str, Any]) -> dict[str, Any]:
+        """Connect this PC with a connection file from cp_export. The file only says where to look: the
+        manifest found there must be the environment the file names, or nothing changes on this PC."""
+        self._cp_allowed()
+        try:
+            file = mf.check_connection(connection)
+        except mf.ManifestError as exc:
+            raise ValueError(str(exc)) from None
+        if file["provider"] != "fabric":
+            raise ValueError("This PC can connect to Fabric environments only.")
+        manifest = self._cp_read_to_connect(file["workspace_id"], file["lakehouse_id"])
+        if manifest.get("environment_id") != file["environment_id"]:
+            raise ValueError("That lakehouse holds another environment than the one this file names, so this "
+                             "PC wasn't connected. Ask for a new connection file.")
+        return {"environment": self.cp_cache.remember(manifest), "writable": mf.writable(manifest)}
 
     def cp_switch(self, environment_id: str) -> dict[str, Any]:
         self._cp_allowed()

@@ -39,6 +39,9 @@ NO_UI_CALLER: dict[str, str] = {
     "cp_cost": "CP-011 engine call; its panel waits on a mockup (the CP-010 screen shows no cost)",
     # CP-015: the service registry and inventory. Its panel isn't in an approved mockup yet.
     "cp_inventory": "CP-015 engine call; its panel waits on a mockup",
+    # CP-010: export configuration. Its buttons aren't in the approved Environment mockup yet.
+    "cp_export": "CP-010 export configuration engine call; its button waits on a mockup",
+    "cp_connect_file": "CP-010 export configuration engine call; its button waits on a mockup",
     # SF-002: the Check button in Settings > Connections waits on its mockup.
     "snowflake_check": "SF-002 engine call; the Snowflake connection's Check button waits on its mockup",
     # SF-007: the Snowpark API compatibility check of a cell (Preview); no screen is part of SF-007.
@@ -151,6 +154,7 @@ NO_SCREEN_GATE: dict[str, str] = {
     "optimize_share_local_runs": "confirm",
 }
 NOT_DESTRUCTIVE: dict[str, str] = {
+    "cp_connect_file": "connects this PC like cp_connect after checking the manifest names the file's environment; nothing in Fabric changes",
     "local_add_source": "adds views over a folder; the files are only read",
     "local_close_project": "closes the database file; nothing is deleted",
     "local_create_project": "makes a new project",

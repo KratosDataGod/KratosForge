@@ -33,7 +33,7 @@ def _state(ctx: ct.Context) -> dict:
     return ct.passed([r["id"]], "Active.") if r["payload"]["state"] == "Active" else ct.failed([r["id"]], "Paused.")
 
 
-def registry(cap_version: str = "1.0.0") -> ct.Registry:
+def registry(cap_version: str = "1.0.0", cap_severity: str = "medium") -> ct.Registry:
     r = ct.Registry()
     common = {"requirement": "kratosforge_recommendation", "remediation": TEMPLATE, "references": REF}
     r.register(ct.Control(id="FEA-SEC-001", version="1.0.0", dimension="security", title="Too many admins",
@@ -43,7 +43,7 @@ def registry(cap_version: str = "1.0.0") -> ct.Registry:
                           severity="medium", scope="item", item_types=("Notebook",), evidence_kinds=("notebook.code",),
                           evaluate=_code, **common))
     r.register(ct.Control(id="FEA-CAP-001", version=cap_version, dimension="capacity_finops", title="Capacity paused",
-                          severity="medium", scope="capacity", evidence_kinds=("capacity.state",), evaluate=_state,
+                          severity=cap_severity, scope="capacity", evidence_kinds=("capacity.state",), evaluate=_state,
                           **common))
     return r
 
@@ -240,3 +240,14 @@ def test_against_the_real_catalog_capacity_controls_are_counted():
     cap_controls = {c.id for c in reg.controls() if c.scope == "capacity"}
     assert cap_controls <= {o["control_id"] for o in got["outcomes"]}
     assert {o["dimension"] for o in got["outcomes"] if o["subject"]["type"] == "workspace"} <= set(portfolio.DIMENSIONS)
+
+
+def test_a_critical_capacity_failure_flags_critical_risk_on_the_capacity_score():
+    reg = registry(cap_severity="critical")
+    a = ws_snap("ws-a", {"a1": "merge"}, cap_state="Paused", reg=reg)
+    got = score([a], ["ws-a"], reg=reg)
+    assert got["scores"]["critical_risk"] is True and got["scores"]["critical_controls"] == ["FEA-CAP-001"]
+    assert got["scores"]["overall"]["rating"]["id"] not in ("exemplary", "well_architected")
+    assert got["scores"] == scoring.score(got["outcomes"], pf.get())
+    calm = score([ws_snap("ws-a", {"a1": "merge"}, reg=reg)], ["ws-a"], reg=reg)
+    assert calm["scores"]["critical_risk"] is False and calm["scores"]["critical_controls"] == []

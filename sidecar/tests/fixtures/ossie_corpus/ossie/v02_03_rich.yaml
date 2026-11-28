@@ -1,0 +1,66 @@
+version: 0.2.0.dev0
+name: corpus_rich
+description: Every part another tool may write, with dataset metrics, AI context and several dialects.
+ai_context:
+  instructions: Use for order questions only.
+  synonyms: [sales, revenue]
+datasets:
+- name: orders
+  source: dbo.orders
+  description: One row per order.
+  primary_key: [order_id]
+  unique_keys: [[order_number]]
+  ai_context: {synonyms: [purchases]}
+  fields:
+  - name: order_id
+    expression: {dialects: [{dialect: ANSI_SQL, expression: order_id}]}
+    datatype: Integer
+  - name: order_number
+    expression: {dialects: [{dialect: ANSI_SQL, expression: order_number}]}
+    datatype: String
+  - name: customer_id
+    expression: {dialects: [{dialect: ANSI_SQL, expression: customer_id}]}
+    datatype: Integer
+  - name: order_date
+    expression: {dialects: [{dialect: ANSI_SQL, expression: order_date}]}
+    datatype: Date
+    dimension: {is_time: true}
+  - name: amount
+    expression:
+      dialects:
+      - {dialect: ANSI_SQL, expression: amount}
+      - {dialect: SNOWFLAKE, expression: amount}
+    datatype: Decimal
+    ai_context: {synonyms: [value]}
+  metrics:
+  - name: order count
+    expression: {dialects: [{dialect: ANSI_SQL, expression: COUNT(order_id)}]}
+  - name: average amount
+    expression: {dialects: [{dialect: ANSI_SQL, expression: AVG(amount)}]}
+- name: customers
+  source: dbo.customers
+  primary_key: [customer_id]
+  fields:
+  - name: customer_id
+    expression: {dialects: [{dialect: ANSI_SQL, expression: customer_id}]}
+    datatype: Integer
+  - name: segment
+    expression: {dialects: [{dialect: ANSI_SQL, expression: segment}]}
+    datatype: String
+relationships:
+- name: orders_customers
+  from: orders
+  to: customers
+  from_columns: [customer_id]
+  to_columns: [customer_id]
+metrics:
+- name: total amount
+  description: Sum of order amounts.
+  expression:
+    dialects:
+    - {dialect: ANSI_SQL, expression: SUM(orders.amount)}
+    - {dialect: DAX, expression: "SUM('orders'[amount])"}
+- name: big orders
+  expression:
+    dialects:
+    - {dialect: ANSI_SQL, expression: "SUM(CASE WHEN orders.amount > 100 THEN 1 ELSE 0 END)"}

@@ -13,8 +13,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import catalog_architecture, catalog_artifacts, catalog_devops, catalog_models, catalog_performance
+from . import (catalog_architecture, catalog_artifacts, catalog_devops, catalog_models, catalog_performance,
+               catalog_warehouse)
 from . import controls as ct
+from .evidence import Map, fits
 
 WRITE_ROLES = ("Admin", "Member", "Contributor")
 MAX_ADMINS = 4
@@ -311,12 +313,107 @@ CONTROLS = (
 )
 
 
+# ---- the shape of each kind's payload, as its adapter writes it
+#
+# A record of one of these kinds whose payload doesn't fit is set aside (evidence.Bundle), so its
+# controls are not evaluated rather than reading a missing list as an empty one. A key the controls read
+# is required; one that's only shown may be left out (``"?key"``).
+
+_PLAIN = (str, int, float, bool, None)
+_NAMES = [str]
+_NOTEBOOK = {"read": lambda v: v is True, "kind": str, "cells": int, "scheduled": (bool, None),
+             "rules": Map({"severity": str, "count": int, "where": [{"cell": int, "line": int}]}), "unchecked": _NAMES}
+_PIPELINE = {"read": lambda v: v is True, "kind": str, "activities": int, "inactive": _NAMES, "inactive_count": int,
+             "fixed_workspace": _NAMES, "fixed_workspace_count": int, "state_unknown": _NAMES,
+             "properties_unknown": _NAMES}
+
+
+def _count(v: Any) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool) and v >= 0
+
+
+# FEA-302's retry, timeout and failure-path keys. An older engine kept none of them, so its controls are
+# not evaluated; once one is there, all are, and each list agrees with its count, so a key left out or a
+# count of 0 beside named activities never reads as "every activity has a retry".
+_POLICY = {"calls_out": _count, "no_retry": _NAMES, "no_retry_count": _count, "no_timeout": _NAMES,
+           "no_timeout_count": _count, "retry_unknown": _NAMES, "timeout_unknown": _NAMES, "failure_path": bool,
+           "failure_path_unknown": bool, "depends_unknown": _NAMES}
+
+
+def _pipeline_fits(p: Any) -> bool:
+    if not fits(p, _PIPELINE):
+        return False
+    if not any(k in p for k in _POLICY):
+        return True
+    if not fits(p, _POLICY):
+        return False
+    # a list of names (cut short) is never longer than its count, and empty only when the count is 0
+    return all(len(p[k]) <= p[n] <= p["calls_out"] and (p[n] == 0) == (not p[k])
+               for k, n in (("no_retry", "no_retry_count"), ("no_timeout", "no_timeout_count")))
+
+
+_OPERATIONS = {"rows": _count, "cu_seconds": float, "status_rows": _count, "cu_by_status": Map(float), "operation_rows": _count,
+               "window": {"start": (str, None), "end": (str, None)},
+               "refreshes_per_day": [{"workspace": str, "item": str, "day": str, "count": _count}],
+               "?refresh_days_over": _count}
+# FEA-204: a table whose Delta log was read has its layout; one that wasn't read has why; a folder that
+# isn't a Delta table has neither. ``read`` and ``delta`` are flags, so junk never reads as "read".
+_TABLE_UNREAD = {"name": str, "read": lambda v: v is False, "problem": str}
+_TABLE_PLAIN = {"name": str, "read": lambda v: v is True, "delta": lambda v: v is False}
+_TABLE_DELTA = {"name": str, "read": lambda v: v is True, "delta": lambda v: v is True, "files": _count,
+                "bytes": _count, "avg_file_bytes": _count, "versions_since_vacuum": _count,
+                "last_vacuum": (str, None), "features": _NAMES}
+_TABLES = {"tables": [(_TABLE_UNREAD, _TABLE_PLAIN, _TABLE_DELTA)], "past_budget": _count, "staging": bool}
+# FEA-303: one warehouse's collation, and every warehouse read in the workspace. A list (cut short)
+# is never longer than what was read, and what was read never more than the workspace has, so a junk
+# count can't make one warehouse look like the only one.
+_WAREHOUSES = {"count": _count, "read": _count, "warehouses": [{"id": str, "name": str, "collation": (str, None)}]}
+
+
+def _warehouses_fit(p: Any) -> bool:
+    return fits(p, _WAREHOUSES) and 1 <= len(p["warehouses"]) <= p["read"] <= p["count"]
+
+
+PAYLOADS: dict[str, Any] = {  # kind -> its payload's shape (evidence.fits)
+    "workspace.info": {"description": str, "?capacity_id": _PLAIN},
+    "workspace.inventory": {"items": [{"id": str, "type": str, "?name": str}]},
+    "workspace.roles": {"assignments": [{"id": str, "type": str, "role": str, "name": str, "guest": (bool, None)}]},
+    "workspace.naming": {"workspace_name": str, "environment": (str, None), "environment_words": _NAMES,
+                         "lakehouses": [{"id": str, "name": str, "layers": _NAMES}],
+                         "leftovers": [{"id": str, "type": str, "name": str, "words": _NAMES}]},
+    "capacity.state": {"state": str, "sku": str, "?region": str},
+    "capacity.usage": {"operations": (None, _OPERATIONS),
+                       "items": [{"import_id": str, "period": {"start": str, "end": str}, "seconds": float,
+                                  "rows": int, "cu_seconds": float}]},
+    "item.optimization": {"definition": str, "history_read": bool, "scheduled_runs": (int, bool, None),
+                          "peers_not_read": _NAMES,
+                          "matched": [{"rule": str, "?opportunity_id": _PLAIN, "?title": _PLAIN}]},
+    "item.inspection": lambda p: (fits(p, _NOTEBOOK) if isinstance(p, dict) and p.get("kind") == "notebook"
+                                  else _pipeline_fits(p)),
+    "item.model": {"read": lambda v: v is True, "kind": str, "tables": int, "relationships": int,
+                   "bidirectional": _NAMES, "bidirectional_count": int, "roles": int, "row_filter_roles": _NAMES,
+                   "row_filter_tables": _NAMES, "direct_lake_tables": int, "direct_lake_behavior": str,
+                   "direct_lake_sources": _NAMES, "rules": Map({"count": int, "objects": _NAMES}),
+                   "types_unknown": _NAMES, "columns_unknown": _NAMES},
+    "item.binding": {"default_lakehouse": (str, None), "?definition": str},
+    "lakehouse.properties": {"schemas_enabled": bool, "default_schema": (str, None)},
+    "lakehouse.tables": _TABLES,
+    "sqlendpoint.properties": {"lakehouse_id": str, "lakehouse": str, "provisioning_status": (str, None)},
+    "warehouse.properties": {"collation": (str, None)},
+    "workspace.warehouses": _warehouses_fit,
+    "workspace.git": {"state": lambda v: v is None or v in catalog_devops.STATES, "provider": str, "branch": str,
+                      "status": (None, {"uncommitted": _count, "incoming": _count, "conflicts": _count})},
+}
+
+
 def registry() -> ct.Registry:
     """A registry with every control in this catalog."""
     r = ct.Registry()
     from .catalog_capacity import CONTROLS as CAPACITY  # it imports this module
     for c in (*CONTROLS, *catalog_artifacts.CONTROLS, *catalog_models.CONTROLS, *CAPACITY):
         r.register(c)
-    for c in (*catalog_architecture.CONTROLS, *catalog_devops.CONTROLS, *catalog_performance.CONTROLS):
+    for c in (*catalog_architecture.CONTROLS, *catalog_devops.CONTROLS, *catalog_performance.CONTROLS,
+              *catalog_warehouse.CONTROLS):
         r.register(c)
+    r.payloads.update(PAYLOADS)
     return r

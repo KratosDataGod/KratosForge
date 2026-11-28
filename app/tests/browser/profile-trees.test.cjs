@@ -117,3 +117,42 @@ test("another class opens from the picker", { skip }, async () => {
   await page.waitForFunction(() => document.querySelector(".tree-title")?.textContent);
   assert.deepStrictEqual(asked.at(-1), { class_id: "pipeline-forgemaster" });
 });
+
+test("class achievements sit above the tree: earned with its day, progress as talents met, or why not yet", { skip }, async () => {
+  const page = app.page;
+  const real = data.mastery.class.achievements;
+  assert.strictEqual(real.length, 5);
+  // The engine's own answer for this profile, then one earned and one no one can earn yet.
+  data.mastery.class.achievements = real.map((a, i) => i === 0 ? { ...a, earned: true, earned_on: "2026-11-12", met: a.of }
+    : i === 4 ? { ...a, earned: false, available: false, unavailable_reason: "No lesson, exercise or check verifies this skill yet." } : a);
+  await page.evaluate(() => { profilePage.trees.data = null; });
+  await openTrees();
+  const row = page.getByRole("region", { name: "Class achievements" });
+  assert.match(await row.locator(".tree-achs-head").textContent(), /Class achievements\s*1 of 5 earned/);
+  const cards = row.locator(".tree-ach");
+  assert.strictEqual(await cards.count(), 5);
+  assert.match(await cards.nth(0).getAttribute("class"), /earned/);
+  assert.strictEqual(await cards.nth(0).locator(".tree-ach-status").textContent(), "Earned Nov 12");
+  assert.strictEqual(await cards.nth(0).locator("h4").textContent(), real[0].name);
+  assert.strictEqual(await cards.nth(0).locator("p").first().textContent(), real[0].criteria);
+  const mid = real[1];
+  const bar = cards.nth(1).getByRole("progressbar", { name: `${mid.name} progress` });
+  assert.strictEqual(await bar.getAttribute("aria-valuenow"), String(mid.met));
+  assert.strictEqual(await bar.getAttribute("aria-valuemax"), String(mid.of));
+  assert.strictEqual(await cards.nth(1).locator(".tree-ach-status").textContent(), `${mid.met} of ${mid.of}`);
+  assert.match(await cards.nth(4).getAttribute("class"), /unavailable/);
+  assert.strictEqual(await cards.nth(4).locator(".tree-ach-status").textContent(),
+    "Not yet available. No lesson, exercise or check verifies this skill yet.");
+  assert.strictEqual(await cards.nth(4).getByRole("progressbar").count(), 0);
+  // An earned achievement the dated evidence can't place says only "Earned".
+  data.mastery.class.achievements[0] = { ...data.mastery.class.achievements[0], earned_on: null };
+  await page.evaluate(() => { profilePage.trees.data = null; });
+  await openTrees();
+  assert.strictEqual(await page.locator(".tree-ach").nth(0).locator(".tree-ach-status").textContent(), "Earned");
+  if (axeSource) {
+    const found = await axeFindings(page, ".tree-achs");
+    assert.deepStrictEqual(found, []);
+  }
+  if (SHOTS) await row.screenshot({ path: path.join(SHOTS, "profile-class-achievements.png") });
+  data.mastery.class.achievements = real;
+});

@@ -271,7 +271,21 @@ class SmokeTest:
         with tempfile.TemporaryDirectory() as tmp:
             path = self.support_bundle(Path(tmp))
             with zipfile.ZipFile(path) as z:
-                text = "\n".join(z.read(n).decode("utf-8", "replace") for n in z.namelist())
+                parts = [z.read(n).decode("utf-8", "replace") for n in z.namelist()]
+        for part in list(parts):  # a JSON file may hold a value escaped (\u00e9 for é): look at its strings too
+            try:
+                todo = [json.loads(part)]
+            except (ValueError, RecursionError):
+                continue
+            while todo:
+                item = todo.pop()
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    todo += [*item, *item.values()]
+                elif isinstance(item, list):
+                    todo += item
+        text = "\n".join(parts)
         found = []
         if _TOKEN.search(text):
             found.append("a token")

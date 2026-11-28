@@ -54,7 +54,7 @@ Change them in the **Prices** dialog in **Optimize > Cost and savings**, under *
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `warn_run_cu_hours` | off | Warn when the last run of this workload used more CU hours than this. Measured when an import matched the run, otherwise estimated, and labeled so. |
+| `warn_run_cu_hours` | off | Warn when the last run of this workload used more CU hours than this. Measured when an import matched the run, otherwise estimated, and labeled so. 0 or blank turns it off. |
 | `warn_failed_runs` | 2 | Warn when at least this many of the last five runs failed. 0 turns it off. |
 | `schedule_window_minutes` | 60 | Warn when a schedule on this PC runs the workload within this many minutes. |
 | `require_acknowledgement` | off | The run dialogs ask you to tick "I've looked at these" before running with warnings. |

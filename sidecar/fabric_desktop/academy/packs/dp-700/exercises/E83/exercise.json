@@ -1,0 +1,248 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "pipelines.json",
+  "reset": "Reset puts the original pipelines.json back.",
+  "id": "E83",
+  "title": "A schedule or a storage event trigger for six pipelines",
+  "objectives": [
+    "1.4.2"
+  ],
+  "mode": "challenge",
+  "minutes": 25,
+  "prerequisites": [
+    "E18"
+  ],
+  "objective_text": "Decide whether each of six pipelines starts on a schedule or on a storage event, then set the frequency, days, times and end date, or the event source, event types, folder and parameters.",
+  "scenario": "Harbor Retail runs six pipelines, and each one was started by hand until now. Some need fixed times, one has to run more often than a daily schedule allows, and three should start the moment a file lands or is deleted, in Azure Blob Storage or in OneLake.",
+  "engine_label": "A model of pipeline schedules and storage event triggers, checked on this PC",
+  "verifies": [
+    "Your start for each pipeline matches the schedule recurrence limits of the job scheduler page and the schedule and storage event trigger rules of the pipeline runs page, with the Azure Blob Storage and OneLake event types from the Real-Time hub pages, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That any schedule or trigger fires in Fabric. Nothing is scheduled here.",
+    "The exact labels Fabric's schedule and trigger panes show. The model uses its own field names.",
+    "Interval-based schedules and run conditions, which are in preview and left out.",
+    "The permissions and the eventstream and Activator items a storage event trigger creates."
+  ],
+  "expected": {
+    "description": "price_feed: minute, interval 30. store_close: weekly, Monday to Friday, 07:00 and 13:00. nightly_rebuild: daily at 01:00. All three end 2099-12-31. partner_drop: azure_blob_events, BlobCreated only, folder orders. lake_landing: onelake_events, FileCreated, folder inbound, file_name @pipeline()?.TriggerEvent?.FileName. lake_cleanup: onelake_events, FileDeleted, folder inbound."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "A scheduled pipeline won't run when the team needs it.",
+      "pass": "The three scheduled pipelines run at the right times and have an end date.",
+      "rules": [
+        {
+          "path": "pipelines.price_feed.start_by",
+          "equals": "schedule"
+        },
+        {
+          "path": "pipelines.price_feed.schedule.frequency",
+          "equals": "minute",
+          "why": "A daily schedule runs up to 10 times a day, and this job runs 48 times. Hourly runs every 1 to 72 hours, which can't give 30 minutes. A minute-based schedule runs every 1 to 720 minutes."
+        },
+        {
+          "path": "pipelines.price_feed.schedule.interval",
+          "equals": 30
+        },
+        {
+          "path": "pipelines.price_feed.schedule.end",
+          "equals": "2099-12-31",
+          "why": "A schedule needs both a start and an end date, and there's no open-ended schedule. The team's rule for a schedule with no planned end is 2099-12-31."
+        },
+        {
+          "path": "pipelines.price_feed.trigger.source",
+          "equals": null,
+          "why": "A schedule job has no trigger. Leave the trigger's source null."
+        },
+        {
+          "path": "pipelines.store_close.start_by",
+          "equals": "schedule"
+        },
+        {
+          "path": "pipelines.store_close.schedule.frequency",
+          "equals": "weekly",
+          "why": "A weekly schedule runs on the weekdays you select. A daily one would also run at the weekend."
+        },
+        {
+          "path": "pipelines.store_close.schedule.days",
+          "equals": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ]
+        },
+        {
+          "path": "pipelines.store_close.schedule.times",
+          "equals": [
+            "07:00",
+            "13:00"
+          ],
+          "why": "Two times on five days is 10 runs a week, which a weekly schedule allows."
+        },
+        {
+          "path": "pipelines.store_close.schedule.end",
+          "equals": "2099-12-31",
+          "why": "A schedule needs both a start and an end date, and there's no open-ended schedule. The team's rule for a schedule with no planned end is 2099-12-31."
+        },
+        {
+          "path": "pipelines.store_close.trigger.source",
+          "equals": null,
+          "why": "A schedule job has no trigger. Leave the trigger's source null."
+        },
+        {
+          "path": "pipelines.nightly_rebuild.start_by",
+          "equals": "schedule"
+        },
+        {
+          "path": "pipelines.nightly_rebuild.schedule.frequency",
+          "equals": "daily"
+        },
+        {
+          "path": "pipelines.nightly_rebuild.schedule.times",
+          "equals": [
+            "01:00"
+          ]
+        },
+        {
+          "path": "pipelines.nightly_rebuild.schedule.end",
+          "equals": "2099-12-31",
+          "why": "A schedule needs both a start and an end date, and there's no open-ended schedule. The team's rule for a schedule with no planned end is 2099-12-31."
+        },
+        {
+          "path": "pipelines.nightly_rebuild.trigger.source",
+          "equals": null,
+          "why": "A schedule job has no trigger. Leave the trigger's source null."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The partner trigger listens to the wrong store or the wrong events.",
+      "pass": "New and overwritten partner files start a run, and deletes don't.",
+      "rules": [
+        {
+          "path": "pipelines.partner_drop.start_by",
+          "equals": "event_trigger",
+          "why": "A file that must load as soon as it lands calls for a storage event trigger, not a schedule."
+        },
+        {
+          "path": "pipelines.partner_drop.trigger.source",
+          "equals": "azure_blob_events",
+          "why": "The files land in an Azure Blob Storage account, not in OneLake."
+        },
+        {
+          "path": "pipelines.partner_drop.trigger.event_types",
+          "contains": "Microsoft.Storage.BlobCreated",
+          "why": "BlobCreated is raised when a blob is added and when an existing blob is updated."
+        },
+        {
+          "path": "pipelines.partner_drop.trigger.event_types",
+          "count": 1,
+          "why": "Only created or updated files may start a run. BlobDeleted would start one for each delete."
+        },
+        {
+          "path": "pipelines.partner_drop.trigger.folder",
+          "equals": "orders"
+        },
+        {
+          "path": "pipelines.partner_drop.schedule.frequency",
+          "equals": null,
+          "why": "A trigger job has no schedule. Leave the schedule's frequency null."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "A OneLake trigger listens to the wrong events or passes the file name unsafely.",
+      "pass": "New OneLake files start a load with their name, and deletes start the cleanup.",
+      "rules": [
+        {
+          "path": "pipelines.lake_landing.start_by",
+          "equals": "event_trigger",
+          "why": "A schedule that checks the folder every few minutes runs when nothing has landed, and still starts late. A trigger starts once for each file."
+        },
+        {
+          "path": "pipelines.lake_landing.trigger.source",
+          "equals": "onelake_events",
+          "why": "The files land in a lakehouse, so the events come from OneLake."
+        },
+        {
+          "path": "pipelines.lake_landing.trigger.event_types",
+          "equals": [
+            "Microsoft.Fabric.OneLake.FileCreated"
+          ],
+          "why": "FileCreated is raised for each new or updated file. FolderCreated is raised once for a new folder."
+        },
+        {
+          "path": "pipelines.lake_landing.trigger.folder",
+          "equals": "inbound"
+        },
+        {
+          "path": "pipelines.lake_landing.trigger.parameters.file_name",
+          "equals": "@pipeline()?.TriggerEvent?.FileName",
+          "why": "The ? after pipeline() handles the null file name in a run started by hand. Without it the expression fails when the team tests the pipeline."
+        },
+        {
+          "path": "pipelines.lake_landing.schedule.frequency",
+          "equals": null,
+          "why": "A trigger job has no schedule. Leave the schedule's frequency null."
+        },
+        {
+          "path": "pipelines.lake_cleanup.start_by",
+          "equals": "event_trigger",
+          "why": "The row has to go at once, which a nightly schedule can't do."
+        },
+        {
+          "path": "pipelines.lake_cleanup.trigger.source",
+          "equals": "onelake_events"
+        },
+        {
+          "path": "pipelines.lake_cleanup.trigger.event_types",
+          "equals": [
+            "Microsoft.Fabric.OneLake.FileDeleted"
+          ],
+          "why": "FileDeleted is raised when a file is deleted in OneLake."
+        },
+        {
+          "path": "pipelines.lake_cleanup.trigger.folder",
+          "equals": "inbound"
+        },
+        {
+          "path": "pipelines.lake_cleanup.schedule.frequency",
+          "equals": null,
+          "why": "A trigger job has no schedule. Leave the schedule's frequency null."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "How many times a day can a daily schedule run? How often does the price feed run?",
+    "Which frequency lets you pick the weekdays?",
+    "Can a schedule have no end date?",
+    "Does an overwritten blob raise BlobCreated? Which event type does a delete raise?",
+    "What happens to @pipeline().TriggerEvent.FileName when someone runs the pipeline by hand?"
+  ],
+  "explanation": "A schedule needs a start and an end date, so a schedule with no planned end gets a far end date. A daily schedule runs up to 10 times a day and hourly can't go below an hour, so a job every 30 minutes is minute-based with an interval of 30. A weekly schedule runs on the weekdays you select, up to 10 times a week, which fits two runs on five weekdays. Files that must load as they land call for a storage event trigger. Partner files in Azure Blob Storage use Azure Blob events, and BlobCreated covers new and updated blobs. Files in a lakehouse use OneLake events, with FileCreated for new files and FileDeleted for deletes. The subject filter keeps the trigger to one folder. Passing @pipeline()?.TriggerEvent?.FileName gives each run its file, and the ? handles the null value in a run started by hand.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-runs",
+    "https://learn.microsoft.com/en-us/fabric/fundamentals/job-scheduler",
+    "https://learn.microsoft.com/en-us/fabric/real-time-hub/explore-fabric-onelake-events",
+    "https://learn.microsoft.com/en-us/fabric/real-time-hub/explore-azure-blob-storage-events"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-23: pipeline-runs (last updated 2026-09-29). Schedules take a type, frequency, start and end, and time zone. Start and end are both required and there's no open-ended schedule (the page suggests a far end date such as 2099). Up to 20 schedules per pipeline. Schedule parameter names must match. Storage event triggers choose OneLake events or Azure Blob events, pick event types, filter the Subject by folder, file name, file type and container, and pass @pipeline()?.TriggerEvent?.FileName. The ? is needed because file and folder name are null in a manual run. Interval-based schedules and run conditions are marked preview.",
+    "Checked on Learn 2026-11-23: job-scheduler (last updated 2026-05-13). Minute-based every 1 to 720 minutes, hourly every 1 to 72 hours, daily up to 10 times per day, weekly on selected weekdays up to 10 times per week. explore-fabric-onelake-events (last updated 2026-04-03) lists FileCreated (created or updated), FileDeleted, FileRenamed, FolderCreated, FolderDeleted and FolderRenamed. explore-azure-blob-storage-events (last updated 2025-12-11) says BlobCreated is raised when a blob is added or updated and BlobDeleted when one is removed.",
+    "Not graded: the time zone (the scenario fixes UTC), how Fabric's pane names the frequencies, and whether OneLake events are raised under Tables. No page fetched marks OneLake or Azure Blob events as preview. pipeline-runs shows the OneLake source without a preview label, and fabric-events-overview links to the announcement that Azure and Fabric events are generally available. Recheck if a preview label appears."
+  ]
+}

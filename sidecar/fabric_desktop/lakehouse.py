@@ -34,7 +34,8 @@ from . import runlog
 from .onelake import FileStore, TableRef, storage_options
 from .publish import WriteTokenExpired, publish, refuse_conversions, resolve_schema_mode, stage_locally
 from .redact import describe
-from .retrying import data_upload_dropped, local_commit, log_commit_dropped, lost_commit
+from .retrying import (data_upload_dropped, held_file_message, local_commit, log_commit_dropped, lost_commit,
+                       windows_file_held, windows_log_race)
 
 _log = logging.getLogger(__name__)
 
@@ -775,7 +776,7 @@ def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
     table the change took outside the profile is only noted in the log, since the rows are committed."""
     from deltalake import CommitProperties, write_deltalake
 
-    from . import delta_dml, delta_profile
+    from . import delta_dml, delta_profile, maintenance
     lh = _current()
     ref = table_ref(change.name)
     reason = write_refusal(lh.name, ref.schema, ref.table)
@@ -810,8 +811,10 @@ def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
     before = table.version()
     names = source.schema.names if source is not None else None
     out = delta_dml.apply(change, table, source, names,
-                          CommitProperties(custom_metadata={"fabric_desktop.operation": change.kind}))
+                          CommitProperties(custom_metadata={"fabric_desktop.operation": change.kind}),
+                          post_commithook_properties=maintenance.WRITE_HOOKS)
     after = DeltaTable(uri, storage_options=opts)
+    maintenance.after_write(uri, before, after, opts)  # the log cleanup its checkpoint left
     delta_profile.note_after_write(after)
     result = ChangeResult(name_, change.kind, after.version(), out["rows_inserted"], out["rows_updated"],
                           out["rows_deleted"])
@@ -877,101 +880,118 @@ def maintain_table(table: str, operation: str, *, where: list[tuple[str, str, An
     opts = storage_options(lh.storage_token())
     if (queue := _queue()) is not None:
         queue.wait()  # after the cell's own writes still uploading
-    t = _open_for_change(ref.uri, opts, name_)
-    try:
-        delta_profile.check_table(t)
-    except delta_profile.ProfileViolation as exc:
-        raise ValueError(f"{name_} isn't changed on this PC: {exc}. Changing it could make it unreadable in "
-                         "Fabric.") from None
-    before = t.version()
-    commit = CommitProperties(custom_metadata={"fabric_desktop.operation": operation})
-    files: list[str] = []
-    note = ""
-    if operation == "optimize":
-        parts = list(t.metadata().partition_columns)
-        bad = [c for c, _op, _v in (where or []) if c not in parts]
-        if bad:
-            raise ValueError(f"OPTIMIZE ... WHERE filters only on partition columns ({', '.join(parts) or 'none'}), "
-                             f"not {', '.join(bad)}. Nothing was changed.")
-        filters = [(c, op, v) for c, op, v in where] if where else None
-        # On Windows a writer committing the same next version at the same moment, or holding a log file, makes
-        # this commit fail to open a log file (retrying.windows_log_race). Usually that is the staged commit and
-        # nothing went in; it can also be a later log file read after the commit went in. Either way it runs again
-        # on the table's latest version, and a second compaction or Z-Order there changes no rows. One that still
-        # loses after its tries fails as delta-rs's CommitFailedError (retrying.local_commit).
-        attempts = [0]
-
-        def once() -> dict[str, Any]:
-            if attempts[0]:
-                t.update_incremental()
-            attempts[0] += 1
-            if zorder:
-                return t.optimize.z_order(zorder, partition_filters=filters, commit_properties=commit)
-            return t.optimize.compact(partition_filters=filters, commit_properties=commit)
-        if zorder:
-            missing = [c for c in zorder if c not in t.schema().to_arrow().names]
-            if missing:
-                raise ValueError(f"ZORDER BY names columns {name_} hasn't got: {', '.join(missing)}. Nothing was changed.")
-        metrics = local_commit(once, f"{name_}'s next version")
-        note = "Compacted on this PC without V-Order; Fabric's table maintenance adds V-Order."
-    elif operation == "vacuum":
-        kept = maintenance.kept_days(t.metadata().configuration)
-        days = max(kept or maintenance.MIN_RETENTION_DAYS, maintenance.MIN_RETENTION_DAYS)
-        if retain_hours is not None and retain_hours < days * 24:
-            raise ValueError(f"{name_} keeps {days} days ({days * 24} hours) of deleted files "
-                             f"(delta.deletedFileRetentionDuration), so VACUUM can't RETAIN {retain_hours:g} hours: "
-                             "Fabric's Spark refuses it too. Nothing was changed.")
-        hours = retain_hours if retain_hours is not None else maintenance.retention_hours(days)
-        keep, _oldest = maintenance.skewed_versions(t, int(hours))  # a clock out of step deletes nothing still read
-        tries = [0]
-
-        def vacuum() -> list[str]:
-            # VACUUM commits its start and end, so on Windows it can lose the same race; deleting again what
-            # is already gone does nothing, so it runs again on the table's latest version.
-            if tries[0]:
-                t.update_incremental()
-            tries[0] += 1
-            return t.vacuum(retention_hours=int(hours), dry_run=dry_run, enforce_retention_duration=False,
-                            commit_properties=commit, **maintenance.vacuum_keep(keep))
-        local = "://" not in ref.uri  # a table on this PC: what VACUUM actually deleted can be checked
-        present = maintenance.table_files(ref.uri) if local else None
-        files = local_commit(vacuum, f"{name_}'s next version")
-        deleted = len(files)
-        if present is not None:
-            # delta-rs lists a removed file already gone (until a checkpoint drops it), and lists it relative to
-            # the table while the ones it deletes come back whole: count only what this VACUUM deleted, and
-            # list every file relative to the table.
-            files = [maintenance.relative_to_table(ref.uri, f) for f in files]
-            deleted = sum(1 for f in files if maintenance.path_key(f) in present and not (Path(ref.uri) / f).exists())
-        metrics = {"numDeletedFiles": 0 if dry_run else deleted, "retentionHours": int(hours), "dryRun": dry_run}
-    else:
-        target: int | datetime
-        if version is not None:
-            if version < 0 or version >= before:
-                raise ValueError(f"{name_} has versions 0 to {before}; RESTORE goes to an earlier one, not {version}. "
-                                 "Nothing was changed.")
-            target = version
-        elif timestamp is not None:
-            target = timestamp
-        else:
-            raise ValueError("RESTORE needs TO VERSION AS OF n or TO TIMESTAMP AS OF '...'.")
+    # One OPTIMIZE, VACUUM or RESTORE of a table at a time on this PC: two OPTIMIZEs at once duplicate rows
+    # (maintenance.compaction_lock), and the Maintain page's Optimize takes the same lock.
+    with maintenance.compaction_lock(ref.uri, name_):
+        t = _open_for_change(ref.uri, opts, name_)
         try:
-            metrics = t.restore(target, commit_properties=commit)
-        except OSError as exc:  # not repeated: a writer's commit meanwhile would be undone by a second RESTORE
-            if (conflict := lost_commit(exc, f"{name_}'s next version")) is not None:
-                raise conflict from exc
-            raise ValueError(f"{name_} can't be restored to {target}: {describe(exc)}. Nothing was changed.") from None
-        except Exception as exc:  # noqa: BLE001 - delta-rs reports a vacuumed version in its own words
-            raise ValueError(f"{name_} can't be restored to {target}: {describe(exc)}. Nothing was changed.") from None
-    after = DeltaTable(ref.uri, storage_options=opts)
-    delta_profile.note_after_write(after)
-    if after.version() > before:
-        _record_table(ref, before, "write", lh)
-        if lh.history_file:
-            runlog.append(lh.history_file, {"job": f"Notebook {operation.upper()} in {lh.name}", "table_uri": ref.uri,
-                                            "mode": operation, "rows": 0, "delta_version": after.version(),
-                                            "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
-    return MaintenanceResult(name_, operation, after.version(), dict(metrics or {}), list(files), note)
+            delta_profile.check_table(t)
+        except delta_profile.ProfileViolation as exc:
+            raise ValueError(f"{name_} isn't changed on this PC: {exc}. Changing it could make it unreadable in "
+                             "Fabric.") from None
+        before = t.version()
+        commit = CommitProperties(custom_metadata={"fabric_desktop.operation": operation})
+        files: list[str] = []
+        note = ""
+        if operation == "optimize":
+            parts = list(t.metadata().partition_columns)
+            bad = [c for c, _op, _v in (where or []) if c not in parts]
+            if bad:
+                raise ValueError(f"OPTIMIZE ... WHERE filters only on partition columns ({', '.join(parts) or 'none'}), "
+                                 f"not {', '.join(bad)}. Nothing was changed.")
+            filters = [(c, op, v) for c, op, v in where] if where else None
+            # On Windows a writer committing the same next version at the same moment, or holding a log file, makes
+            # this commit fail to open a log file (retrying.windows_log_race). Usually that is the staged commit and
+            # nothing went in; it can also be a later log file read after the commit went in. Either way it runs again
+            # on the table's latest version, and a second compaction or Z-Order there changes no rows. One that still
+            # loses after its tries fails as delta-rs's CommitFailedError (retrying.local_commit).
+            attempts = [0]
+
+            def once() -> dict[str, Any]:
+                if attempts[0]:
+                    t.update_incremental()
+                attempts[0] += 1
+                if zorder:
+                    return t.optimize.z_order(zorder, partition_filters=filters, commit_properties=commit)
+                return t.optimize.compact(partition_filters=filters, commit_properties=commit)
+            if zorder:
+                missing = [c for c in zorder if c not in t.schema().to_arrow().names]
+                if missing:
+                    raise ValueError(f"ZORDER BY names columns {name_} hasn't got: {', '.join(missing)}. Nothing was changed.")
+            kept = maintenance.kept_days(t.metadata().configuration)
+            if maintenance.keep_log(ref.uri, maintenance.retention_hours(max(kept or 0, maintenance.MIN_RETENTION_DAYS)),
+                                    opts):
+                t.update_incremental()
+            metrics = local_commit(once, f"{name_}'s next version")
+            note = "Compacted on this PC without V-Order; Fabric's table maintenance adds V-Order."
+        elif operation == "vacuum":
+            kept = maintenance.kept_days(t.metadata().configuration)
+            days = max(kept or maintenance.MIN_RETENTION_DAYS, maintenance.MIN_RETENTION_DAYS)
+            if retain_hours is not None and retain_hours < days * 24:
+                raise ValueError(f"{name_} keeps {days} days ({days * 24} hours) of deleted files "
+                                 f"(delta.deletedFileRetentionDuration), so VACUUM can't RETAIN {retain_hours:g} hours: "
+                                 "Fabric's Spark refuses it too. Nothing was changed.")
+            hours = retain_hours if retain_hours is not None else maintenance.retention_hours(days)
+            if not dry_run and maintenance.keep_log(ref.uri, hours, opts):  # VACUUM's commits can clean the log
+                t.update_incremental()
+            keep, _oldest = maintenance.skewed_versions(t, int(hours))  # a clock out of step deletes nothing still read
+            tries = [0]
+
+            def vacuum() -> list[str]:
+                # VACUUM commits its start and end, so on Windows it can lose the same race; deleting again what
+                # is already gone does nothing, so it runs again on the table's latest version.
+                if tries[0]:
+                    t.update_incremental()
+                tries[0] += 1
+                return t.vacuum(retention_hours=int(hours), dry_run=dry_run, enforce_retention_duration=False,
+                                commit_properties=commit, **maintenance.vacuum_keep(keep))
+            local = "://" not in ref.uri  # a table on this PC: what VACUUM actually deleted can be checked
+            present = maintenance.table_files(ref.uri) if local else None
+            # A file VACUUM deletes may also be open for a moment in a virus scanner or the indexer (os error 32 or 33
+            # on Windows); what it already deleted no version kept reads, so it runs again. Still held, a plain message.
+            try:
+                files = local_commit(vacuum, f"{name_}'s next version",
+                                     when=lambda e: windows_file_held(e) or windows_log_race(e))
+            except OSError as exc:
+                if not windows_file_held(exc):
+                    raise
+                raise OSError(held_file_message(f"VACUUM of {name_}")) from exc
+            deleted = len(files)
+            if present is not None:
+                # delta-rs lists a removed file already gone (until a checkpoint drops it), and lists it relative to
+                # the table while the ones it deletes come back whole: count only what this VACUUM deleted, and
+                # list every file relative to the table.
+                files = [maintenance.relative_to_table(ref.uri, f) for f in files]
+                deleted = sum(1 for f in files if maintenance.path_key(f) in present and not (Path(ref.uri) / f).exists())
+            metrics = {"numDeletedFiles": 0 if dry_run else deleted, "retentionHours": int(hours), "dryRun": dry_run}
+        else:
+            target: int | datetime
+            if version is not None:
+                if version < 0 or version >= before:
+                    raise ValueError(f"{name_} has versions 0 to {before}; RESTORE goes to an earlier one, not {version}. "
+                                     "Nothing was changed.")
+                target = version
+            elif timestamp is not None:
+                target = timestamp
+            else:
+                raise ValueError("RESTORE needs TO VERSION AS OF n or TO TIMESTAMP AS OF '...'.")
+            try:
+                metrics = t.restore(target, commit_properties=commit, post_commithook_properties=maintenance.KEEP_LOG)
+            except OSError as exc:  # not repeated: a writer's commit meanwhile would be undone by a second RESTORE
+                if (conflict := lost_commit(exc, f"{name_}'s next version")) is not None:
+                    raise conflict from exc
+                raise ValueError(f"{name_} can't be restored to {target}: {describe(exc)}. Nothing was changed.") from None
+            except Exception as exc:  # noqa: BLE001 - delta-rs reports a vacuumed version in its own words
+                raise ValueError(f"{name_} can't be restored to {target}: {describe(exc)}. Nothing was changed.") from None
+        after = DeltaTable(ref.uri, storage_options=opts)
+        delta_profile.note_after_write(after)
+        if after.version() > before:
+            _record_table(ref, before, "write", lh)
+            if lh.history_file:
+                runlog.append(lh.history_file, {"job": f"Notebook {operation.upper()} in {lh.name}", "table_uri": ref.uri,
+                                                "mode": operation, "rows": 0, "delta_version": after.version(),
+                                                "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+        return MaintenanceResult(name_, operation, after.version(), dict(metrics or {}), list(files), note)
 
 
 def _open_for_change(uri: str, opts: dict[str, str] | None, name: str) -> DeltaTable:

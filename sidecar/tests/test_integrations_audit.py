@@ -22,6 +22,8 @@ from fabric_desktop.integrations.permissions import PermissionAuthorizer
 from fabric_desktop.integrations.registry import Capability, Registry, schema
 from fabric_desktop.integrations.store import IntegrationStore
 
+from test_integrations_http import IN_PROCESS, this_account
+
 JWT = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl"
 PORT = 47699
 
@@ -305,7 +307,8 @@ def test_several_processes_write_one_unbroken_chain(store):
 def test_refused_http_requests_are_recorded_but_a_flood_is_not(store):
     reg = registry(store)
     client, token = store.add_client("Script", "http", transport="http", grants=["READ_METADATA"])
-    with TestClient(build_app(reg, store, PORT), base_url=f"http://127.0.0.1:{PORT}") as c:
+    with TestClient(build_app(reg, store, PORT, same_user=this_account), base_url=f"http://127.0.0.1:{PORT}",
+                    client=IN_PROCESS) as c:
         for _ in range(5):
             assert c.get("/api/v1/capabilities").status_code == 401
         assert c.get("/api/v1/capabilities", headers={"Origin": "https://evil.example"}).status_code == 403

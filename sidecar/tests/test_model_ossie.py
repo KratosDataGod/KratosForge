@@ -396,11 +396,11 @@ def test_ai_tools_only_read_and_pass_their_arguments_through():
         def __init__(self):
             self.calls = []
 
-        def meta_model_ossie_export(self, env, name, translate_dax):
+        def ossie_export_roles_withheld(self, env, name, translate_dax):  # the tool's path: roles withheld
             self.calls.append(("export", env, name, translate_dax))
             return {"yaml": "", "counts": {}, "report": []}
 
-        def meta_model_ossie_preview(self, env, text, name, mode, remove):
+        def ossie_preview_roles_withheld(self, env, text, name, mode, remove):
             self.calls.append(("preview", env, text, name, mode, remove))
             return {"changes": [], "report": []}
 

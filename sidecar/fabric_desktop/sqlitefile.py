@@ -23,10 +23,14 @@ connection holds: SQLite's own "database is locked" says nothing about why or wh
 
 from __future__ import annotations
 
+import errno
+import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Iterator
+
+from . import jsonfile
 
 
 def _open(path: Path, timeout: float, autocommit: bool) -> sqlite3.Connection:
@@ -107,8 +111,11 @@ def open_store(path: Path, first_open: Callable[[], None], *, then: str | None =
     Returns None when the file opened as it was."""
     if (then is None) == (refuse is None):
         raise TypeError("give open_store one of then= or refuse=")
+    with too_long_named(path):  # its folder past Windows' 260 without long paths: named
+        path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        first_open()
+        with too_long_named(path):
+            first_open()
         return None
     except sqlite3.DatabaseError as exc:
         if isinstance(exc, sqlite3.OperationalError) or not path.exists():
@@ -117,5 +124,31 @@ def open_store(path: Path, first_open: Callable[[], None], *, then: str | None =
             raise ValueError(refuse.format(path=path, reason=exc)) from None
         from .redact import describe
         dest = set_aside(path, f"{then} ({describe(exc)})")
-    first_open()
+    with too_long_named(path):
+        first_open()
     return dest
+
+
+@contextmanager
+def too_long_named(path: Path, doing: str = "opened") -> Iterator[None]:
+    """A SQLite file whose path is past Windows' 260 characters on a PC where long paths are turned
+    off: SQLite says only "unable to open database file", and Windows "cannot find the path". Either
+    is raised as jsonfile.path_too_long's error, naming the file and the setting, with the original
+    as its cause. Any other failure, or a path within the limit, is raised as it is."""
+    try:
+        yield
+    except sqlite3.OperationalError as exc:
+        if "unable to open database file" not in str(exc):
+            raise
+        # SQLite gives no OS error: ask as Windows would have answered (WinError 3, the path not found).
+        probe = FileNotFoundError(errno.ENOENT, str(exc), os.fspath(path))
+        probe.winerror = 3  # type: ignore[attr-defined]  # Windows' errors carry it; this one stands in
+        refused = jsonfile.path_too_long(probe, path, doing)
+        if refused is None:
+            raise
+        raise refused from exc
+    except OSError as exc:
+        refused = jsonfile.path_too_long(exc, path, doing)
+        if refused is None:
+            raise
+        raise refused from exc

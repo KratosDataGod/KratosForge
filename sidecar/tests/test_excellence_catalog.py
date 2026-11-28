@@ -9,7 +9,8 @@ import pytest
 
 from fabric_desktop import audit, server
 from fabric_desktop.excellence import (adapters, assess, catalog, catalog_architecture, catalog_artifacts, catalog_capacity,
-                                       catalog_devops, catalog_models, catalog_performance, controls as ct, evidence as ev,
+                                       catalog_devops, catalog_models, catalog_performance, catalog_warehouse,
+                                       controls as ct, evidence as ev,
                                        profiles)
 from fabric_desktop.service import Service
 
@@ -43,7 +44,7 @@ def test_the_catalog_registers_and_every_control_is_complete():
     r = catalog.registry()
     assert len(r) == (len(catalog.CONTROLS) + len(catalog_architecture.CONTROLS) + len(catalog_artifacts.CONTROLS)
                       + len(catalog_capacity.CONTROLS) + len(catalog_models.CONTROLS) + len(catalog_devops.CONTROLS)
-                      + len(catalog_performance.CONTROLS))
+                      + len(catalog_performance.CONTROLS) + len(catalog_warehouse.CONTROLS))
     assert len(catalog.CONTROLS) >= 10
     for c in r.controls():
         assert ct.problems(c) == []
@@ -188,7 +189,8 @@ def test_full_refresh_applies_only_to_scheduled_items_with_history():
 def test_items_the_catalog_doesnt_cover_are_unsupported_and_no_inventory_is_not_evaluated():
     snap = run([], items=[{"id": "m", "type": "Report", "displayName": "Sales"}], opt=opt_result([], []))
     assert snap["item_coverage"] == [{"item": snap["item_coverage"][0]["item"], "state": "unsupported",
-                                      "reason": "No control covers this kind of item yet."}]
+                                      "reason": "No control covers this kind of item yet.", "controls": [],
+                                      "evidence_kinds": []}]
     blind = run([], items=None)
     assert outcome_of(blind, "FEA-PERF-001")["outcome"] == "not_evaluated"
 

@@ -49,7 +49,7 @@ A check that depends on an earlier one that failed is marked Skipped, with the r
 
 ## Opt-in checks
 
-These take longer, create items besides the lakehouse, and use capacity, so the default run leaves them out. Add `--all` to run all but `notebook.run`, or name one or more with `--check <id>`:
+These take longer, create items besides the lakehouse, and use capacity, so the default run leaves them out. Add `--all` to run all but `notebook.run` and `model.bpa`, or name one or more with `--check <id>`:
 
 ```powershell
 fabric-desktop live-test --workspace <workspace id> --all --dry-run              # lists them, with what each writes
@@ -107,7 +107,7 @@ If your tenant has item recovery turned on, Fabric may keep a deleted lakehouse 
 
 ## The tenant smoke test
 
-The [tenant smoke test](product/smoke-test/README.md) runs this live test with every opt-in check `--all` selects (not `model.bpa`) as one of ten core flows of the app (`fabric-desktop smoke-test`), adds sign-in, catalog and support-bundle checks, and lists the by-hand part of each flow.
+The [tenant smoke test](product/smoke-test/README.md) runs this live test with every opt-in check that `--all` runs (not `model.bpa`) as one of ten core flows of the app (`fabric-desktop smoke-test`), adds sign-in, catalog and support-bundle checks, and lists the by-hand part of each flow.
 
 ## Fakes follow what live runs refused
 
@@ -122,6 +122,23 @@ The tests that stand in for Fabric use fakes. A fake that accepts what Fabric re
 | A User Data Functions `dict` parameter with a default value: `MetadataValidationError` ("Default values are not allowed for 'dict' type parameters") | Live run 7, 2026-11-07 | Refuse the create or update when a `@udf.function()` in `function_app.py` gives a `dict` parameter a default (UDF_Platform's dict and list parameters have none; the app sends `{}` or `[]` for one it leaves out, and the function takes an empty one as not given) |
 
 When a live run finds a new refusal, add it there with the run it came from, and add a row here.
+
+## KratosForge Environment live run (CP-012)
+
+The [KratosForge Environment](user-guide.md#kratosforge-environment-preview) stays Preview until this run is recorded. It runs only in the test workspace `kf_tenant_test`, never a Prod workspace, and only after the product owner types the go for it. It runs on a PC that is signed in to KratosForge, from a separate worktree of `main`.
+
+Part 1, one PC:
+
+1. `cp_discover()` finds `kf_tenant_test`; `cp_plan` for a new lakehouse in it (`KratosForgeLakehouse_cp012`). Nothing may be blocked, and `typed_name` must be empty (the workspace isn't marked Prod).
+2. `cp_create(token, confirmed=True)` creates the lakehouse, the shared tables and the manifest. No workspace is created.
+3. `cp_check()` says Connected; `cp_discover(<kf_tenant_test's workspace id>)` lists the environment (`cp_discover()` without an id gives the id); `cp_upgrade_plan()` says there's nothing to upgrade; `cp_cost(days=7)` reads; `cp_inventory()` lists every registered family, with no unclaimed tables in the new lakehouse.
+4. The manifest (`Files/_kratosforge/environment.json`) holds ids and versions only: no secret, email or name of a person.
+5. `cp_disconnect`, `cp_connect`, `cp_disconnect`: the PC is left as it was.
+6. Adopt, only on a PC whose central lakehouse is in `kf_tenant_test` and whose Platform is a test one: `cp_adopt_preview` shows the Platform's Prod database ids as the operational store (and Keys when it shares the functions item); `cp_adopt` with its token records them, ids only. Then `cp_disconnect`.
+
+Part 2, a second installation and a reader (needs its own go): connect a second installation, write optimization rows from both, read them from each, and try a write from an account that isn't a workspace member, which Fabric must refuse.
+
+The lakehouse is left in place; deleting it is a separate, confirmed step. Each run's outputs (secrets redacted), timings and any refusal go in [platforms.md](platforms.md#live-runs), and a refusal the fakes accepted becomes a row in the table above.
 
 ## What it doesn't check yet
 

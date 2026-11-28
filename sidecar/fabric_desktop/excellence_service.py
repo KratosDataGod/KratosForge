@@ -12,6 +12,10 @@ the evidence keeps the rules that matched and where, never the code. Semantic mo
 read as TMSL with the getDefinition call the Semantic model tab already makes (at most
 ``MAX_MODELS``) and inspected the same way (excellence.inspect_models): names and counts, never DAX,
 M or the definition text.
+Each warehouse's properties are read with ``GET .../warehouses/{id}``, the read the SQL page makes to
+find a warehouse's connection (at most ``MAX_WAREHOUSE_READS``), and only with a token the app
+already holds: an assessment never asks to sign in for it, and without one the warehouse controls
+are not evaluated. A SQL analytics endpoint's status comes from the lakehouse read above.
 Each lakehouse's tables are read as the Estate X-ray reads them (the folders under Tables and each
 Delta table's log, never a data file; at most ``MAX_TABLE_READS``), through OneLake with a silent
 storage sign-in only: the assessment never prompts, so without one no table is read.
@@ -31,23 +35,28 @@ import base64
 import builtins
 import datetime as dt
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from . import delta_profile, maintenance, xray
-from .auth import GIT_STATUS_SCOPES, STORAGE_SCOPES
+from .auth import FABRIC_SCOPES, GIT_STATUS_SCOPES, STORAGE_SCOPES
 from .excellence import (adapters, assess, catalog, catalog_architecture, catalog_capacity, catalog_devops,
-                         catalog_performance, inspect_items, inspect_models, profiles)
+                         catalog_performance, catalog_warehouse, exceptions as excs, inspect_items, inspect_models,
+                         profiles)
+from .excellence import evidence as ev
 from .onelake import FileStore, TableRef, read_storage_options
-from .opportunities_service import _guid
+from .opportunities_service import MAX_DAYS, MIN_DAYS, _guid
 from .redact import describe
 
 METHODS = {"excellence_assess"}
 MAX_LAKEHOUSE_READS = 50  # lakehouse properties read per assessment; the rest are not evaluated, and reads says so
+_ID = re.compile(r"[0-9A-Za-z-]{1,64}")  # what a lakehouse id may be before it goes into a request path
 MAX_TABLE_LISTINGS = 300  # OneLake folder listings per assessment; a lakehouse past it isn't evaluated
 MAX_TABLE_READS = 100  # Delta logs read per assessment; the lakehouses with tables past it aren't passed
 TABLE_READ_WORKERS = 4
 MAX_MODELS = 30  # semantic model definitions read per assessment; the rest are not evaluated
+MAX_WAREHOUSE_READS = 50  # warehouse properties read per assessment; the rest are not evaluated
 # The demonstration fixture's semantic model ("Sales"), as a parsed model.bim. Made up.
 FIXTURE_MODEL: dict[str, Any] = {"model": {
     "directLakeBehavior": "Automatic",
@@ -88,8 +97,25 @@ FIXTURE_ROLES = [
 ]
 # The demonstration fixture's lakehouses (LH_Bronze, LH_Silver), as GET .../lakehouses/{id} would give them.
 FIXTURE_LAKEHOUSES: dict[str, dict[str, Any] | None] = {
-    "f1f1f1f1-0000-4000-8000-000000000301": {"displayName": "LH_Bronze", "properties": {"defaultSchema": "dbo"}},
-    "f1f1f1f1-0000-4000-8000-000000000302": {"displayName": "LH_Silver", "properties": {}},
+    "f1f1f1f1-0000-4000-8000-000000000301": {"displayName": "LH_Bronze", "properties": {
+        "defaultSchema": "dbo", "sqlEndpointProperties": {"id": "f1f1f1f1-0000-4000-8000-000000000311",
+                                                          "provisioningStatus": "Success"}}},
+    "f1f1f1f1-0000-4000-8000-000000000302": {"displayName": "LH_Silver", "properties": {
+        "sqlEndpointProperties": {"id": "f1f1f1f1-0000-4000-8000-000000000312", "provisioningStatus": "Success"}}},
+}
+# The demonstration fixture's warehouses and its lakehouses' SQL analytics endpoints, as the item list
+# and GET .../warehouses/{id} would give them. Made up; the two warehouses' collations differ on purpose.
+FIXTURE_SQL_ITEMS = [
+    {"id": "f1f1f1f1-0000-4000-8000-000000000311", "type": "SQLEndpoint", "displayName": "LH_Bronze"},
+    {"id": "f1f1f1f1-0000-4000-8000-000000000312", "type": "SQLEndpoint", "displayName": "LH_Silver"},
+    {"id": "f1f1f1f1-0000-4000-8000-000000000501", "type": "Warehouse", "displayName": "WH_Gold"},
+    {"id": "f1f1f1f1-0000-4000-8000-000000000502", "type": "Warehouse", "displayName": "WH_Finance"},
+]
+FIXTURE_WAREHOUSES: dict[str, dict[str, Any] | None] = {
+    "f1f1f1f1-0000-4000-8000-000000000501": {"displayName": "WH_Gold", "properties": {
+        "collationType": "Latin1_General_100_BIN2_UTF8"}},
+    "f1f1f1f1-0000-4000-8000-000000000502": {"displayName": "WH_Finance", "properties": {
+        "collationType": "Latin1_General_100_CI_AS_KS_WS_SC_UTF8"}},
 }
 # The demonstration fixture's Git connection and status, made up: as Get Connection and Get Status
 # would give them for a workspace on a GitHub branch with one uncommitted and one incoming change.
@@ -159,13 +185,41 @@ def _fixture_usage(workspace: str) -> list[dict[str, Any]]:
              "file_name": "timepoint-operations" + label, "rows": ops}]
 
 
+def _built(reads: list[dict[str, Any]], what: str, build: Any) -> list[dict[str, Any]]:
+    """``build()``'s evidence records, or none when what Fabric sent couldn't be used: ``reads`` then says
+    so and the controls that need it are not evaluated. Only the error's type is shown, never its text."""
+    try:
+        return build()
+    except Exception as exc:  # noqa: BLE001 - junk from a read is a read problem, never a crash or a pass
+        reads.append({"read": what, "ok": False,
+                      "problem": f"What was read couldn't be used ({type(exc).__name__}), so the controls that need "
+                                 "it aren't evaluated."})
+        return []
+
+
+def _check(workspace_id: Any, days: Any, profile: Any, demo: Any) -> profiles.Profile:
+    """The profile, after checking the parameters; ValueError with a short reason when one is wrong."""
+    if not isinstance(demo, bool):
+        raise ValueError("demo is true or false.")
+    prof = profiles.get(profiles.DEFAULT if profile in (None, "") else profile)
+    if isinstance(days, bool) or not isinstance(days, int) or not MIN_DAYS <= days <= MAX_DAYS:
+        raise ValueError(f"days is a whole number from {MIN_DAYS} to {MAX_DAYS}.")
+    if demo and (workspace_id or days != 30):
+        raise ValueError("The demonstration fixture is assessed on its own, over its own 30 days: leave out "
+                         "workspace_id and days.")
+    return prof
+
+
 def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 
 def _items(opt: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """The items the optimization engine listed, or None when they couldn't be listed. A problem with
+    items in hand (only the first ones' definitions were read) still lists them all, so each one is
+    reported in the coverage rather than the whole workspace being left out."""
     ws = (opt.get("workspaces") or [{}])[0]
-    if ws.get("problem"):
+    if ws.get("problem") and not opt.get("workloads"):
         return None
     return [{"id": w["item_id"], "type": w["type"], "displayName": w.get("name")} for w in opt.get("workloads") or []]
 
@@ -181,9 +235,12 @@ def _lakehouses(fabric: Any, wid: str, items: list[dict[str, Any]] | None,
     problems: list[str] = []
     for lh in lakehouses[:MAX_LAKEHOUSE_READS]:
         try:
+            # only an id-shaped value goes into the request path: never a "/", "?" or ".."
+            if not isinstance(lh["id"], str) or not _ID.fullmatch(lh["id"]):
+                raise ValueError("its id isn't a Fabric id")
             got[str(lh["id"])] = fabric.get_lakehouse(wid, lh["id"])
         except Exception as exc:  # noqa: BLE001 - that lakehouse's controls are then not evaluated
-            problems.append(f"{lh.get('displayName') or lh['id']} ({describe(exc)})")
+            problems.append(f"{ev.text(lh.get('displayName')) or ev.text(lh['id'])} ({describe(exc)})")
     left = len(lakehouses) - MAX_LAKEHOUSE_READS
     notes = []
     if problems:
@@ -192,6 +249,40 @@ def _lakehouses(fabric: Any, wid: str, items: list[dict[str, Any]] | None,
     if left > 0:
         notes.append(f"{left} past the first {MAX_LAKEHOUSE_READS} weren't read.")
     reads.append({"read": "lakehouse properties", "ok": not notes, "problem": " ".join(notes) or None})
+    return got
+
+
+def _warehouses(client_for: Callable[[], Any], wid: str, items: list[dict[str, Any]] | None,
+                reads: list[dict[str, Any]]) -> dict[str, dict[str, Any] | None]:
+    """Each warehouse's properties, read one by one with the client ``client_for()`` gives: one holding
+    a token the app already had, or ``None`` when there is none, and then nothing is read. It is asked
+    for only when the workspace has a warehouse. A warehouse that couldn't be read, or is past
+    MAX_WAREHOUSE_READS, has no answer, so its controls are not evaluated."""
+    found = [i for i in items or [] if i.get("type") == "Warehouse"]
+    if not found:
+        return {}
+    client = client_for()
+    if client is None:
+        reads.append({"read": "warehouse properties", "ok": False,
+                      "problem": "Not read: it needs a sign-in the app can use without asking, and there isn't one "
+                                 "now, so the warehouse controls aren't evaluated. Sign in again and assess again."})
+        return {}
+    got: dict[str, dict[str, Any] | None] = {}
+    problems: list[str] = []
+    for wh in found[:MAX_WAREHOUSE_READS]:
+        try:
+            got[str(wh["id"])] = client.get_warehouse(wid, _guid(wh.get("id"), "warehouse"))
+        except Exception as exc:  # noqa: BLE001 - that warehouse's controls are then not evaluated
+            problems.append(f"{wh.get('displayName') or wh.get('id')} ({describe(exc)})")
+    left = len(found) - MAX_WAREHOUSE_READS
+    notes = []
+    if problems:
+        notes.append(f"{len(problems)} of {len(found)} couldn't be read: " + "; ".join(problems[:3])
+                     + (f" and {len(problems) - 3} more" if len(problems) > 3 else "") + ".")
+    if left > 0:
+        notes.append(f"{left} past the first {MAX_WAREHOUSE_READS} weren't read.")
+    reads.append({"read": "warehouse properties", "ok": not notes, "problem": " ".join(notes) or None,
+                  "count": min(len(found), MAX_WAREHOUSE_READS)})
     return got
 
 
@@ -401,12 +492,15 @@ class ExcellenceMixin:
         return self._silent_client(GIT_STATUS_SCOPES)  # type: ignore[attr-defined]
 
     def excellence_assess(self, workspace_id: str = "", days: int = 30, profile: str = profiles.DEFAULT,
-                          demo: bool = False) -> dict[str, Any]:
+                          demo: bool = False, exceptions: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """Assess one workspace (and its capacity, when you can see it) against the excellence controls.
 
-        Reads only. ``profile`` is a built-in profile id. With ``demo`` a labelled fixture is assessed."""
-        prof = profiles.get(str(profile or profiles.DEFAULT))
+        Reads only. ``profile`` is a built-in profile id. With ``demo`` a labelled fixture is assessed.
+        ``exceptions`` are accepted risks (excellence.exceptions): checked before anything is read, a bad
+        one refused with a ValueError, and shown on what they match without changing any outcome or score."""
+        prof = _check(workspace_id, days, profile, demo)
         at = _now()
+        accepted = excs.validate(exceptions, catalog.registry(), today=dt.date.fromisoformat(at[:10]))
         reads: list[dict[str, Any]] = []
         info_read = True
         if demo:
@@ -424,13 +518,15 @@ class ExcellenceMixin:
             git_conn: dict[str, Any] | None = FIXTURE_GIT_CONNECTION
             git_status: dict[str, Any] | None = FIXTURE_GIT_STATUS
             models, _ = _models(opt, lambda _item: FIXTURE_MODEL)
+            items: list[dict[str, Any]] | None = (_items(opt) or []) + FIXTURE_SQL_ITEMS
+            warehouses = dict(FIXTURE_WAREHOUSES)
         else:
             wid = _guid(workspace_id, "workspace")
             fabric = self.fabric  # type: ignore[attr-defined]
             info_read = True
             try:
                 got = fabric.get_workspace(wid)
-                ws = {**got, "id": got.get("id") or wid}
+                ws = {**got, "id": wid}  # the workspace asked for, whatever id the answer carries
                 reads.append({"read": "workspace settings", "ok": True, "problem": None})
             except Exception as exc:  # noqa: BLE001 - its controls are then not evaluated
                 ws, info_read = {"id": wid}, False
@@ -462,8 +558,12 @@ class ExcellenceMixin:
             except Exception as exc:  # noqa: BLE001 - the capacity controls are then not evaluated
                 capacities = None
                 reads.append({"read": "capacities", "ok": False, "problem": f"Couldn't be read ({describe(exc)})."})
-            lakehouses = _lakehouses(fabric, wid, _items(opt), reads)
-            tables = self._table_layout(wid, _items(opt), reads)
+            items = _items(opt)
+            lakehouses = _lakehouses(fabric, wid, items, reads)
+            # never self.fabric, which may ask to sign in: only a token the app already holds
+            warehouses = _warehouses(lambda: self._silent_client(FABRIC_SCOPES),  # type: ignore[attr-defined]
+                                     wid, items, reads)
+            tables = self._table_layout(wid, items, reads)
             git_conn, git_status = _git(fabric, self._git_status_client, wid, reads)
             try:
                 imports = self._usage.all()  # type: ignore[attr-defined]
@@ -471,28 +571,38 @@ class ExcellenceMixin:
                 imports = None
                 reads.append({"read": "imported Capacity Metrics exports", "ok": False,
                               "problem": f"The imports on this PC couldn't be read ({describe(exc)})."})
-        cap_id = str(ws.get("capacityId") or "").lower()
-        records = (adapters.workspace(ws, _items(opt), collected_at=at, info_read=info_read)
-                   + adapters.roles(ws, assignments, collected_at=at)
-                   + adapters.capacity(cap_id, capacities, collected_at=at)
-                   + adapters.optimization(opt, collected_at=at)
-                   + adapters.inspection(opt, collected_at=at)
-                   + catalog_architecture.evidence(ws, _items(opt), opt, lakehouses, collected_at=at)
-                   + catalog_performance.table_layout(str(ws["id"]), [i for i in _items(opt) or []
-                                                                      if i.get("type") == "Lakehouse"],
-                                                      tables, collected_at=at)
-                   + adapters.models(models, collected_at=at)
-                   + catalog_devops.evidence(ws, git_conn, git_status, collected_at=at))
-        cap_name = next((c.get("displayName") for c in capacities or [] if str(c.get("id") or "").lower() == cap_id), None)
-        usage = catalog_capacity.usage(cap_id, cap_name, ws.get("displayName"), imports, collected_at=at)
+        cap = ws.get("capacityId")
+        cap_id = cap.lower() if isinstance(cap, str) and ev.ok_id(cap) else ""
+        records = (_built(reads, "workspace settings and items",
+                          lambda: adapters.workspace(ws, items, collected_at=at, info_read=info_read))
+                   + _built(reads, "role assignments", lambda: adapters.roles(ws, assignments, collected_at=at))
+                   + _built(reads, "capacities", lambda: adapters.capacity(cap_id, capacities, collected_at=at))
+                   + _built(reads, "items, definitions and job history", lambda: (
+                       adapters.optimization(opt, collected_at=at) + adapters.inspection(opt, collected_at=at)))
+                   + _built(reads, "workspace names, lakehouse properties and notebook bindings",
+                            lambda: catalog_architecture.evidence(ws, items, opt, lakehouses, collected_at=at))
+                   + _built(reads, "lakehouse tables", lambda: catalog_performance.table_layout(
+                       str(ws["id"]), [i for i in items or [] if isinstance(i, dict) and i.get("type") == "Lakehouse"],
+                       tables, collected_at=at))
+                   + _built(reads, "warehouse and SQL analytics endpoint properties",
+                            lambda: catalog_warehouse.evidence(ws, items, lakehouses, warehouses, collected_at=at))
+                   + _built(reads, "semantic model definitions", lambda: adapters.models(models, collected_at=at))
+                   + _built(reads, "Git connection and status",
+                            lambda: catalog_devops.evidence(ws, git_conn, git_status, collected_at=at)))
+        cap_name = next((c.get("displayName") for c in capacities if isinstance(c, dict)
+                         and str(c.get("id") or "").lower() == cap_id), None) if isinstance(capacities, list) else None
+        unusable = len(reads)
+        usage = _built(reads, "imported Capacity Metrics exports", lambda: catalog_capacity.usage(
+            cap_id, cap_name, ws.get("displayName"), imports, collected_at=at))
         records += usage
-        if cap_id and imports is not None:
+        if cap_id and imports is not None and len(reads) == unusable:
             reads.append({"read": "imported Capacity Metrics exports", "ok": True, "problem": None if usage else (
                 "No Capacity Metrics export imported on this PC has this workspace's use, so the capacity usage "
                 "controls aren't evaluated. Import one in Optimize > Cost and savings.")})
         scope = {"workspaces": [{"id": str(ws["id"]), "name": ws.get("displayName")}],
                  "capacities": [cap_id] if cap_id else []}
-        result = assess.assess(records, catalog.registry(), scope=scope, assessed_at=at, profile=prof, fixture=demo)
+        result = assess.assess(records, catalog.registry(), scope=scope, assessed_at=at, profile=prof, fixture=demo,
+                               exceptions=accepted)
         result["reads"] = reads
         if cap_id and not any(r["kind"] == "capacity.state" for r in result["evidence"]):
             result["reads"].append({"read": "capacity", "ok": False,

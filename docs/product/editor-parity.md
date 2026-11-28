@@ -32,16 +32,15 @@ This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and r
 
 | Group | Counted rows | Have | Partial | Gap | Score |
 | --- | --- | --- | --- | --- | --- |
-| Notebook | 54 | 52 | 0 | 2 | 96% |
-| SQL editor | 45 | 41 | 2 | 2 | 93% |
-| **Both** | **99** | **93** | **2** | **4** | **95%** |
+| Notebook | 54 | 54 | 0 | 0 | 100% |
+| SQL editor | 45 | 42 | 2 | 1 | 96% |
+| **Both** | **99** | **96** | **2** | **1** | **98%** |
 
-The notebook is at 96%: its two gaps are rich-text Markdown editing (N23) and presentation mode
-(N49), the wave 2 items. Their mockup is approved (2026-11-17), and the builds wait on Chris's go. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
+The notebook is at 100%. Its last two gaps, the Markdown toolbar and preview (N23) and Present mode (N49), are both built as Preview. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
 signature help, Format SQL and a compatibility check that none of the others have), and its results
 grid now sorts, filters, resizes, opens and copies over every row, with several statements and
-result sets per run. Its open rows are data compare
-(S34, mockups approved), open transactions across runs (S18), and two rows that need Chris's decision:
+result sets per run. Compare data (S34) now compares the rows of two tables or queries on this PC, in
+Preview. Its open rows are open transactions across runs (S18), and two rows that need Chris's decision:
 editing rows in the grid (S35) and other engines (S42).
 
 ## Notebook matrix
@@ -72,7 +71,7 @@ Products: JL = JupyterLab, VSC = VS Code, Fab = Fabric, Dbx = Databricks.
 | N20 | Markdown: numbered and nested lists, tables, code blocks, quotes, H4 to H6, clickable links | Y | Y | Y | Y | Y | Have | markdown-it: CommonMark, GitHub tables, nested lists, code, quotes, links opened in the browser (#2589) |
 | N21 | LaTeX math in Markdown | Y | Y | Y | Y | Y | Have | KaTeX drawn as MathML, nothing fetched (#2589) |
 | N22 | Images in Markdown, including pasted attachments | Y | Y | Y | Y | Y | Have | pasted attachments and inline data images; remote images are not fetched (#2589) |
-| N23 | Rich-text Markdown editing (toolbar, live preview) | N | P | Y | N | Y | Gap | raw source, rendered on leaving the cell |
+| N23 | Rich-text Markdown editing (toolbar, live preview) | N | P | Y | N | Y | Have | Formatting toolbar and Edit, Split or Preview view while editing a Markdown cell (`nbmarkdown.js`, Preview, #3329) |
 | N24 | Run cell, all, above, below; restart and run all; interrupt | Y | Y | Y | Y | Y | Have | `notebook.js`, `nbnext.js` |
 | N25 | Run the selected text or current line | P | Y | Y | Y | N | Have | `nbselect.js` |
 | N26 | Execution count and time per cell | Y | Y | Y | Y | Y | Have | `notebook.js:465` |
@@ -98,7 +97,7 @@ Products: JL = JupyterLab, VSC = VS Code, Fab = Fabric, Dbx = Databricks.
 | N46 | Download a result as CSV, Excel or Parquet | N | P | Y | Y | Y | Have | `frame_download` |
 | N47 | Find inside outputs | Y | Y | N | N | N | Have | Find searches cell outputs too (#2581) |
 | N48 | Publish a notebook as a read-only report or app | P | N | N | Y | Y | Have | Notebook > Share > Open as report, outputs only in its own window (`nbreport.js`, Preview, #2797) |
-| N49 | Presentation (slide) mode | P | N | N | Y | Y | Gap | |
+| N49 | Presentation (slide) mode | P | N | N | Y | Y | Have | Notebook > View > Present, slides from # and ## headings or marked cells, outputs only (`nbpresent.js`, Preview) |
 | N50 | Autosave, versions, diff, restore | P | P | Y | Y | Y | Have | `notebook-versions.js` |
 | N51 | Export as .ipynb, .py, HTML | Y | Y | Y | Y | P | Have | `notebook-formats.js` |
 | N52 | Export as PDF | Y | Y | N | P | Y | Have | Export as PDF through print to PDF (#2584) |
@@ -150,7 +149,7 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S31 | Table detail, data preview, profile | P | P | Y | Y | Y | Have | Preview, `whdetail.js` |
 | S32 | Diagram of tables and their relationships | Y | N | Y | Y | N | Have | Explorer › Diagram, from warehouse keys and names, read only, Preview (#2795) |
 | S33 | Schema compare and deploy | Y | Y | Y | Y | N | Have | `whproject.js` |
-| S34 | Data compare between two tables | Y | N | Y | Y | N | Gap | |
+| S34 | Data compare between two tables | Y | N | Y | Y | N | Have | Explorer › Compare data, or a table's menu › Compare with: two tables or queries, rows matched on key columns, number tolerances, read only, on this PC, Preview (`sqlcompare.js`, `sql_compare.py`) |
 | S35 | Edit rows in the result grid | Y | N | Y | Y | N | Gap | writes to lakehouse tables are guarded; needs a decision |
 | S36 | Query history with search | P | Y | Y | Y | Y | Have | `sqlhistory.js:82` |
 | S37 | Saved and shared queries | Y | Y | Y | Y | Y | Have | `sqlqueries.js` |
@@ -245,7 +244,7 @@ each its own PR and Preview until used for real:
 | F5 | MERGE with schema evolution and dynamic partition overwrite, under the write lease | No | Merged #2631, #2635 (Preview) |
 | F6 | `OPTIMIZE`, `VACUUM`, `RESTORE` and `DeltaTable` maintenance from code, behind the app's guards | No | Merged #2639 (Preview) |
 | F7 | `notebookutils` writes: `lakehouse.loadTable`, `create`, `update`; `notebook.create`, `update`, `updateDefinition` | No | Done as far as it can go on this PC: `lakehouse.loadTable` runs here (#2637, Preview). Creating or changing Fabric items from code is a hand-off: the notebook is marked as needing Fabric and runs there (`fabric_run.py` `_UTILS_FABRIC`), as Publish to OneLake is the guarded way from this PC |
-| F8 | Rich-text Markdown editing (N23), after the Markdown renderer | Yes | Mockup approved 2026-11-17; the build waits on Chris's go |
+| F8 | Rich-text Markdown editing (N23), after the Markdown renderer | Yes | Merged #3329 (Preview) |
 | F9 | Editor display settings (N17, Wave 1 item 16) | Yes | Merged #2791 (Preview for Vim) |
 | F10 | Dark mode applied (N60): mockup approved 2026-11-13, merged in #2585 | Yes | Merged #2585 |
 

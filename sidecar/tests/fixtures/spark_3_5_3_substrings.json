@@ -1,0 +1,2212 @@
+{
+ "spark": "3.5.3",
+ "ansi": false,
+ "time_zone": "UTC",
+ "cases": [
+  {
+   "sql": "SELECT substring('hello', 0) AS v, typeof(substring('hello', 0)) AS t",
+   "value": [
+    [
+     "hello",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', 0, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', 0, 3) AS v",
+   "value": [
+    [
+     "hel"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', 0, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', 0, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', 0, 2147483647) AS v",
+   "value": [
+    [
+     "hello"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', 2) AS v, typeof(substring('hello', 2)) AS t",
+   "value": [
+    [
+     "ello",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', 2, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', 2, 3) AS v",
+   "value": [
+    [
+     "ell"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', 2, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', 2, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', 2, 2147483647) AS v",
+   "value": [
+    [
+     "ello"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -1) AS v, typeof(substring('hello', -1)) AS t",
+   "value": [
+    [
+     "o",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -1, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -1, 3) AS v",
+   "value": [
+    [
+     "o"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -1, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -1, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -1, 2147483647) AS v",
+   "value": [
+    [
+     "o"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -5) AS v, typeof(substring('hello', -5)) AS t",
+   "value": [
+    [
+     "hello",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -5, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -5, 3) AS v",
+   "value": [
+    [
+     "hel"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -5, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -5, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -5, 2147483647) AS v",
+   "value": [
+    [
+     "hello"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -6) AS v, typeof(substring('hello', -6)) AS t",
+   "value": [
+    [
+     "hello",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -6, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -6, 3) AS v",
+   "value": [
+    [
+     "he"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -6, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -6, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -6, 2147483647) AS v",
+   "value": [
+    [
+     "hello"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -10) AS v, typeof(substring('hello', -10)) AS t",
+   "value": [
+    [
+     "hello",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -10, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -10, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -10, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -10, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -10, 2147483647) AS v",
+   "value": [
+    [
+     "hello"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', 6) AS v, typeof(substring('hello', 6)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', 6, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', 6, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', 6, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', 6, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', 6, 2147483647) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', CAST(NULL AS INT)) AS v, typeof(substring('hello', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', CAST(NULL AS INT), 0) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', CAST(NULL AS INT), 3) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', CAST(NULL AS INT), -1) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', CAST(NULL AS INT), CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', CAST(NULL AS INT), 2147483647) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -2147483648) AS v, typeof(substring('hello', -2147483648)) AS t",
+   "value": [
+    [
+     "hell",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -2147483648, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -2147483648, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -2147483648, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -2147483648, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('hello', -2147483648, 2147483647) AS v",
+   "value": [
+    [
+     "hell"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 0) AS v, typeof(substring('', 0)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 0, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 0, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 0, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 0, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 0, 2147483647) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 2) AS v, typeof(substring('', 2)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 2, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 2, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 2, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 2, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 2, 2147483647) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -1) AS v, typeof(substring('', -1)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -1, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -1, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -1, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -1, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -1, 2147483647) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -5) AS v, typeof(substring('', -5)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -5, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -5, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -5, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -5, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -5, 2147483647) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -6) AS v, typeof(substring('', -6)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -6, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -6, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -6, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -6, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -6, 2147483647) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -10) AS v, typeof(substring('', -10)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -10, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -10, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -10, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -10, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -10, 2147483647) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 6) AS v, typeof(substring('', 6)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 6, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 6, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 6, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 6, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', 6, 2147483647) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', CAST(NULL AS INT)) AS v, typeof(substring('', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', CAST(NULL AS INT), 0) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', CAST(NULL AS INT), 3) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', CAST(NULL AS INT), -1) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', CAST(NULL AS INT), CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', CAST(NULL AS INT), 2147483647) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -2147483648) AS v, typeof(substring('', -2147483648)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -2147483648, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -2147483648, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -2147483648, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -2147483648, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('', -2147483648, 2147483647) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 0) AS v, typeof(substring('😀a😀b', 0)) AS t",
+   "value": [
+    [
+     "😀a😀b",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 0, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 0, 3) AS v",
+   "value": [
+    [
+     "😀a😀"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 0, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 0, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 0, 2147483647) AS v",
+   "value": [
+    [
+     "😀a😀b"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 2) AS v, typeof(substring('😀a😀b', 2)) AS t",
+   "value": [
+    [
+     "a😀b",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 2, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 2, 3) AS v",
+   "value": [
+    [
+     "a😀b"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 2, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 2, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 2, 2147483647) AS v",
+   "value": [
+    [
+     "a😀b"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -1) AS v, typeof(substring('😀a😀b', -1)) AS t",
+   "value": [
+    [
+     "b",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -1, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -1, 3) AS v",
+   "value": [
+    [
+     "b"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -1, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -1, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -1, 2147483647) AS v",
+   "value": [
+    [
+     "b"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -5) AS v, typeof(substring('😀a😀b', -5)) AS t",
+   "value": [
+    [
+     "😀a😀b",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -5, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -5, 3) AS v",
+   "value": [
+    [
+     "😀a"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -5, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -5, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -5, 2147483647) AS v",
+   "value": [
+    [
+     "😀a😀b"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -6) AS v, typeof(substring('😀a😀b', -6)) AS t",
+   "value": [
+    [
+     "😀a😀b",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -6, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -6, 3) AS v",
+   "value": [
+    [
+     "😀"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -6, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -6, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -6, 2147483647) AS v",
+   "value": [
+    [
+     "😀a😀b"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -10) AS v, typeof(substring('😀a😀b', -10)) AS t",
+   "value": [
+    [
+     "😀a😀b",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -10, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -10, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -10, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -10, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -10, 2147483647) AS v",
+   "value": [
+    [
+     "😀a😀b"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 6) AS v, typeof(substring('😀a😀b', 6)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 6, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 6, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 6, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 6, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', 6, 2147483647) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', CAST(NULL AS INT)) AS v, typeof(substring('😀a😀b', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', CAST(NULL AS INT), 0) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', CAST(NULL AS INT), 3) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', CAST(NULL AS INT), -1) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', CAST(NULL AS INT), CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', CAST(NULL AS INT), 2147483647) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -2147483648) AS v, typeof(substring('😀a😀b', -2147483648)) AS t",
+   "value": [
+    [
+     "😀a😀",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -2147483648, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -2147483648, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -2147483648, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -2147483648, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('😀a😀b', -2147483648, 2147483647) AS v",
+   "value": [
+    [
+     "😀a😀"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 0) AS v, typeof(substring('éx', 0)) AS t",
+   "value": [
+    [
+     "éx",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 0, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 0, 3) AS v",
+   "value": [
+    [
+     "éx"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 0, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 0, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 0, 2147483647) AS v",
+   "value": [
+    [
+     "éx"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 2) AS v, typeof(substring('éx', 2)) AS t",
+   "value": [
+    [
+     "́x",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 2, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 2, 3) AS v",
+   "value": [
+    [
+     "́x"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 2, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 2, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 2, 2147483647) AS v",
+   "value": [
+    [
+     "́x"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -1) AS v, typeof(substring('éx', -1)) AS t",
+   "value": [
+    [
+     "x",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -1, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -1, 3) AS v",
+   "value": [
+    [
+     "x"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -1, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -1, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -1, 2147483647) AS v",
+   "value": [
+    [
+     "x"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -5) AS v, typeof(substring('éx', -5)) AS t",
+   "value": [
+    [
+     "éx",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -5, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -5, 3) AS v",
+   "value": [
+    [
+     "e"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -5, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -5, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -5, 2147483647) AS v",
+   "value": [
+    [
+     "éx"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -6) AS v, typeof(substring('éx', -6)) AS t",
+   "value": [
+    [
+     "éx",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -6, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -6, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -6, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -6, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -6, 2147483647) AS v",
+   "value": [
+    [
+     "éx"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -10) AS v, typeof(substring('éx', -10)) AS t",
+   "value": [
+    [
+     "éx",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -10, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -10, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -10, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -10, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -10, 2147483647) AS v",
+   "value": [
+    [
+     "éx"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 6) AS v, typeof(substring('éx', 6)) AS t",
+   "value": [
+    [
+     "",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 6, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 6, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 6, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 6, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', 6, 2147483647) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', CAST(NULL AS INT)) AS v, typeof(substring('éx', CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', CAST(NULL AS INT), 0) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', CAST(NULL AS INT), 3) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', CAST(NULL AS INT), -1) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', CAST(NULL AS INT), CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', CAST(NULL AS INT), 2147483647) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -2147483648) AS v, typeof(substring('éx', -2147483648)) AS t",
+   "value": [
+    [
+     "é",
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -2147483648, 0) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -2147483648, 3) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -2147483648, -1) AS v",
+   "value": [
+    [
+     ""
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -2147483648, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring('éx', -2147483648, 2147483647) AS v",
+   "value": [
+    [
+     "é"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 0) AS v, typeof(substring(CAST(NULL AS STRING), 0)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 0, 0) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 0, 3) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 0, -1) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 0, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 0, 2147483647) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 2) AS v, typeof(substring(CAST(NULL AS STRING), 2)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 2, 0) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 2, 3) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 2, -1) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 2, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 2, 2147483647) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -1) AS v, typeof(substring(CAST(NULL AS STRING), -1)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -1, 0) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -1, 3) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -1, -1) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -1, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -1, 2147483647) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -5) AS v, typeof(substring(CAST(NULL AS STRING), -5)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -5, 0) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -5, 3) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -5, -1) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -5, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -5, 2147483647) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -6) AS v, typeof(substring(CAST(NULL AS STRING), -6)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -6, 0) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -6, 3) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -6, -1) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -6, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -6, 2147483647) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -10) AS v, typeof(substring(CAST(NULL AS STRING), -10)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -10, 0) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -10, 3) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -10, -1) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -10, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -10, 2147483647) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 6) AS v, typeof(substring(CAST(NULL AS STRING), 6)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 6, 0) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 6, 3) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 6, -1) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 6, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), 6, 2147483647) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), CAST(NULL AS INT)) AS v, typeof(substring(CAST(NULL AS STRING), CAST(NULL AS INT))) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), CAST(NULL AS INT), 0) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), CAST(NULL AS INT), 3) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), CAST(NULL AS INT), -1) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), CAST(NULL AS INT), CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), CAST(NULL AS INT), 2147483647) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -2147483648) AS v, typeof(substring(CAST(NULL AS STRING), -2147483648)) AS t",
+   "value": [
+    [
+     null,
+     "string"
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -2147483648, 0) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -2147483648, 3) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -2147483648, -1) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -2147483648, CAST(NULL AS INT)) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  },
+  {
+   "sql": "SELECT substring(CAST(NULL AS STRING), -2147483648, 2147483647) AS v",
+   "value": [
+    [
+     null
+    ]
+   ]
+  }
+ ]
+}

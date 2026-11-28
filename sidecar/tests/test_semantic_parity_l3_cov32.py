@@ -156,8 +156,8 @@ def test_min_of_a_text_column_is_the_text():
 def test_a_plain_division_by_a_zero_sum_is_not_a_number_and_still_verifies_when_both_sides_agree():
     m, r = _results(_doc(("q", "SUM(amount) / SUM(amount)")), "q")
     assert r["basic"] == "1"
-    # 0 / 0 on DOUBLE: DuckDB gives NaN (or NULL, when its IEEE setting is off); never a decimal.
-    assert r["zeros"] in ("nan", None)
+    # 0 / 0 on DOUBLE gives NaN on both DuckDB 1.5.6 and 2.0.0 (IEEE float division is on by default).
+    assert r["zeros"] == "nan"
     assert m["behavior_result"] == sp.VERIFIED
 
 

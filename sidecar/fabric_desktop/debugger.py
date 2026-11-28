@@ -27,6 +27,7 @@ import inspect
 import queue
 import sys
 import threading
+import time
 import types
 from typing import Any, Callable
 
@@ -43,6 +44,13 @@ MAX_SKIPPED = 5  # names of stepped-over functions reported with a pause
 EVAL_SECONDS = 10.0
 MAX_EVALS = 20  # evaluations a pause keeps, the latest ones
 MAX_EXPRESSION = 2000  # characters in an expression to evaluate (the panel's box takes 500)
+# Describing a frame's variables runs their own code (repr, len): past this, the rest are listed by
+# name and type only, so a frame full of slow values still pauses quickly.
+DESCRIBE_SECONDS = 3.0
+# Before 3.13 (PEP 667), a function's f_locals is a snapshot that each read refreshes from the frame and
+# that Python writes back to it as the trace hook returns: see Debugger._scope.
+_SNAPSHOT_LOCALS = sys.version_info < (3, 13)
+_UNSET = object()
 
 
 def check_breakpoints(lines: Any) -> list[int]:
@@ -83,14 +91,21 @@ class Debugger:
         self.skip: set[str] = set()  # names not shown as variables (the kernel's own)
         self.skipped: list[str] = []  # functions Step into didn't enter since the last pause
         self._raising: types.FrameType | None = None  # the frame an exception is leaving, if any
+        self._tail: types.CodeType | None = None  # the cell's last expression (add)
+        self._top_line: int | None = None  # the line the cell's own frame last ran
         self._from: tuple[types.FrameType, int] | None = None  # where the last step or next started
         self._scopes: dict[types.FrameType, dict[str, Any]] = {}  # a cell or class body's own namespace
         self.stopping = False  # Stop was asked for: its interrupt ends an expression instead of being its answer
 
     # ---- set up by the kernel, on the cell's thread
 
-    def add(self, code: types.CodeType) -> None:
-        """Trace ``code`` and every function, class body and comprehension compiled with it."""
+    def add(self, code: types.CodeType, tail: bool = False) -> None:
+        """Trace ``code`` and every function, class body and comprehension compiled with it.
+        ``tail``: the cell's last expression, compiled apart from the rest so its value shows. When it
+        shares a line with the statement before it (``y = 2; y``), that line already ran its line
+        event, so it isn't a second place to stop: Continue from it never stops on it again."""
+        if tail:
+            self._tail, self._top_line = code, None
         todo = [code]
         while todo:
             c = todo.pop()
@@ -134,6 +149,11 @@ class Debugger:
             self._raising = frame  # unwinding: its return event isn't a step's place to stop
         elif event == "line":
             self._raising = None  # caught, and running on
+            if frame.f_code is self._tail:
+                if frame.f_lineno == self._top_line:
+                    return self._line  # the line the cell's body ended on, already run (add)
+            elif frame.f_code.co_name == "<module>":
+                self._top_line = frame.f_lineno
         elif event == "return":
             self._scopes.pop(frame, None)
             if self._from is not None and self._from[0] is frame:
@@ -196,22 +216,42 @@ class Debugger:
                 continue
             shown.append((name, value))
         shown.sort(key=lambda nv: nv[0].lower())
-        return [self._row(name, value) for name, value in shown[:MAX_LOCALS]], len(shown)
+        deadline = time.monotonic() + DESCRIBE_SECONDS
+        rows = [self._row(name, value) if time.monotonic() < deadline else _unread(name, value)
+                for name, value in shown[:MAX_LOCALS]]
+        return rows, len(shown)
 
-    def _evaluate(self, frame: types.FrameType, expr: str) -> dict[str, Any]:
+    def _evaluate(self, frame: types.FrameType, expr: str, assigned: dict[str, Any] | None = None) -> dict[str, Any]:
+        frame_had = dict(frame.f_locals) if assigned is not None else {}  # the frame's own values, without the overlay
+        scope = self._scope(frame, assigned)
+        before = dict(scope) if assigned is not None else {}
         try:
-            value = eval(compile(expr, "<debug>", "eval"), frame.f_globals, self._scope(frame))  # noqa: S307 - the person's own notebook code
+            value = eval(compile(expr, "<debug>", "eval"), frame.f_globals, scope)  # noqa: S307 - the person's own notebook code
         except BaseException as exc:  # noqa: BLE001 - exit(), KeyboardInterrupt and the like too: shown next to the expression
             if self.stopping:
                 raise  # Stop's interrupt, landing in an expression that ran on: it ends the cell
             return {"expr": expr, "error": self.redact(f"{type(exc).__name__}: {exc}")}
+        finally:
+            if assigned is not None:  # what the expression assigned itself, (n := 5), kept on top of the frame
+                wrote = {k: v for k, v in scope.items() if k not in before or before[k] is not v}
+                frame_has = frame.f_locals  # refreshed (the same dict as scope): a nonlocal a called function changed
+                for name in [k for k in assigned if frame_has.get(k, _UNSET) is not frame_had.get(k, _UNSET)]:
+                    del assigned[name]  # the frame's newer value wins over an earlier expression's
+                assigned.update(wrote)
+                self._scope(frame, assigned)
         return {"expr": expr, **self._row(expr, value)}
 
-    def _scope(self, frame: types.FrameType) -> dict[str, Any]:
+    def _scope(self, frame: types.FrameType, assigned: dict[str, Any] | None = None) -> dict[str, Any]:
         """The names to show and evaluate in: a function's locals, or a cell's or class body's own namespace
-        (without the variables of an inlined comprehension running in it, see trace)."""
+        (without the variables of an inlined comprehension running in it, see trace).
+        ``assigned``: before 3.13, what this pause's expressions assigned in a function's snapshot of its
+        locals. Each read of f_locals refreshes the snapshot from the frame, which would undo them before
+        Python writes the snapshot back as the pause ends, so they are put back after each read."""
         if frame.f_code.co_flags & inspect.CO_OPTIMIZED:
-            return frame.f_locals
+            scope = frame.f_locals
+            if assigned:
+                scope.update(assigned)
+            return scope
         return self._scopes.get(frame, frame.f_globals)
 
     def _row(self, name: str, value: Any) -> dict[str, Any]:
@@ -221,9 +261,10 @@ class Debugger:
 
     def _pause(self, frame: types.FrameType, reason: str) -> None:
         variables, total = self._variables(frame)
+        assigned: dict[str, Any] | None = {} if _SNAPSHOT_LOCALS and frame.f_code.co_flags & inspect.CO_OPTIMIZED else None
         self.paused = {"line": frame.f_lineno, "reason": reason, "stack": self._stack(frame),
                        "variables": variables,
-                       "watches": [self._evaluate(frame, w) for w in self.watches], "evals": []}
+                       "watches": [self._evaluate(frame, w, assigned) for w in self.watches], "evals": []}
         if total > len(variables):
             self.paused["variables_total"] = total
         if self.skipped:
@@ -242,7 +283,7 @@ class Debugger:
                     raise Stopped()
                 if action == "eval":
                     expr, slot = arg
-                    result = self._evaluate(frame, expr)
+                    result = self._evaluate(frame, expr, assigned)
                     self.paused["evals"] = (self.paused["evals"] + [result])[-MAX_EVALS:]
                     slot["result"] = result
                     slot["done"].set()
@@ -303,6 +344,11 @@ class Debugger:
             return False
         self.commands.put(("stop", None))
         return True
+
+
+def _unread(name: str, value: Any) -> dict[str, Any]:
+    """A variable left unread because describing the ones before it took DESCRIBE_SECONDS."""
+    return {"name": name, "type": type(value).__name__, "size": "", "value": "?", "memory": None, "expandable": False}
 
 
 def _suspends(frame: types.FrameType) -> bool:

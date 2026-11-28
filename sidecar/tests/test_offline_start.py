@@ -205,3 +205,42 @@ def test_local_notebooks_work_offline(monkeypatch, app):
     block(monkeypatch)
     made = app.new_notebook()
     assert made and app.list_notebooks()
+
+
+HOST_TENANT = "0a1b2c3d-0000-4000-8000-00000000beef"
+
+
+def test_a_new_organization_to_sign_in_to_builds_a_new_sign_in(monkeypatch, app):
+    # The sign-in is kept per (app ID, organization): Switch organization must not reuse the old one,
+    # or it would sign in to the organization it just left.
+    from fabric_desktop import app_settings
+
+    made = []
+
+    class Made:
+        def __init__(self, client_id, interactive=True, tenant=None):
+            self.client_id, self.tenant = client_id, tenant or ""
+            made.append(self.tenant)
+
+    monkeypatch.setattr(service_mod, "Authenticator", Made)
+    first = build(app)
+    assert build(app) is first and made == [""]  # reused while nothing changed
+    app_settings.save({"sign_in_tenant": "northwind.com"})
+    second = build(app)
+    assert second is not first and second.tenant == "northwind.com" and made == ["", "northwind.com"]
+    assert build(app) is second  # and reused from then on
+    app_settings.save({"sign_in_tenant": ""})
+    assert build(app).tenant == "" and made == ["", "northwind.com", ""]
+
+
+def test_a_guest_starts_offline_in_the_organization_they_chose(monkeypatch, tmp_path, app):
+    from fabric_desktop import app_settings, organizations
+
+    saved_sign_in(tmp_path)
+    organizations.remember(app.root, {"tenant_id": HOST_TENANT, "domain": "northwind.com"})
+    app_settings.save({"sign_in_tenant": "northwind.com"})
+    tried = block(monkeypatch)
+    env = app.environment()
+    assert env["user"] == "pilot@contoso.example" and env["tenant"] == HOST_TENANT
+    assert env["guest"] is True and env["organization"] == "northwind.com"
+    assert tried == [] and app._auth is None  # from what this PC knows, nothing asked Microsoft

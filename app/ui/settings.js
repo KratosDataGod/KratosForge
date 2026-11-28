@@ -966,7 +966,7 @@ async function renderSettings() {
   // Account
   const account = h("section", { class: "card pad" }, h("h2", {}, "Account"),
     settingRow(state.user ? `Signed in as ${state.user}` : "Not signed in",
-      state.user ? (org?.guest ? `Guest in ${orgName(org.current)}. Your home organization is ${org.home_domain || "another one"}.`
+      state.user ? (org?.guest ? `Guest in ${orgName(org.current)}.${org.home_domain ? ` Your home organization is ${org.home_domain}.` : ""}`
         : "") : "Sign in to see your Fabric workspaces and lakehouses.",
       state.user ? btn("Sign out", "signOut", signOut, "tool outline")
         : btn("Sign in", "person", async () => { if (await signIn()) render(); }, "tool primary")),

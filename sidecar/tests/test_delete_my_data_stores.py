@@ -46,6 +46,7 @@ REMOVED: dict[str, tuple[str, ...]] = {
         "history.jsonl", "schedule_runs.jsonl", "fabric_runs.jsonl", "side_by_side.jsonl", "proofs.jsonl", "validations.json"),
     "`receipts\\`": ("receipts/proof-1.json",),
     "`risk_acknowledgements.jsonl`": ("risk_acknowledgements.jsonl",),
+    "`organizations.json`": ("organizations.json",),
     "`workloads.sqlite`": ("workloads.sqlite",),
     "`platform_outbox.sqlite`, `alerts_outbox.sqlite`": ("platform_outbox.sqlite", "alerts_outbox.sqlite"),
     "`settings.json`": ("settings.json",),

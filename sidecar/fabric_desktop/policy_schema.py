@@ -266,7 +266,7 @@ def adml() -> str:
     for st in settings():
         if st.kind == "json":
             continue
-        help_text = st.text + (" People can also change it in Settings; this policy fixes it." if st.user else "")
+        help_text = st.text + (" People can change it in Settings unless this policy sets it." if st.user else "")
         if st.kind == "list":
             help_text += " Add one item per line."
         help_text += f" Policy file key: {st.key}."

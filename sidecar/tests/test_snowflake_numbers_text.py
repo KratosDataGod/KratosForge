@@ -293,3 +293,19 @@ def test_a_number_past_snowflakes_sizes_is_not_worked_out_and_comes_back_quickly
     # so no power of ten is built from them and the translation returns at once.
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         pool.submit(sf.translate, sql).result(timeout=20)
+
+
+@pytest.mark.parametrize(("expression", "want"), [
+    # operators-arithmetic: "Snowflake rounds the output (rather than truncating the output)"; an exact half at
+    # the result's scale (here 6) goes away from zero.
+    ("1 / 2000000", Decimal("0.000001")), ("-1 / 2000000", Decimal("-0.000001")),
+    ("3 / 2000000", Decimal("0.000002")), ("-3 / 2000000", Decimal("-0.000002")),
+])
+def test_division_rounds_an_exact_half_away_from_zero(expression, want):
+    assert value(expression) == want
+
+
+def test_a_number_written_with_an_exponent_is_a_float_so_its_division_is_not_a_number():
+    # data-types-numeric: a numeric constant with an exponent (1e3) is a FLOAT, so 1e3 / 7 keeps every digit
+    assert one("1e3 / 7") == (pytest.approx(1000 / 7), "DOUBLE")
+    assert value("1000 / 7") == Decimal("142.857143")

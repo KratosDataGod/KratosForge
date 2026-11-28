@@ -145,7 +145,7 @@ class SmokeTest:
             "(warehouses) and Kusto (Monitoring) and record the answer."),
             f"Flow 3: list your workspaces, check {self.workspace_id} is among them, and list its items.",
             "Flow 4: check the Fabric client's name check refuses the lakehouse name '1 bad name' (no request is sent).",
-            "Flows 4, 5, 6 and 9: run the live test with every opt-in check"
+            "Flows 4, 5, 6 and 9: run the live test with every opt-in check that --all selects (model.bpa isn't one: it needs a semantic model and runs only when asked)"
             + (" and --run-in-fabric (spends Spark capacity)." if self.run_in_fabric
                else "; without --run-in-fabric the notebook is published and deleted again, but not run."),
             "Flow 10: save a support bundle and check it holds no token, user name, tenant id or workspace id.",

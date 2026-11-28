@@ -119,3 +119,17 @@ def test_sharing_is_an_audited_call_that_asks_first_and_fails_closed(svc, monkey
     out = svc.model_bpa_share("test", approve=True, confirm=would["confirm"])
     assert out["shared"] == 2
     assert set(svc._optimize_shared().rows("findings")["rule_id"].to_list()) == {"bpa.hide-foreign-keys", "bpa.mark-primary-keys"}
+
+
+def test_confidence_follows_severity():
+    recs = model_bpa_share.analysis_rows(_status())["recommendations"]
+    assert [(r["rule_id"], r["confidence"]) for r in recs] == [
+        ("bpa.hide-foreign-keys", "high"), ("bpa.mark-primary-keys", "medium")]
+
+
+@pytest.mark.parametrize("missing", ["workspace_id", "model_id"])
+def test_a_check_with_no_workspace_or_model_id_isnt_shared(missing):
+    status = _status()
+    status[missing] = ""
+    with pytest.raises(ValueError, match="no workspace or id"):
+        model_bpa_share.analysis_rows(status)

@@ -53,7 +53,8 @@ def _payload(ctx: ct.Context) -> tuple[str, dict[str, Any]]:
 
 
 def _read(p: dict[str, Any]) -> bool:
-    return p.get("kind") == "model" and isinstance(p.get("relationships"), int)
+    rel = p.get("relationships")
+    return p.get("kind") == "model" and isinstance(rel, int) and not isinstance(rel, bool)
 
 
 def _names(names: list[str], count: int) -> str:
@@ -125,14 +126,14 @@ def _fallback(ctx: ct.Context) -> dict[str, Any]:
     n = int(p.get("direct_lake_tables") or 0)
     behavior = str(p.get("direct_lake_behavior") or "automatic")
     sources = list(p.get("direct_lake_sources") or [])
-    tables = f"{n} Direct Lake {_s(n, 'table', 'tables')}"
+    tables = "one Direct Lake table" if n == 1 else f"{n} Direct Lake tables"
     if sources == ["onelake"]:
-        return ct.passed([rid], f"Its {tables} read through OneLake, which doesn't fall back to DirectQuery.")
+        return ct.passed([rid], f"Its {tables} {_s(n, 'reads', 'read')} through OneLake, which doesn't fall back to DirectQuery.")
     if behavior.lower() == "directlakeonly":
-        return ct.passed([rid], f"Its {tables} are set to Direct Lake only, so a query that can't use Direct "
+        return ct.passed([rid], f"Its {tables} {_s(n, 'is', 'are')} set to Direct Lake only, so a query that can't use Direct "
                                 "Lake fails visibly instead of falling back.")
     if behavior.lower() == "directqueryonly":
-        return ct.failed([rid], f"Its {tables} are set to DirectQuery only, so no query uses Direct Lake.",
+        return ct.failed([rid], f"Its {tables} {_s(n, 'is', 'are')} set to DirectQuery only, so no query uses Direct Lake.",
                          detail={"behavior": behavior, "tables": n})
     return ct.failed([rid], f"Its {tables} can fall back to DirectQuery without telling anyone (Direct Lake "
                             "behavior is Automatic).", detail={"behavior": behavior, "tables": n})

@@ -1,8 +1,10 @@
 // Optimize > Assessment (OE-003, Preview): one workspace or capacity read for duplicate work, repeated
 // copies and full refreshes, with the evidence behind each opportunity (sidecar opportunities/,
-// optimization_assess). Built from the approved mockup (UX thread, 2026-11-07). Reads only.
+// optimization_assess). Built from the approved mockup (UX thread, 2026-11-07). Reads only; the one
+// write is Share (OE-004), on the Opportunities header, which asks first.
 
-const optimizeAssess = { scope: "workspace", workspaceId: "", capacityId: "", days: 30, result: null, running: false, error: "" };
+// share: what happened to the last Share of an assessment on this page ({ id, state, text, at }).
+const optimizeAssess = { scope: "workspace", workspaceId: "", capacityId: "", days: 30, result: null, running: false, error: "", share: null };
 
 const ASSESS_TYPE = { DataPipeline: "Pipeline", Notebook: "Notebook", Lakehouse: "Lakehouse", SemanticModel: "Semantic model" };
 const ASSESS_CONF = { proven: "pass", high: "info", medium: "wrn", low: "neu" };
@@ -129,14 +131,119 @@ function assessResult(r) {
   const top = ops.find((o) => o.id === r.next_action.opportunity_id);
   out.push(h("div", { class: "assess-summary" }, assessNext(r, top), assessTotals(r)));
   out.push(assessCoverage(r));
+  const shareTo = assessShare(r);
   out.push(h("section", { class: "assess-ops", "aria-labelledby": "assess-ops-h" },
     h("div", { class: "row" }, h("h3", { id: "assess-ops-h" }, "Opportunities"),
       h("span", { class: "muted-text" }, `${ops.length} found, ${r.counts.counted} counted in the totals. Ranked by what counts, then confidence, known size, effort and risk.`),
-      fixtureChip(r)),
+      fixtureChip(r), shareTo.acts),
+    shareTo.line,
     ops.length ? assessTable(r) : h("p", { class: "muted-text" }, r.next_action.label),
     h("p", { class: "muted-text small" }, "Run time is measured from Fabric's job history and scaled to a month (Estimated). Where an opportunity removes only part of a workload, how much is Unknown until a before and after run is measured.")));
   return out;
 }
+
+// Share (OE-004, Preview; UX mockup approved 2026-11-24): adds this assessment's findings to the
+// central Optimize lakehouse, after a dialog that shows the engine's own words for what it adds. The
+// dialog sends back the confirm the engine gave, so only the rows shown are written; if they changed,
+// the engine asks again and the dialog says so. The demonstration fixture has no Share. Sharing
+// isn't destructive, so the dialog's button is primary.
+function assessShare(r) {
+  const acts = h("span", { class: "assess-share-acts" });
+  const line = h("div", { class: "assess-share-line" });
+  if (r.fixture || !r.share_id || !r.opportunities.length) return { acts, line };
+  const a = optimizeAssess;
+  let status = null;
+  const mine = () => (a.share && a.share.id === r.share_id ? a.share : null);
+  const set = (state, extra = {}) => { a.share = { id: r.share_id, state, ...extra }; paint(); };
+  const note = (cls, role, bold, text, ...buttons) =>
+    h("div", { class: `assess-share-state ${cls}`, role }, h("span", {}, h("b", {}, bold), text ? ` ${text}` : ""), ...buttons);
+  const paint = () => {
+    if (!acts.isConnected && status) return;
+    const st = mine();
+    const lh = status?.active?.lakehouse_name || "the central lakehouse";
+    const noLake = !!status && (!status.allowed || !status.active);
+    const readOnly = !!status?.active && status.active.access === "read";
+    const off = !status || noLake || readOnly || st?.state === "busy" || st?.state === "restart";
+    const label = st?.state === "shared" ? "Shared" : st?.state === "queued" ? "Waiting to share" : "Share with your team...";
+    const share = btn(label, null, () => ask(false), "tool outline small", {
+      title: "Add these findings to the central lakehouse your team reads",
+      disabled: off || st?.state === "shared" || st?.state === "queued" ? true : null,
+      "aria-describedby": noLake || readOnly ? "assess-share-why" : null });
+    acts.replaceChildren(share);
+    let shown = null;
+    if (noLake) {
+      shown = status.allowed
+        ? note("warn", null, "Sharing needs a central lakehouse.", "Connect this PC to one in Settings > Optimize lakehouses.",
+          btn("Open Settings", null, () => { state.settingsTab = "general"; go("settings"); }, "tool outline small"))
+        : note("warn", null, "Sharing is turned off.", "Your organization has turned off shared optimization lakehouses.");
+      shown.id = "assess-share-why";
+    } else if (readOnly) {
+      shown = note("warn", null, "You can read but not write to " + lh + ".", "Someone with Contributor on its workspace can share these findings.");
+      shown.id = "assess-share-why";
+    } else if (st?.state === "shared") {
+      shown = note("ok", "status", `Shared to ${lh} at ${st.at}.`,
+        `${assessPlural(st.findings, "finding")} and ${assessPlural(st.recommendations, "recommendation")}. Your team sees them in Opportunities.`,
+        btn("Open Opportunities", null, () => { optimizePage.tab = "opportunities"; renderOptimize(); }, "tool outline small"));
+    } else if (st?.state === "queued") {
+      shown = note("wait", "status", "Waiting to share.",
+        `${lh} can't be reached right now, so the ${assessPlural(st.findings, "finding")} wait on this PC and are shared as soon as it can be reached.`);
+    } else if (st?.state === "error") {
+      shown = note("warn", "alert", "Couldn't share.", `${st.text} Nothing was shared.`, btn("Try again", null, () => ask(false), "tool outline small"));
+    } else if (st?.state === "restart") {
+      shown = note("warn", "alert", "This assessment can't be shared anymore.",
+        "The engine restarted or newer assessments replaced it, and an assessment isn't kept across that. Assess again to share it.");
+    }
+    line.replaceChildren(...(shown ? [shown] : []));
+  };
+  // The engine's ask: what would be added, its own sentence for it, and the confirm for exactly those rows.
+  const ask = async (changed) => {
+    set("busy");
+    let would;
+    try {
+      would = await rpc("optimization_share_preview", { share_id: r.share_id });
+    } catch (err) {
+      const text = friendlyError(err).text;
+      if (/isn't kept on this PC any more/.test(text)) set("restart");
+      else set("error", { text });
+      return;
+    }
+    a.share = null; paint();
+    if (!would.confirm) { toast("There's nothing to share, because this assessment found no opportunities."); return; }
+    const lh = would.lakehouse || "the central lakehouse";
+    const fact = (k, v) => h("div", {}, h("dt", {}, k), h("dd", {}, String(v)));
+    const body = h("div", { class: "assess-share-dialog" },
+      changed ? note("warn", "alert", "The findings changed since you looked.", "Check what will be shared, then share again.") : null,
+      h("dl", { class: "assess-share-facts" }, fact("Findings", would.findings), fact("Recommendations", would.recommendations),
+        fact("Items", would.items), fact("Workspaces", would.workspaces)),
+      h("p", { class: "assess-share-would" }, String(would.text || "")),
+      h("p", { class: "muted-text small" }, "Where: the central lakehouse this PC is connected to in Settings > Optimize lakehouses. You can dismiss a shared finding later in Opportunities."));
+    const ok = await new Promise((resolve) => {
+      let settled = false;
+      const done = (v) => { if (settled) return; settled = true; closeDialog(); resolve(v); };
+      showDialog(`Share ${assessPlural(would.findings, "finding")} to ${lh}?`, body,
+        [btn("Cancel", null, () => done(false), "tool outline"), btn(`Share ${assessPlural(would.findings, "finding")}`, null, () => done(true), "tool primary")],
+        () => { if (!settled) { settled = true; resolve(false); } });
+    });
+    if (!ok) return;
+    set("busy");
+    try {
+      const out = await rpc("optimization_share", { share_id: r.share_id, approve: true, confirm: would.confirm });
+      const at = timeText(new Date());
+      if (out.queued) set("queued", { findings: out.queued });
+      else set("shared", { at, findings: out.shared, recommendations: would.recommendations });
+    } catch (err) {
+      const text = friendlyError(err).text;
+      if (/changed since you looked/.test(text)) { a.share = null; paint(); ask(true); return; }
+      if (/isn't kept on this PC any more/.test(text)) set("restart");
+      else set("error", { text });
+    }
+  };
+  paint();
+  rpc("optimize_status").then((s) => { status = s; paint(); }, () => { status = { allowed: true, active: null }; paint(); });
+  return { acts, line };
+}
+
+const assessPlural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 function assessNext(r, top) {
   const card = h("section", { class: "card assess-next", "aria-labelledby": "assess-next-h" },

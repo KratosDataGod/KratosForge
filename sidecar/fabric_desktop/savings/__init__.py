@@ -16,6 +16,10 @@ benefit, a projection that is always Estimated and never written (ESI-304).
 ``pricing``: versioned pricing scenarios and the capacity value of avoided CU under one, priced at
 the version in effect when each run happened; always a Scenario figure, never savings (ESI-401).
 
+``compare``: what one workload used on this PC, Fabric, Databricks and Snowflake, each in its own unit
+(time, CU, DBU, credits), never converted into each other. Money only under one pricing version, a
+Scenario figure, and a closing line that compares, never recommends (Preview).
+
 ``overhead``: what one run on a PC still cost (transfer seconds, bytes, OneLake read and write
 operations, and its share of the sync that carried it), one measurement per figure, Unknown where
 not recorded, and the Fabric CU overhead the waterfall subtracts for net: Unknown unless a measured

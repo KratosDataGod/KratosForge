@@ -1,0 +1,164 @@
+{
+  "name": "incremental_orders",
+  "properties": {
+    "parameters": {
+      "tableName": {
+        "type": "string",
+        "defaultValue": "sales.orders"
+      },
+      "watermarkColumn": {
+        "type": "string",
+        "defaultValue": "ModifiedAt"
+      }
+    },
+    "variables": {
+      "query": {
+        "type": "String",
+        "defaultValue": ""
+      }
+    },
+    "activities": [
+      {
+        "name": "Old watermark",
+        "type": "Lookup",
+        "dependsOn": [],
+        "typeProperties": {
+          "source": {
+            "type": "DataWarehouseSource",
+            "sqlReaderQuery": "@concat('SELECT WatermarkValue FROM dbo.watermarktable WHERE TableName = ''', pipeline().parameters.tableName, '''')"
+          },
+          "firstRowOnly": true
+        }
+      },
+      {
+        "name": "New watermark",
+        "type": "Lookup",
+        "dependsOn": [],
+        "typeProperties": {
+          "source": {
+            "type": "DataWarehouseSource",
+            "sqlReaderQuery": "@concat('SELECT MAX(', pipeline().parameters.watermarkColumn, ') AS NewWatermarkValue FROM ', pipeline().parameters.tableName)"
+          },
+          "firstRowOnly": true
+        }
+      },
+      {
+        "name": "Build query",
+        "type": "SetVariable",
+        "dependsOn": [
+          {
+            "activity": "Old watermark",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          },
+          {
+            "activity": "New watermark",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "variableName": "query",
+          "value": "@concat('SELECT * FROM ', pipeline().parameters.tableName, ' WHERE ', pipeline().parameters.watermarkColumn, ' >= ''', activity('Old watermark').output.firstRow.WatermarkValue, ''' AND ', pipeline().parameters.watermarkColumn, ' <= ''', activity('New watermark').output.firstRow.NewWatermarkValue, '''')"
+        }
+      },
+      {
+        "name": "Copy changed rows",
+        "type": "Copy",
+        "dependsOn": [
+          {
+            "activity": "Build query",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "source": {
+            "type": "DataWarehouseSource",
+            "sqlReaderQuery": {
+              "value": "@variables('query')",
+              "type": "Expression"
+            }
+          },
+          "sink": {
+            "type": "LakehouseTableSink",
+            "tableActionOption": "Append"
+          }
+        }
+      },
+      {
+        "name": "Save watermark",
+        "type": "SqlServerStoredProcedure",
+        "dependsOn": [
+          {
+            "activity": "Copy changed rows",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "storedProcedureName": "[dbo].[usp_write_watermark]",
+          "storedProcedureParameters": {
+            "LastModifiedtime": {
+              "value": {
+                "value": "@activity('New watermark').output.firstRow.NewWatermarkValue",
+                "type": "Expression"
+              },
+              "type": "DateTime"
+            },
+            "TableName": {
+              "value": {
+                "value": "@pipeline().parameters.tableName",
+                "type": "Expression"
+              },
+              "type": "String"
+            }
+          }
+        }
+      },
+      {
+        "name": "Summary",
+        "type": "SetVariable",
+        "dependsOn": [
+          {
+            "activity": "Save watermark",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "variableName": "pipelineReturnValue",
+          "setSystemVariable": true,
+          "value": [
+            {
+              "key": "query",
+              "value": {
+                "type": "Expression",
+                "content": "@variables('query')"
+              }
+            },
+            {
+              "key": "rowsCopied",
+              "value": {
+                "type": "Expression",
+                "content": "@activity('Copy changed rows').output.rowsCopied"
+              }
+            },
+            {
+              "key": "watermark",
+              "value": {
+                "type": "Expression",
+                "content": "@activity('New watermark').output.firstRow.NewWatermarkValue"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

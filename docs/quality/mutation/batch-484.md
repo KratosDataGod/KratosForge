@@ -1,0 +1,37 @@
+# Mutation testing, batch 484
+
+One module not scored before, run with `--kinds all`:
+- The three-way merge of a notebook changed both in KratosForge and in another program such as VS Code: cells matched by id against the base, one-sided changes taken, conflicts named with both versions, and the bases kept on disk by disk stamp (`notebook_sync.py`).
+
+The run was at `main` c9716c45 (2026-11-26), with `sidecar/tools/mutate.py` and the method of earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. The per-mutant timeout was raised from 120 to 600 seconds by a wrapper that sets `mutate.TIMEOUT`, with the tool unchanged, because other runs shared the machine; no mutant's run timed out. Each pytest session got a fresh temporary folder, so a mutant can't leave one that breaks later runs. Each test set was run with `-x`. Test files were given as paths relative to `sidecar/`, and they first passed once on the unmutated copy. None of them reads `docs/`, `examples/` or `app/`, so nothing was left out for that reason. The module has 140 mutants, so all were run. The "after" figure is a run of the survivors again (`--only`) with the new test file added. Before the "after" run, the new tests passed in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it. They also pass on DuckDB 2.0.0.
+
+The test set was test_notebook_sync_conflicts.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `notebook_sync.py` | test_notebook_sync_conflicts (+ test_notebook_sync_mutation_b) | 140 of 140 (140 + 0) | 117 / 23 | **83.6%** | 117/140 → 136/140 | 0/0 → 0/0 | 136 / 4 | **97.1%** | 4 equivalent |
+
+No bugs were found.
+
+### What the survivors were, and the tests that now kill them
+
+- **notebook_sync.py**:
+  - A cell kept both ways gets the id `<id>-theirs`, then `-theirs2`, `-theirs3` and so on. Only id characters are kept, at most 40 of them, and `cell` stands in when none are left. When all 999 are taken, the copy gets a random 16-character id.
+  - A cell id that is empty or not text is refused, not only a missing one.
+  - A change to a cell's settings (`meta`) alone is a change.
+  - With no cells moved, a cell added in the other program goes right after its neighbour there, before one added in KratosForge after the same neighbour. A cell added first in the other program goes first. A cell added after the other program's first cell goes after it.
+  - A base file written under another notebook's name, or with cells that aren't a list, is no base. A base already on disk is found in its notebook's folder (the first 24 characters of the name's SHA-256).
+  - → `test_notebook_sync_mutation_b.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `notebook_sync.py` | 223 | `p.unlink(missing_ok=True)` to `False` when old bases are pruned | Equivalent: each file was just listed by `glob`, and nothing else removes it in the meantime. |
+| `notebook_sync.py` | 242 | `p.unlink(missing_ok=True)` to `False` in forget | Equivalent, as above. |
+| `notebook_sync.py` | 215 | `json.dump(..., ensure_ascii=False)` to `True` in a base | Equivalent: only the file's bytes change; `json.loads` reads back the same cells. |
+| `notebook_sync.py` | 72 | `range(n - 1, -1, -1)` to `range(n, -1, -1)` when finding the neighbour | Equivalent: the extra index is the cell itself, and it isn't placed yet, so it is never picked. |
+
+**Main changed after this run (2026-11-28):** #3397 (bases stay newest-first when two writes share a file time) changed `notebook_sync.py` after the run. The score above is for the module at the run's `main`, as named on this page, and it was not run again on the new module. The new tests pass unchanged on today's main.

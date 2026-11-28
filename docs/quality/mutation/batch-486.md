@@ -1,0 +1,34 @@
+# Mutation testing, batch 486
+
+One module not scored before, run with `--kinds all`:
+- The calls of Workspaces > Databricks > Volumes on this PC: list, describe, create, drop, rename, comment, upload, download, new folder, delete and reveal, each reading its paths through `databricks_volumes.local_path` first (`databricks_volumes_service.py`).
+
+The run was at `main` c9716c45 (2026-11-26), with `sidecar/tools/mutate.py` and the method of earlier batches (sample cap 150, seed 7, `--kinds all`), on DuckDB 1.5.6. The per-mutant timeout was raised from 120 to 600 seconds by a wrapper that sets `mutate.TIMEOUT`, with the tool unchanged, because other runs shared the machine; no mutant's run timed out. Each pytest session got a fresh temporary folder, so a mutant can't leave one that breaks later runs. Each test set was run with `-x`. Test files were given as paths relative to `sidecar/`, and they first passed once on the unmutated copy. test_shell_commands also imports the module but reads `app/`, so it was left out. The other test file reads nothing outside `sidecar/`. The module has 111 mutants, so all were run. The "after" figure is a run of the survivors again (`--only`) with the new test file added. Before the "after" run, the new tests passed in a copy of `sidecar/` on its own and against the module as `ast.unparse` writes it. They also pass on DuckDB 2.0.0.
+
+The test set was test_databricks_volumes_service.
+
+## Results
+
+| Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `databricks_volumes_service.py` | test_databricks_volumes_service (+ test_databricks_volumes_service_mutation_b) | 111 of 111 (110 + 1) | 102 / 9 | **91.9%** | 102/110 → 108/110 | 0/1 → 1/1 | 109 / 2 | **98.2%** | 2 equivalent |
+
+One bug was found. Picking a link to a folder in the volume and then a file through that link (in that order) in one delete removes the link, then fails with a raw FileNotFoundError on the file. So the delete stops part way, although the module says a refusal removes nothing. In the other order both are removed. It was first pinned by a strict xfail. #3388 fixed it, so `test_a_link_picked_before_a_file_through_it_is_deleted_without_an_error` is now a plain test and passes on main. This batch changes no engine code.
+
+### What the survivors were, and the tests that now kill them
+
+- **databricks_volumes_service.py**:
+  - A folder lists at most 2,000 entries, with no limit asked or with 5,000. A limit below one lists one entry. A folder holding exactly the limit isn't truncated.
+  - A delete that names a missing file removes nothing, not even the files named before it.
+  - A link to a folder in the volume is deleted as a link, without a check of what is inside the folder it points at. A file picked through a link and the link itself are both removed.
+  - An upload from a link copies the file it points at, not the link.
+  - → `test_databricks_volumes_service_mutation_b.py`.
+
+### Left
+
+| Module | Line | Mutant | Why it is left |
+| --- | --- | --- | --- |
+| `databricks_volumes_service.py` | 140 | the refusal of an upload whose source is already its target removed | Equivalent: the source must be outside the app's data folder (checked first), and the target's real location must be inside its volume, so the two are never the same file. |
+| `databricks_volumes_service.py` | 64 | the part file's random `hex[:8]` to `hex[:9]` | Equivalent: only the temporary name's length changes (as batch 474 said of the same change). |
+
+**Main changed after this run (2026-11-28):** #3388 (deleting a link with a path through it removes both in either order) changed `databricks_volumes_service.py` after the run. The score above is for the module at the run's `main`, as named on this page, and it was not run again on the new module. The new tests pass unchanged on today's main. The test that pinned the bug is now a plain test, and it passes.

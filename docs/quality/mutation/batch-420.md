@@ -38,3 +38,5 @@ No bugs were found.
 | --- | --- | --- | --- |
 | `academy/notebookutils_lab.py` | 139 | `timeout_seconds=90` to `91` in run | Equivalent: run never reads timeout_seconds. The exercise's own time limit applies. |
 | `academy/notebookutils_lab.py` | 177 | `self.run(path, 0, args)` to `1` in runMultiple | Equivalent, for the same reason. |
+
+Lane A scored the same module at the same time, in batch 428 (#3309). The two runs used different tests and neither saw the other's, so this page and batch 428's page each report their own run. Neither is a re-score of the other.

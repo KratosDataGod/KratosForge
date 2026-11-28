@@ -32,3 +32,5 @@ No bugs were found.
 ### Left
 
 None.
+
+Lane A scored the same module at the same time, in batch 390 (#3308). The two runs used different tests and neither saw the other's, so this page and batch 390's page each report their own run. Neither is a re-score of the other.

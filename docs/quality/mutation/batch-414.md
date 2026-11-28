@@ -32,3 +32,5 @@ No bugs were found.
 | Module | Line | Mutant | Why it is left |
 | --- | --- | --- | --- |
 | `academy/quizlab.py` | 96 | `changed` returns `None` instead of `False` | Equivalent: its only caller (`lab.py`) uses it in an `if`. |
+
+Lane A scored the same module at the same time, in batch 394 (#3308). The two runs used different tests and neither saw the other's, so this page and batch 394's page each report their own run. Neither is a re-score of the other.

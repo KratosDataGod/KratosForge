@@ -42,9 +42,11 @@ def test_on_windows_a_file_swapped_between_the_two_looks_counts_as_linked(tmp_pa
     st = os.lstat(f)
     monkeypatch.setattr(ws, "_WINDOWS", True)
     real = os.fstat
-    monkeypatch.setattr(ws.os, "fstat", lambda fd: SimpleNamespace(st_ino=st.st_ino + 1, st_dev=st.st_dev,
-                                                                    st_nlink=real(fd).st_nlink))
-    assert ws.links(f, st) == 2
+    with monkeypatch.context() as m:  # os.fstat is the process's own: undo it before pytest reads its output files
+        m.setattr(ws.os, "fstat", lambda fd: SimpleNamespace(st_ino=st.st_ino + 1, st_dev=st.st_dev,
+                                                             st_nlink=real(fd).st_nlink))
+        got = ws.links(f, st)
+    assert got == 2
 
 
 def test_on_windows_the_same_file_gives_its_own_link_count(tmp_path, monkeypatch):
@@ -52,8 +54,10 @@ def test_on_windows_the_same_file_gives_its_own_link_count(tmp_path, monkeypatch
     f.write_bytes(b"x\n")
     st = os.lstat(f)
     monkeypatch.setattr(ws, "_WINDOWS", True)
-    monkeypatch.setattr(ws.os, "fstat", lambda fd: SimpleNamespace(st_ino=st.st_ino, st_dev=st.st_dev, st_nlink=1))
-    assert ws.links(f, st) == 1
+    with monkeypatch.context() as m:  # os.fstat is the process's own: undo it before pytest reads its output files
+        m.setattr(ws.os, "fstat", lambda fd: SimpleNamespace(st_ino=st.st_ino, st_dev=st.st_dev, st_nlink=1))
+        got = ws.links(f, st)
+    assert got == 1
 
 
 def test_a_pack_folder_that_links_elsewhere_isnt_an_exercise(tmp_path):

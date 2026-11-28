@@ -33,3 +33,5 @@ No bugs were found.
 | `databricks_coverage.py` | 128, 129 | the listed values of `input_file_block_length` and `input_file_block_start` (2) | Equivalent: both are refused here before a value is compared. |
 | `databricks_coverage.py` | 150, 152 | the listed values of `spark_partition_id` and `sql_keywords` (3) | Equivalent: both are refused here. |
 | `databricks_coverage.py` | 154, 155 | the listed values of `uniform` (20) | Equivalent: a seed gives another series here, so it differs whatever the listed values are, and its note is what is shown. |
+
+Lane A scored the same module at the same time, in batch 383 (#3309). The two runs used different tests and neither saw the other's, so this page and batch 383's page each report their own run. Neither is a re-score of the other.

@@ -50,7 +50,7 @@
       "thread": "Finish governance follow-ups",
       "workstream": "enterprise",
       "blocks": [{"first": "WR-400", "last": "WR-499"}],
-      "next": "WR-419"
+      "next": "WR-427"
     },
     {
       "key": "devex",

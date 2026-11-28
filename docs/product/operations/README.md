@@ -66,7 +66,7 @@ WR story ids come from a ledger, [story-ids.json](story-ids.json), so two lanes 
 | Warehouse | Microsoft Fabric | WR-200 to WR-269 (used up) and WR-700 to WR-749; next WR-708 |
 | SQL translator | Microsoft Fabric | WR-270 to WR-299 |
 | Dbx parity | Databricks and Snowflake | WR-300 to WR-399; next WR-322 |
-| Governance | Enterprise Services | WR-400 to WR-499; next WR-419 |
+| Governance | Enterprise Services | WR-400 to WR-499; next WR-427 |
 | DevEx | Developer Experience | WR-500 to WR-599; next WR-508 (WR-507 is the extension channel fuzz story) |
 | Platform | Platform Engineering | WR-600 to WR-699; next WR-618 |
 

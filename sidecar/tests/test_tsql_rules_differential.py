@@ -508,9 +508,10 @@ def test_windows_with_order_and_no_frame_sum_the_ties_together(engine) -> None:
 
 def test_isnull_of_a_number_too_long_for_its_text_stops(engine) -> None:
     # functions/isnull-transact-sql: the value is converted to the first argument's type, as CAST(12345 AS
-    # VARCHAR(2)) is, which doesn't cut a number short (here it gave '12').
+    # VARCHAR(2)) is, which doesn't cut a number short (here it gave '12'). An int is '*' (WR-716).
+    assert engine.execute("SELECT ISNULL(CAST(NULL AS VARCHAR(2)), 12345) AS v", dialect="tsql")["rows"][0][0] == "*"
     with pytest.raises(Exception, match="doesn't fit in VARCHAR"):
-        engine.execute("SELECT ISNULL(CAST(NULL AS VARCHAR(2)), 12345) AS v", dialect="tsql")
+        engine.execute("SELECT ISNULL(CAST(NULL AS VARCHAR(2)), 123.45) AS v", dialect="tsql")
     assert engine.execute("SELECT ISNULL(CAST(NULL AS VARCHAR(5)), 12345) AS v", dialect="tsql")["rows"][0][0] == "12345"
 
 

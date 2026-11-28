@@ -196,8 +196,8 @@ def test_text_lengths_cut_and_pad_as_in_tsql(engine):
     r = tsql(engine, "SELECT CAST('abcdef' AS VARCHAR(3)) AS a, CAST('ab' AS CHAR(4)) AS b, "
                      "CAST(REPLICATE('x', 40) AS VARCHAR) AS c, CAST('abcdef' AS VARCHAR(MAX)) AS d")
     assert r["rows"] == [["abc", "ab  ", "x" * 30, "abcdef"]]
-    with pytest.raises(Exception, match="doesn't fit in VARCHAR"):
-        tsql(engine, "SELECT CAST(12345 AS VARCHAR(2))")
+    # WR-716: an int too long for the text is '*' in T-SQL (cast-and-convert-transact-sql, "Too short to display")
+    assert tsql(engine, "SELECT CAST(12345 AS VARCHAR(2)) AS a")["rows"] == [["*"]]
 
 
 def test_convert_keeps_its_length_and_fails_where_tsql_fails(engine):

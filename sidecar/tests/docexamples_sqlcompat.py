@@ -146,6 +146,19 @@ CLAIMS: list[Claim] = [
     _ts("ISNULL(int_column, 2.7)", query="SELECT ISNULL(int_column, 2.7) FROM (VALUES (CAST(NULL AS INT))) AS t(int_column)"),
     _ts("ROUND(150.75, 0)"),
     _ts("ROUND(748.58, -1)"),
+    # WR-711 to WR-716: types and whole numbers as T-SQL's pages give them
+    _ts("CAST(CAST(2.7 AS INT) AS VARCHAR(5))"),
+    _ts("CAST(12345 AS VARCHAR(3))"),
+    _ts("CEILING(7 / 2)"),
+    _ts("FLOOR(-7 / 2)"),
+    _ts("POWER(7 / 2, 2)"),
+    _ts("CEILING(7 / 2) / 2"),
+    _ts("SIGN(2.50)"),
+    _ts("SIGN(CAST(5 AS FLOAT)) / 2"),
+    _ts("CHOOSE(1.9, 'a', 'b')"),
+    _ts("SUBSTRING('abcdef', 2.9, 2)"),
+    _ts("LAG(int_column, 1, 1.5)", query="SELECT LAG(int_column, 1, 1.5) OVER (ORDER BY int_column) "
+        "FROM (VALUES (7)) AS t(int_column)"),
     # Local T-SQL JSON
     _ts("ISJSON('1')"),
     _ts("ISJSON('\"text\"', SCALAR)"),

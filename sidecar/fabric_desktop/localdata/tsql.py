@@ -1114,7 +1114,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
              exp.Extract, exp.Pow,
              exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
              tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup,
-             exp.Case, exp.If)
+             exp.Case, exp.If, *_WHOLE_ARGUMENTS, exp.Anonymous, exp.Sign)
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
     sized_ints = _sized_ints(tree)
@@ -1163,6 +1163,9 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 "with at most 6 significant digits).")]
     pairs = list(zip(here, there, strict=True))
     done: set[int] = set()
+    for node, info in pairs:  # WR-715: before the decimal arithmetic around a SIGN reads its type
+        if isinstance(node, exp.Sign) and (sign := _sign_type(info)) is not None:
+            info.type = sign
     # Decimal arithmetic first, and inner before outer: a rewrite copies its operands, which by then carry theirs.
     for node, info in reversed(pairs):
         if isinstance(node, tuple(_DECIMAL_OPS)) and (sides := _decimal_operands(info)) is not None:
@@ -1181,9 +1184,10 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             # Before the arithmetic around it copies it: COALESCE(s, i) + 1 took the text and int as they were.
             _values_by_precedence(_branch_values(node), _branch_values(info))
             done.add(id(node))
-    for node, info in pairs:
+    for node, info in reversed(pairs):
         if id(node) in done:
             continue
+        _whole_arguments(node, info)
         if isinstance(node, exp.Sub | exp.Mul):
             pass  # numbers, as DuckDB does them; only decimals need T-SQL's precision and scale
         elif isinstance(node, exp.WithinGroup):
@@ -1194,6 +1198,10 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             a, b = info.this.type, info.expression.type
             if _is(a, _INTEGERS) and _is(b, _INTEGERS):
                 _by_zero(node, "//")
+                assert a is not None and b is not None
+                wider = [k for k in (a, b) if k.this in _INT_RANK]
+                if wider:  # an integer for the rewrite around it, as T-SQL gives (WR-711)
+                    info.type = max(wider, key=lambda k: _INT_RANK.index(k.this)).copy()
             elif _is(a, _NUMBERS) and _is(b, _NUMBERS):
                 _by_zero(node, "/")  # a float, or a number with one: an error too, not inf or NULL
             elif _unknown(a) or _unknown(b):
@@ -1209,6 +1217,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 _by_zero(node, "%")
         elif isinstance(node, exp.Round):
             _round_keeps_type(node, info)
+            _whole_result(node, info, info.this.type)
         elif isinstance(node, exp.Coalesce):
             if node.args.get("is_null"):
                 _isnull_first_type(node, info)
@@ -1217,10 +1226,17 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
         elif isinstance(node, exp.Case | exp.If):
             if not isinstance(node.parent, exp.Case):  # a CASE's WHEN ... THEN is an If too
                 _values_by_precedence(_branch_values(node), _branch_values(info))
+        elif isinstance(node, (exp.Lag, exp.Lead)):
+            _default_takes_value_type(node, info)
+        elif isinstance(node, exp.Sign):
+            _sign_keeps_type(node, info)
         elif isinstance(node, exp.Pow):
             notes += _power(node, info.this.type)
+            _whole_result(node, info, exp.DataType.build("BIGINT") if _is(info.this.type, {exp.DataType.Type.BIGINT})
+                          else exp.DataType.build("INT"))
         elif isinstance(node, (exp.Ceil, exp.Floor, exp.Degrees, exp.Radians)):
             notes += _same_type(node, info.this.type)
+            _whole_result(node, info, info.this.type)
         elif isinstance(node, tsql_format.TsqlFormat):
             tsql_format.rewrite(node, info.this.type)
         elif isinstance(node, (exp.Concat, exp.ConcatWs)):
@@ -1249,6 +1265,8 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             elif (_is(a, _TEXT) or _is(b, _TEXT)) and (_unknown(a) or _unknown(b)):
                 notes.append(f"Couldn't tell the types in {node.sql(dialect='tsql')}: T-SQL adds a number to text "
                              "as numbers and joins two strings, and here it is done as DuckDB does it.")
+        elif isinstance(node, (exp.Anonymous, *_WHOLE_ARGUMENTS)):
+            pass  # their whole-number arguments, above
         else:
             to = node.args.get("to")
             if isinstance(to, exp.DataType) and to.this in _INTEGERS - {exp.DataType.Type.BIT} \
@@ -1563,6 +1581,92 @@ def _isnull_first_type(node: exp.Coalesce, info: exp.Expression) -> None:
         node.set("expressions", [exp.Cast(this=other, to=kind.copy())])
 
 
+# WR-714: the arguments T-SQL reads as an int or a bigint (LEFT, RIGHT, REPLICATE and SPACE already cut theirs). A decimal or float there is converted as CAST converts it,
+# cut toward zero (functions/cast-and-convert-transact-sql: numeric to int, "Truncate"; float to int, "Truncate"):
+# CHOOSE(1.9, 'a', 'b') is 'a' (functions/logical-functions-choose-transact-sql, "implicitly converted to an
+# integer"), LAG(x, 1.9) goes back 1 row (functions/lead-transact-sql, "implicitly converted to bigint"), and
+# DATEADD(day, 1.9, d) adds 1 (functions/dateadd-transact-sql, "truncates a specified number value that has a decimal
+# fraction"). DuckDB rounded them, gave NULL, or stopped. TOP and NTILE of a fraction are refused by name.
+_WHOLE_ARGUMENTS: dict[type[exp.Expression], tuple[str, ...]] = {
+    exp.Substring: ("start", "length"), exp.Stuff: ("start", "length"), exp.StrPosition: ("position",),
+    exp.DateAdd: ("expression",), exp.DateFromParts: ("year", "month", "day"), exp.Lag: ("offset",),
+    exp.Lead: ("offset",), exp.Ntile: ("this",), exp.Limit: ("expression",), exp.Round: ("decimals",),
+}
+
+
+def _whole_arguments(node: exp.Expression, info: exp.Expression) -> None:
+    """An argument T-SQL takes as a whole number (``_WHOLE_ARGUMENTS``, and CHOOSE's index) cut toward zero when it
+    is a decimal or a float. TOP ... PERCENT takes a float, and is left as it is."""
+    if isinstance(node, exp.Anonymous):
+        if node.name.upper() != "CHOOSE" or not node.expressions or not info.expressions:
+            return
+        places = [(node.expressions[0], info.expressions[0])]
+    elif type(node) in _WHOLE_ARGUMENTS:
+        options = node.args.get("limit_options")
+        if isinstance(node, exp.Limit) and isinstance(options, exp.Expression) and options.args.get("percent"):
+            return
+        places = [(node.args.get(k), info.args.get(k)) for k in _WHOLE_ARGUMENTS[type(node)]]
+    else:
+        return
+    for arg, typed in places:
+        if not isinstance(arg, exp.Expression) or not isinstance(typed, exp.Expression):
+            continue
+        if _is(typed.type, _NUMBERS - _INTEGERS) or _written_decimal(arg):
+            if isinstance(node, (exp.Limit, exp.Ntile)):
+                # TOP's page says "converted to bigint" and NTILE's "int, or bigint", and neither says what a
+                # fraction gives, so it isn't guessed.
+                name = "TOP" if isinstance(node, exp.Limit) else "NTILE"
+                raise ValueError(_NOT_YET + f"{name} with a number that isn't whole, such as 2.5, isn't mapped yet. "
+                                 "Nothing ran. Write a whole number, or CAST it to INT.")
+            cut = exp.Cast(this=exp.Null(), to=exp.DataType.build("BIGINT"))
+            arg.replace(cut)
+            cut.set("this", exp.Trunc(this=arg))
+            typed.type = exp.DataType.build("BIGINT")
+
+
+def _sign_keeps_type(node: exp.Sign, info: exp.Expression) -> None:
+    """WR-715: ``SIGN`` gives its argument's type in T-SQL (functions/sign-transact-sql: bigint gives bigint, int,
+    smallint and tinyint give int, numeric/decimal gives numeric/decimal, other types float), so ``SIGN(2.50) / 2``
+    is 0.5 and ``SIGN(CAST(5 AS FLOAT)) / 2`` is 0.5. DuckDB gave a TINYINT for every type, so both divided as
+    integers to 0."""
+    to = _sign_type(info)
+    if to is None:
+        return
+    cast = exp.Cast(this=exp.Null(), to=to)
+    node.replace(cast)
+    cast.set("this", node)
+
+
+def _sign_type(info: exp.Expression) -> exp.DataType | None:
+    """The type T-SQL gives ``SIGN`` of ``info``'s argument; None when it can't be told."""
+    kind = info.this.type
+    number = _tsql_number(info.this)
+    if number is not None and number[2]:
+        return exp.DataType.build(f"DECIMAL({number[0]}, {number[1]})")
+    if kind is None or _unknown(kind) or not _is(kind, _NUMBERS):
+        return None
+    if _is(kind, {exp.DataType.Type.BIGINT}):
+        return exp.DataType.build("BIGINT")
+    if _is(kind, _INTEGERS - _BITS):
+        return exp.DataType.build("INT")
+    return exp.DataType.build("DOUBLE")
+
+
+def _default_takes_value_type(node: exp.Lag | exp.Lead, info: exp.Expression) -> None:
+    """WR-712: ``LAG`` and ``LEAD`` have their value's type in T-SQL (functions/lag-transact-sql, "Return types:
+    The data type of the specified scalar_expression"), so a default of another type is converted to it. For an
+    integer value a decimal or float default is cut toward zero, as CAST cuts it: Microsoft's example C gives 1 for
+    a default of 1.5. DuckDB rounded it to 2."""
+    default, typed = node.args.get("default"), info.args.get("default")
+    kind = info.this.type
+    if default is None or typed is None or not _is(kind, _INTEGERS - _BITS) or _is(typed.type, _INTEGERS):
+        return
+    assert kind is not None
+    cut = exp.Cast(this=default, to=kind.copy())
+    node.set("default", cut)
+    _truncated(cut, typed.type)
+
+
 # T-SQL converts an integer to a decimal of this precision when it meets one in arithmetic.
 _INTEGER_DIGITS = {exp.DataType.Type.TINYINT: 3, exp.DataType.Type.UTINYINT: 3, exp.DataType.Type.SMALLINT: 5,
                    exp.DataType.Type.INT: 10, exp.DataType.Type.BIGINT: 19}
@@ -1817,6 +1921,15 @@ def _written_decimal(node: exp.Expression) -> bool:
         and "e" not in first.name.lower()
 
 
+def _whole_result(node: exp.Expression, info: exp.Expression, kind: exp.DataType | None) -> None:
+    """WR-711: ``CEILING``, ``FLOOR``, ``DEGREES``, ``RADIANS``, ``ROUND`` and ``POWER`` of an integer give an
+    integer in T-SQL, where sqlglot types them as a float. The typed copy is told, so the rewrite around one
+    (``CEILING(i / 2) / 2``, ``CAST(FLOOR(i / 2) AS VARCHAR(10))``) works on an integer: ``CEILING(3) / 2`` is 1,
+    not 1.5."""
+    if _is(info.this.type, _INTEGERS - _BITS) and not _written_decimal(node.this) and kind is not None:
+        info.type = kind.copy()
+
+
 def _same_type(node: exp.Expression, arg: exp.DataType | None) -> list[str]:
     """``CEILING``, ``FLOOR``, ``DEGREES`` and ``RADIANS`` give their argument's type in T-SQL: ``CEILING(5)`` is the
     integer 5 and ``DEGREES(1)`` the integer 57 (cut toward zero), where DuckDB gives a float. ``DEGREES`` and
@@ -2000,14 +2113,31 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
     if _is(source, _NUMBERS):
         # A float in T-SQL's style; a number written with a point (1.50) is a decimal there, and keeps its digits.
         shown = _float_text(node.this) if _is(source, _FLOATS) and not _written_decimal(node.this) else text
-        too_long = exp.GT(this=exp.func("LENGTH", shown.copy()), expression=exp.Literal.number(n))
         message = exp.Literal.string(f"The number doesn't fit in {to.sql(dialect='tsql')}.")
-        cut: exp.Expr = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=shown)
+        # Read once: a value that changes each time it's read (RAND, NEWID) is checked and shown the same.
+        once = exp.column("kf_shown") if _volatile(node.this) else shown
+        too_long = exp.GT(this=exp.func("LENGTH", once.copy()), expression=exp.Literal.number(n))
+        # WR-716: an int, smallint or tinyint too long for the text is "Too short to display", shown as '*'
+        # (functions/cast-and-convert-transact-sql, "Truncating and rounding results"); the other numbers are an error.
+        short = exp.Literal.string("*") if _is(source, _STARRED) else exp.func("ERROR", message)
+        cut: exp.Expr = exp.Case(ifs=[exp.If(this=too_long, true=short)], default=once.copy())
+        if once is not shown:
+            cut = exp.Bracket(this=exp.func("LIST_TRANSFORM", exp.Array(expressions=[shown]), exp.Lambda(
+                this=cut, expressions=[exp.to_identifier("kf_shown")])), expressions=[exp.Literal.number(1)], offset=1)
     else:
         cut = exp.func("LEFT", text, exp.Literal.number(n))
     if to.this in _PADDED:
         cut = exp.func("RPAD", cut, exp.Literal.number(n), exp.Literal.string(" "))
     node.replace(cut)
+
+
+_STARRED = {exp.DataType.Type.INT, exp.DataType.Type.SMALLINT, exp.DataType.Type.TINYINT, exp.DataType.Type.UTINYINT}
+
+
+def _volatile(value: exp.Expression) -> bool:
+    """Whether ``value`` can change each time it's read: RAND, NEWID or another random value."""
+    return any(isinstance(n, (exp.Rand, exp.Uuid)) or isinstance(n, exp.Anonymous) and n.name.upper() in
+               ("NEWID", "RANDOM") for n in value.walk())
 
 
 def _fraction_digits(source: exp.DataType | None) -> int | None:
@@ -3078,6 +3208,18 @@ def _refused_by_name(tree: exp.Expression) -> None:
            if agg.args.get("separator") is not None):
         raise ValueError(_NOT_YET + "STRING_AGG's separator has to be text written in the query, such as ', ', as "
                          "T-SQL takes it. Nothing ran. Write the separator as text.")
+    for ignored in tree.find_all(exp.IgnoreNulls):
+        # WR-713: functions/lag-transact-sql's example C goes back offset rows and then on to the nearest non-NULL
+        # value (-6 where the offset runs past the NULLs); DuckDB counts only non-NULL rows and gave the default.
+        # With an offset of 1 the two agree (example D).
+        call = ignored.this
+        offset = call.args.get("offset") if isinstance(call, (exp.Lag, exp.Lead)) else None
+        if offset is not None and _number(offset) != 1:
+            name = "LAG" if isinstance(call, exp.Lag) else "LEAD"
+            raise ValueError(_NOT_YET + f"{name} ... IGNORE NULLS with an offset other than 1 isn't mapped yet. T-SQL "
+                             "goes back that many rows and then on to the nearest value that isn't NULL, and the "
+                             "local engine counts only the rows that aren't NULL, so the two can give different values. "
+                             "Nothing ran. Use an offset of 1, or run it in a Fabric Warehouse.")
     for spec in tree.find_all(exp.WindowSpec):
         # queries/select-over-clause-transact-sql: "<unsigned value specification> PRECEDING ... This specification
         # isn't allowed for RANGE." (and FOLLOWING the same). A warehouse stops on it; DuckDB would run it.

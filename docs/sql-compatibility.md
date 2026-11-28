@@ -894,13 +894,38 @@ These keep the local engine's words, with no number, because SQL Server's words 
 - A number written in the query cast to a smaller type, such as `CAST(300 AS TINYINT)` or `CAST(2147483648 AS INT)`: SQL Server says error 220 or 8115, by the constant's type.
 - A cast to a smaller decimal, such as `CAST(123.45 AS DECIMAL(4,2))` and `CAST('99999' AS DECIMAL(5,2))`: SQL Server's 8115 names the source type (`converting numeric to data type numeric`).
 - Whole-number text too big for a `bigint`, `smallint` or `tinyint` (SQL Server's 244 or 8114), and an expression (not a column) cast to a smaller integer type.
-- `+`, `-` or `*` past a `smallint` or `tinyint`, and an `int`'s smallest value divided by `-1` (`Overflow in division of -2147483648 / -1` here; the local engine says the same for `%`).
+- `+`, `-` or `*` past a `smallint` or `tinyint`, and a type's smallest value with `%` and `-1` (`Overflow in division of -2147483648 / -1` here, the words the local engine uses for `/` too).
+
+An integer type's smallest value divided by `-1` (`CAST(-32768 AS SMALLINT) / CAST(-1 AS SMALLINT)`, and the same for `int` and `bigint`), and `-x` of a `smallint`'s smallest value, are `Msg 8115` naming the type (WR-278), since only that value overflows.
 
 One word can differ: `N'...'` text that isn't a number, to a decimal or a float, shows `Msg 8114` naming `varchar`, where SQL Server says `nvarchar`, because the local engine's message doesn't say which it was.
 
 A statement of a script that the local engine refuses (one it can't translate, or Msg 239) is named by its place, such as "Statement 2 of 3 (WITH) was refused: Msg 239, Level 16: …". The local engine checks the whole script before it runs any of it, so the message ends by saying none of the script ran. A warehouse also stops a batch before its first statement for an error it finds while compiling it, such as Msg 239. A script of one statement shows the refusal on its own.
 
 `@@ERROR`, `ERROR_NUMBER()`, `ERROR_MESSAGE()`, `ERROR_SEVERITY()`, `ERROR_STATE()`, `ERROR_LINE()` and `ERROR_PROCEDURE()` read an error after it happened, in `TRY...CATCH` or the next statement. The local engine doesn't run `TRY...CATCH` yet, so each is refused by name. Run the batch in a Fabric Warehouse to handle the error in T-SQL.
+
+## Local T-SQL function arguments
+
+When a project runs T-SQL on this PC, a built-in function called with a number of arguments its syntax on Microsoft Learn doesn't take stops with SQL Server's own error, before anything runs (WR-278). Before, some stopped the translator with an internal error (`DAY()`), reached the local engine as SQL it couldn't read (`CEILING(1, 2, 3)`, `GROUPING_ID()`), or gave an answer where SQL Server stops (`LEN('a', 'b')`, `ROUND(1)`, `ISNULL(1)`).
+
+| A warehouse says | When |
+| --- | --- |
+| `Msg 174, Level 16: The ceiling function requires 1 argument(s).` | A function that takes a fixed number of arguments, called with another number: `CEILING(1, 2, 3)`, `DAY()`, `GETDATE(1)` |
+| `Msg 189, Level 16: The round function requires 2 to 3 arguments.` | A function with optional arguments, called with too few or too many: `ROUND(1)`, `EOMONTH()`, `CONCAT('a')` (2 to 254) |
+| `The function 'RANK' must have an OVER clause.` | `ROW_NUMBER`, `RANK`, `DENSE_RANK`, `NTILE`, `CUME_DIST`, `PERCENT_RANK`, `LAG`, `LEAD`, `FIRST_VALUE` or `LAST_VALUE` without `OVER` |
+
+Refused by name, with the local engine's own words: `CAST` or `TRY_CAST` with a comma (`TRY_CAST('a', 'b')`), `GROUPING_ID()` with no column, `CURRENT_DATE(...)` with brackets, `GROUPING` and `GROUPING_ID` in a query with no `GROUP BY`, and `PERCENTILE_CONT` or `PERCENTILE_DISC` without `WITHIN GROUP`.
+
+Arguments of another type are converted on the way in, as T-SQL converts them:
+
+- A number where a text function takes text is written as text first, as `CAST` writes it: `LOWER(1)` is `'1'`, and `LEFT`, `RIGHT`, `SUBSTRING`, `CHARINDEX`, `REPLACE`, `STUFF`, `TRANSLATE`, `REVERSE`, `LTRIM`, `RTRIM`, `TRIM`, `ASCII`, `UNICODE` and `CONCAT_WS` do the same. A float is written with at most 6 significant digits, and a `bit` as `1` or `0`. A `date` is written as `yyyy-mm-dd`. Any other date or time type is refused by name, because T-SQL's text for it isn't carried here, so `CONVERT` it with a style first.
+- Text for a length or a start position (`LEFT('abc', '2')`) is made an `int` as `CAST` makes it, so empty text gives 0 and `'a'` stops with `Msg 245`.
+- Text in `ABS`, `CEILING`, `FLOOR`, `SIGN` or `ROUND` is made a float: `ABS('-1.5')` is 1.5, while `ABS('a')` stops with `Msg 8114` (`Error converting data type varchar to float.`).
+- A date or time where a math function or an aggregate takes a number (`ABS`, `SQRT`, `POWER`, `SUM`, `AVG` ...), or text in `SUM`, `AVG` or `STDEV`, is refused by name. SQL Server stops on these too ("Operand type clash", "Operand data type varchar is invalid for sum operator").
+
+`ROUND` of a decimal to `-(1)` works as `ROUND(x, -1)` does. A decimal rounded to a length worked out as the query runs, such as `-ABS(1)`, is refused by name. A `STRING_AGG` separator that isn't text written in the query (`CAST(NEWID() AS VARCHAR(40))`, a window, a subquery) is refused by name, as before.
+
+What can still differ: the types of arguments to `REGEXP_*`, `JSON_OBJECT`, `JSON_QUERY`, `ISJSON`, `QUOTENAME`, `PATINDEX`, `STRING_AGG`, `DATALENGTH`, `BIT_COUNT`, `JARO_WINKLER_SIMILARITY`, `VAR`, `VARP` and `STDEVP` aren't converted yet. A number or a date there, where T-SQL takes text, keeps the local engine's error.
 
 ## Local T-SQL wide tables and long values
 

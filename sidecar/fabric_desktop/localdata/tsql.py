@@ -55,7 +55,7 @@ from sqlglot.helper import seq_get
 from sqlglot.tokens import Token, TokenType
 
 from ..sql import KfDuckDB, duckdb_sql
-from . import tsql_ctes, tsql_format, tsql_hints, tsql_merge, tsql_routines, tsql_tables, tsql_types
+from . import tsql_arity, tsql_ctes, tsql_format, tsql_hints, tsql_merge, tsql_routines, tsql_tables, tsql_types
 from .. import sql_dialects, tsql_clone
 
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?\r?$", re.IGNORECASE | re.MULTILINE)
@@ -655,6 +655,7 @@ def _parse(batch: str) -> list[exp.Expression]:
         tokens = KfTSQL().tokenize(batch)
     except SqlglotError:
         tokens = []  # the parse below reports it
+    tsql_arity.check(tokens)  # WR-278: DAY() and CEILING(1, 2, 3) in SQL Server's words, before sqlglot reads them
     batch = tsql_routines.bare_call(batch, tokens)  # WR-224: sp_rename 'a', 'b' with no EXEC
     tsql_routines.refuse_routines(batch, tokens)
     _refuse_json_clauses(batch)
@@ -1114,7 +1115,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
              exp.Extract, exp.Pow,
              exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
              tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup,
-             exp.Case, exp.If)
+             exp.Case, exp.If, *_ARGUMENT_KINDS)
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
     sized_ints = _sized_ints(tree)
@@ -1162,6 +1163,9 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 "integers as integers, cuts a decimal cast to an integer toward zero, and writes a float in CONCAT "
                 "with at most 6 significant digits).")]
     pairs = list(zip(here, there, strict=True))
+    for node, info in pairs:
+        if isinstance(node, _ARGUMENT_KINDS):
+            _argument_types(node, info)
     done: set[int] = set()
     # Decimal arithmetic first, and inner before outer: a rewrite copies its operands, which by then carry theirs.
     for node, info in reversed(pairs):
@@ -1266,6 +1270,89 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
     for again in later:
         again()
     return notes
+
+
+# WR-278: the arguments T-SQL converts to text, to an int or to a float on the way in (functions/<name>-transact-sql;
+# data-type-conversion-database-engine), where DuckDB has no overload and stopped with its binder error.
+_TEXT_ARGS: dict[type, tuple[str, ...]] = {
+    exp.Lower: ("this",), exp.Upper: ("this",), exp.Reverse: ("this",), exp.Trim: ("this", "expression"),
+    exp.Replace: ("this", "expression", "replacement"), exp.Left: ("this",), exp.Right: ("this",),
+    exp.Substring: ("this",), exp.StrPosition: ("this", "substr"), exp.Repeat: ("this",),
+    exp.Stuff: ("this", "expression"), exp.Translate: ("this", "from_", "to"), exp.Unicode: ("this",),
+    exp.Ascii: ("this",)}
+_INT_ARGS: dict[type, tuple[str, ...]] = {
+    exp.Left: ("expression",), exp.Right: ("expression",), exp.Substring: ("start", "length"),
+    exp.StrPosition: ("position",), exp.Stuff: ("start", "length")}  # REPLICATE's count is _repeat's
+_GIVES_TEXT = (exp.Lower, exp.Upper, exp.Reverse, exp.Trim, exp.Replace, exp.Left, exp.Right, exp.Substring,
+               exp.Stuff, exp.Translate)
+_FLOAT_ARGS = (exp.Abs, exp.Ceil, exp.Floor, exp.Sign, exp.Round)  # text converts to a float
+_NUMBER_ONLY = (exp.Abs, exp.Ceil, exp.Floor, exp.Sign, exp.Round, exp.Sqrt, exp.Exp, exp.Ln, exp.Log, exp.Atan2,
+                exp.Pow, exp.Sin, exp.Cos, exp.Tan, exp.Cot, exp.Acos, exp.Asin, exp.Atan, exp.Degrees, exp.Radians,
+                exp.Sum, exp.Avg, exp.Stddev)
+_AGGREGATES = (exp.Sum, exp.Avg, exp.Stddev)
+_ARGUMENT_KINDS = tuple(dict.fromkeys([*_TEXT_ARGS, *_INT_ARGS, *_NUMBER_ONLY, exp.ConcatWs]))
+_TSQL_NAMES: dict[type, str] = {exp.StrPosition: "CHARINDEX", exp.Repeat: "REPLICATE", exp.Ceil: "CEILING", exp.Ln: "LOG",
+               exp.Atan2: "ATN2", exp.Pow: "POWER", exp.Stddev: "STDEV"}
+_DATES_AND_TIMES = {exp.DataType.Type.DATE, *exp.DataType.TEMPORAL_TYPES}
+_AS_TEXT_SAME = (_INTEGERS - {exp.DataType.Type.BIT, exp.DataType.Type.BOOLEAN}) | {exp.DataType.Type.DECIMAL, exp.DataType.Type.DATE}
+
+
+def _tsql_name(node: exp.Expression) -> str:
+    if isinstance(node, exp.Trim):
+        return {"LEADING": "LTRIM", "TRAILING": "RTRIM"}.get(str(node.args.get("position") or "").upper(), "TRIM")
+    return _TSQL_NAMES.get(type(node), type(node).__name__.upper())
+
+
+def _argument_types(node: exp.Expression, info: exp.Expression) -> None:
+    """A number where T-SQL takes text is written as T-SQL writes it (``LOWER(1)`` is '1'); text where it takes an int
+    or a float is converted, so 'a' stops with T-SQL's conversion error; and a date or time where it takes a number,
+    which T-SQL refuses too, is refused by name."""
+    name = _tsql_name(node)
+    if isinstance(node, _GIVES_TEXT) and not _is(info.type, _TEXT):
+        info.type = exp.DataType.build("VARCHAR")  # so LEFT(123, 2) + '|' joins text, as T-SQL's LEFT gives text
+    if isinstance(node, exp.ConcatWs):  # CONCAT_WS writes each value as text; a float and a bit are _floats_joined's
+        for arg, typed in zip(list(node.expressions), info.expressions, strict=True):
+            if _is(typed.type, _AS_TEXT_SAME) and not _written_decimal(arg):
+                arg.replace(exp.Cast(this=arg.copy(), to=exp.DataType.build("VARCHAR")))
+        return
+    for key in _TEXT_ARGS.get(type(node), ()):
+        value, kind = node.args.get(key), info.args[key].type if info.args.get(key) is not None else None
+        if not isinstance(value, exp.Expression) or isinstance(value, exp.Null) or _is(kind, _TEXT) or _unknown(kind):
+            continue
+        if _is(kind, _AS_TEXT_SAME) or _written_decimal(value):  # 1.50 is a decimal: '1.50'
+            node.set(key, exp.Cast(this=value, to=exp.DataType.build("VARCHAR")))
+        elif _is(kind, _FLOATS):
+            node.set(key, _float_text(value))
+        elif _is(kind, _BITS):
+            node.set(key, _bit_text(value))
+        else:
+            assert kind is not None
+            raise ValueError(_NOT_YET + f"{name} takes text, and T-SQL writes a {kind.sql('tsql').lower()} as text in "
+                             "a form the local engine doesn't copy here. Nothing ran. CONVERT the value to VARCHAR "
+                             "first, such as CONVERT(VARCHAR(30), x, 126).")
+    for key in _INT_ARGS.get(type(node), ()):
+        value, kind = node.args.get(key), info.args[key].type if info.args.get(key) is not None else None
+        if isinstance(value, exp.Expression) and _is(kind, _TEXT):  # '' is 0 and '2.5' T-SQL's error, as _int_of has it
+            node.set(key, _int_of(value) if isinstance(value, exp.Literal) else _once([value], _int_of))
+        elif _is(kind, _DATES_AND_TIMES):
+            assert kind is not None
+            raise ValueError(_NOT_YET + f"{name} takes a whole number there, and this is a {kind.sql('tsql').lower()} "
+                             "(T-SQL stops on it too, with \"Operand type clash\"). Nothing ran.")
+    if isinstance(node, _NUMBER_ONLY):
+        for key in ("this", "expression"):
+            value, kind = node.args.get(key), info.args[key].type if info.args.get(key) is not None else None
+            if not isinstance(value, exp.Expression) or not isinstance(info.args.get(key), exp.Expression):
+                continue
+            if _is(kind, _DATES_AND_TIMES):
+                assert kind is not None
+                raise ValueError(_NOT_YET + f"{name} takes a number, and this is a {kind.sql('tsql').lower()} (T-SQL "
+                                 "stops on it too, with \"Operand type clash\"). Nothing ran.")
+            if _is(kind, _TEXT) and isinstance(node, _AGGREGATES):
+                raise ValueError(_NOT_YET + f"{name} takes numbers, and this is text (T-SQL stops on it too: \"Operand "
+                                 f"data type varchar is invalid for {name.lower()} operator.\"). Nothing ran. CAST the "
+                                 "value to a number type.")
+            if _is(kind, _TEXT) and isinstance(node, _FLOAT_ARGS) and key == "this":
+                node.set(key, exp.Cast(this=value, to=exp.DataType.build("DOUBLE")))
 
 
 def _branch_values(node: exp.Expression) -> list[exp.Expression]:
@@ -1424,7 +1511,7 @@ def _sized_ints(tree: exp.Expression) -> list[exp.Expression]:
     turns ``ORDER BY SUM(v)`` into the select's alias, and the order is the same either way) and PIVOT (whose
     aggregate DuckDB takes only as a plain call)."""
     return [n for n in _in_order(tree, (exp.Sum, exp.Neg))
-            if not (isinstance(n, exp.Neg) and isinstance(n.this, exp.Literal))  # -5 can't overflow
+            if not (isinstance(n, exp.Neg) and isinstance(n.this.unnest(), exp.Literal))  # -5 and -(5) can't overflow
             and not any(isinstance(up, (exp.Order, exp.Pivot)) for up in _ancestors(n))]
 
 
@@ -1452,7 +1539,8 @@ def _checked(node: exp.Expression, case: str) -> None:
     next(c for c in at.find_all(exp.Column) if c.name == "kf_holder").replace(node)
 
 
-_NEGATED_IN = {exp.DataType.Type.INT: ("INT", "BIGINT", "int"), exp.DataType.Type.BIGINT: ("BIGINT", "HUGEINT", "bigint")}
+_NEGATED_IN = {exp.DataType.Type.SMALLINT: ("SMALLINT", "INT", "smallint"), exp.DataType.Type.INT: ("INT", "BIGINT", "int"),
+               exp.DataType.Type.BIGINT: ("BIGINT", "HUGEINT", "bigint")}
 
 
 def _negated(node: exp.Neg, kind: exp.DataType | None) -> None:
@@ -1501,8 +1589,10 @@ _PER_ROW = (exp.Column, exp.Query, exp.Subquery, exp.Window, exp.AggFunc, exp.Ra
 
 
 def _per_row(arg: exp.Expression) -> bool:
-    return any(isinstance(n, _PER_ROW) or isinstance(n, exp.Anonymous) and n.name.upper() in ("NEWID", "RANDOM")
-               for n in arg.walk())
+    # WR-278: a lambda's parameter, such as kf_value in an overflow check's rewrite, is no column
+    bound = {p.name for lam in arg.find_all(exp.Lambda) for p in lam.expressions}
+    return any(isinstance(n, _PER_ROW) and not (isinstance(n, exp.Column) and not n.table and n.name in bound)
+               or isinstance(n, exp.Anonymous) and n.name.upper() in ("NEWID", "RANDOM") for n in arg.walk())
 
 
 def _round_length(node: exp.Round, info: exp.Expression, decimal: bool) -> None:
@@ -1516,6 +1606,10 @@ def _round_length(node: exp.Round, info: exp.Expression, decimal: bool) -> None:
         return
     if decimal and _per_row(length):
         raise ValueError(_ROUND_LENGTH)
+    if decimal and any(True for _ in length.find_all(exp.Lambda)):  # WR-278: an overflow check, worked out as it runs
+        raise ValueError(_NOT_YET + "ROUND of a decimal needs a length the local engine can work out before the query "
+                         "runs, and a length such as -ABS(1) is checked for overflow as the query runs here. Nothing "
+                         "ran. Write the length as a number, such as ROUND(x, -1).")
     if isinstance(length, exp.Null) or isinstance(length, exp.Cast) and isinstance(length.this, exp.Null):
         # A NULL length gives NULL; DuckDB 2.0 refuses a NULL length for a decimal. CASE WHEN FALSE THEN x END is
         # NULL of x's type, so the result keeps its type.
@@ -3074,10 +3168,19 @@ def _refused_by_name(tree: exp.Expression) -> None:
         raise ValueError(_NOT_YET + "SET_BIT isn't mapped yet. Use | with a power of 2, such as x | 4.")
     # WR-270: functions/string-agg-transact-sql takes a separator that is "literal or variable"; DuckDB stopped with
     # its own binder error for a column.
-    if any(_per_row(agg.args["separator"]) for agg in tree.find_all(exp.GroupConcat)
-           if agg.args.get("separator") is not None):
+    # WR-278: and DuckDB takes only a constant, which an overflow check worked out as the query runs isn't
+    if any(_per_row(agg.args["separator"]) or any(True for _ in agg.args["separator"].find_all(exp.Lambda))
+           for agg in tree.find_all(exp.GroupConcat) if agg.args.get("separator") is not None):
         raise ValueError(_NOT_YET + "STRING_AGG's separator has to be text written in the query, such as ', ', as "
                          "T-SQL takes it. Nothing ran. Write the separator as text.")
+    for grouping in tree.find_all(exp.Grouping, exp.GroupingId):
+        # functions/grouping-transact-sql: "can be used only in SELECT <select> list, HAVING, and ORDER BY clauses when
+        # GROUP BY is specified". DuckDB stopped with its binder error (WR-278).
+        select = grouping.find_ancestor(exp.Select)
+        if select is None or select.args.get("group") is None:
+            name = "GROUPING_ID" if isinstance(grouping, exp.GroupingId) else "GROUPING"
+            raise ValueError(_NOT_YET + f"{name} is used only in a query with GROUP BY, as in T-SQL, and this one has "
+                             "none. Nothing ran.")
     for spec in tree.find_all(exp.WindowSpec):
         # queries/select-over-clause-transact-sql: "<unsigned value specification> PRECEDING ... This specification
         # isn't allowed for RANGE." (and FOLLOWING the same). A warehouse stops on it; DuckDB would run it.

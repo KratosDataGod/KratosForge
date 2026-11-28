@@ -513,11 +513,16 @@ def test_format_of_a_number_rounds_half_away_from_zero(engine):
     ("SELECT FORMAT(day, 'ss.FFF') FROM dbo.orders", "F (fractions"),
     ("SELECT FORMAT(day, 'ffffffff') FROM dbo.orders", "at most 7 f's"),
     ("SELECT FORMAT(day, 'yyyy''') FROM dbo.orders", "isn't closed"),
-    ("SELECT FORMAT(5)", "takes a value, a format"),
 ])
 def test_format_that_cant_be_carried_is_refused(engine, sql, says):
     with pytest.raises(ValueError, match=f"on the local engine: .*{re.escape(says)}"):
         tsql(engine, sql)
+
+
+def test_format_with_one_argument_is_sql_servers_error(engine):
+    # WR-278: functions/format-transact-sql takes a value, a format and an optional culture (Msg 189)
+    with pytest.raises(ValueError, match=r"The format function requires 2 to 3 arguments\."):
+        tsql(engine, "SELECT FORMAT(5)")
 
 
 def test_format_of_a_value_whose_type_cant_be_told_is_refused():

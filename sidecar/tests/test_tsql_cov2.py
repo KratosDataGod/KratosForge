@@ -59,14 +59,14 @@ def test_delete_from_a_join_deletes_the_matching_rows(engine):
 
 def test_isjson_with_three_arguments_is_refused():
     with pytest.raises(
-        ValueError, match=r"^ISJSON takes the text, and optionally VALUE"
+        ValueError, match=r"^The isjson function requires 1 to 2 arguments\.$"  # WR-278: Msg 189
     ):
         translate("SELECT ISJSON('{}', VALUE, 1)")
 
 
 def test_string_split_with_one_argument_is_refused():
     with pytest.raises(
-        ValueError, match=r"^STRING_SPLIT takes text, a separator of one character"
+        ValueError, match=r"^The string_split function requires 2 to 3 arguments\.$"  # WR-278: Msg 189
     ):
         translate("SELECT * FROM STRING_SPLIT('a,b')")
 

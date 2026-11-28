@@ -15,7 +15,7 @@ COLUMNS = {"dbo": {"t": {"x": "NOT A TYPE ((", "y": "INTEGER", "s": "VARCHAR"}}}
     ("SET LANGUAGE French", "SET LANGUAGE FRENCH isn't mapped yet"),
     ("SET @x = 1", "doesn't run T-SQL SET yet"),
     (";", "The query is empty"),
-    ("SELECT PATINDEX('%b%') FROM t", "PATINDEX takes a pattern and a text"),
+    ("SELECT PATINDEX('%b%') FROM t", "The patindex function requires 2 argument"),  # WR-278: Msg 174
     ("SELECT PATINDEX(s, 'abc') FROM t", "PATINDEX needs its pattern written out as text"),
     ("SELECT STRING_SPLIT('a,b', ',')", "STRING_SPLIT runs here only in FROM or CROSS APPLY"),
     ("SELECT FORMAT(z, 'd') FROM u", "FORMAT needs to know its value's type"),

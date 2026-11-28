@@ -42,7 +42,7 @@ CASES = [
  ("CAST(2147483647 AS INT) + 1", "ERROR:Arithmetic overflow error converting expression to data type int."),
  ("2147483647 * 2", "ERROR:Arithmetic overflow error converting expression to data type int."),
  ("CAST(9223372036854775807 AS BIGINT) + 1", "ERROR:Arithmetic overflow error converting expression to data type bigint."),
- ("CAST(-2147483648 AS INT) / -1", "ERROR:Overflow"),
+ ("CAST(-2147483648 AS INT) / -1", "ERROR:Arithmetic overflow error converting expression to data type int."),
  ("ABS(CAST(-2147483648 AS INT))", "ERROR:Arithmetic overflow error converting expression to data type int."), ("CAST(2147483647 AS BIGINT) + 1", "2147483648"),
  ("CAST(300 AS TINYINT)", "ERROR:"), ("CAST(-1 AS TINYINT)", "ERROR:"), ("CAST(255 AS TINYINT)", "255"),
  # text meets a number: the number's type wins

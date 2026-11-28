@@ -266,7 +266,41 @@ def cases(prefix: str) -> list[tuple[str, str, object]]:
         # MAX of an int column is the larger number; of a text column, the later text ('9' after '10').
         out.append(("UNION_TEXT", f"(SELECT MAX(a) FROM (SELECT {n} AS a UNION ALL SELECT {q(t)}) AS u)", max(n, whole)))
         out.append(("EXCEPT_TEXT", f"(SELECT COUNT(*) FROM (SELECT {whole} AS a EXCEPT SELECT {q(t)}) AS u)", 0))
-    return out + _regex_cases(random.Random(SEED + 3), q) + _null_cases(random.Random(SEED + 5), q)
+    return (out + _regex_cases(random.Random(SEED + 3), q) + _null_cases(random.Random(SEED + 5), q)
+            + _argument_cases(random.Random(SEED + 6), q))
+
+
+# WR-278: (name, fewest, most) from each function's syntax on Microsoft Learn (functions/<name>-transact-sql)
+_COUNTS = [("DAY", 1, 1), ("MONTH", 1, 1), ("YEAR", 1, 1), ("FLOOR", 1, 1), ("CEILING", 1, 1), ("SQUARE", 1, 1),
+           ("LEN", 1, 1), ("UPPER", 1, 1), ("ABS", 1, 1), ("ISNULL", 2, 2), ("LEFT", 2, 2), ("REPLICATE", 2, 2),
+           ("ROUND", 2, 3), ("CHARINDEX", 2, 3), ("EOMONTH", 1, 2), ("LTRIM", 1, 2), ("REPLACE", 3, 3),
+           ("DATEADD", 3, 3), ("STUFF", 4, 4), ("CONCAT", 2, 254), ("GETDATE", 0, 0), ("PI", 0, 0)]
+
+
+def _argument_cases(r: random.Random, q) -> list[tuple[str, str, object]]:
+    out: list[tuple[str, str, object]] = []
+    for _ in range(60):
+        # Msg 174 "The %ls function requires %d argument(s)." and Msg 189 "... requires %d to %d arguments."
+        name, fewest, most = r.choice(_COUNTS)
+        n = r.choice([k for k in range(0, 6) if not fewest <= k <= most])
+        args = ", ".join(r.choice(["1", q("a"), "CAST('2024-01-02' AS DATE)"]) for _ in range(n))
+        said = (f"Msg 174, Level 16: The {name.lower()} function requires {fewest} argument(s)." if fewest == most else
+                f"Msg 189, Level 16: The {name.lower()} function requires {fewest} to {most} arguments.")
+        out.append(("ARITY", f"{name}({args})", f"error: {said}"))
+        # data-type-conversion-database-engine: an int meeting a function that takes text is written as its digits
+        v, k = r.randint(-999, 99999), r.randint(0, 4)
+        t = str(v)
+        out.append(("NUMBER_AS_TEXT", f"LOWER({v}) + '|'", t + "|"))
+        out.append(("NUMBER_AS_TEXT", f"REVERSE({v}) + '|'", t[::-1] + "|"))
+        out.append(("NUMBER_AS_TEXT", f"LEFT({v}, {k}) + '|'", t[:k] + "|"))
+        out.append(("NUMBER_AS_TEXT", f"RIGHT({v}, {k}) + '|'", (t[-k:] if k else "") + "|"))
+        out.append(("NUMBER_AS_TEXT", f"REPLACE({v}, 9, {q('x')}) + '|'", t.replace("9", "x") + "|"))
+        out.append(("NUMBER_AS_TEXT", f"CHARINDEX(9, {v})", t.find("9") + 1))
+        # cast-and-convert-transact-sql: text for an int is a whole number with spaces around it, '' being 0
+        c = r.choice(["", " 2 ", "3", "0", "1"])
+        w = "abcdef"
+        out.append(("TEXT_AS_INT", f"LEFT({q(w)}, {q(c)}) + '|'", w[:int(c) if c.strip() else 0] + "|"))
+    return out
 
 
 def _regex(pattern: str, flags: str) -> re.Pattern[str]:

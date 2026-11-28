@@ -40,6 +40,11 @@ _ARITHMETIC = re.compile(r"^Out of Range Error: Overflow in (?:addition|subtract
                          r"(?P<kind>INT32|INT64|DECIMAL\(\d+\)) \(")
 _ABS = re.compile(r"^Out of Range Error: Overflow on abs\((?P<value>-\d+)\)$")
 _ABS_KINDS = {str(-2 ** 31): "int", str(-2 ** 63): "bigint"}  # the one value of each whose ABS overflows
+# WR-278: x / -1 overflows only for a type's smallest value, so the value names the type (a tinyint is never negative).
+# DuckDB says the same for %, which this leaves in DuckDB's words.
+_DIVISION = re.compile(r"^Out of Range Error: Overflow in division of (?P<value>-\d+) / -1$")
+_DIVISION_KINDS = {str(-2 ** 15): "smallint", **_ABS_KINDS}
+_QUOTED = re.compile(r"'(?:[^']|'')*'")
 # A column's value that doesn't fit an integer type; a constant has its own words in SQL Server (220).
 _COLUMN_CAST = re.compile(r"^Conversion Error: Type (?:U?INT\d+|DECIMAL\(\d+,\d+\)|DOUBLE|FLOAT) with value \S+ "
                           r"can't be cast because the value is out of range for the destination type "
@@ -61,6 +66,8 @@ _NUMBERS = [
     (re.compile(r"^Divide by zero error encountered\.$"), 8134),
     (re.compile(r"^Arithmetic overflow error converting expression to data type \w+\.$"), 8115),
     (re.compile(r"^Arithmetic overflow error for type int, value = -?\d+\.\d{6}\.$"), 232),
+    (re.compile(r"^The \w+ function requires \d+ argument\(s\)\.$"), 174),  # WR-278 (tsql_arity)
+    (re.compile(r"^The \w+ function requires \d+ to \d+ arguments\.$"), 189),
     (re.compile(r"^Conversion failed when converting the n?varchar value '.*' to data type \w+\.$", re.DOTALL), 245),
     (re.compile(r"^The conversion of the n?varchar value '.*' overflowed an int column\.$", re.DOTALL), 248),
     (re.compile(r"^Error converting data type varchar to (?:numeric|float|real)\.$"), 8114),
@@ -102,6 +109,8 @@ def _arithmetic(first: str, sql: str) -> str | None:
     overflow = "Arithmetic overflow error converting expression to data type {}."
     if found := _ARITHMETIC.match(first):
         return overflow.format(_INTEGERS.get(found["kind"], "numeric"))
+    if (found := _DIVISION.fullmatch(first)) and found["value"] in _DIVISION_KINDS and "%" not in _QUOTED.sub("", sql):
+        return overflow.format(_DIVISION_KINDS[found["value"]])
     if (found := _ABS.fullmatch(first)) and found["value"] in _ABS_KINDS:
         return overflow.format(_ABS_KINDS[found["value"]])
     if found := _COLUMN_CAST.match(first):

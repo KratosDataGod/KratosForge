@@ -14,9 +14,12 @@ const findRefresh = CM.StateEffect.define();
 
 // Every match in the cells, in notebook order: [{ cell, from, to }]. The query's flags are the bar's.
 // Returns { matches, error } and never throws on a bad regular expression.
+// As in the cell's own search (CodeMirror): ^ and $ match at each line, and a whole word ends where a
+// letter, digit or _ of any script meets something else (\b only knows A-Z, so it missed "café").
+const FIND_EDGE = "(?:(?<![\\p{Alphabetic}\\p{Number}_])|(?![\\p{Alphabetic}\\p{Number}_]))";
 function findRegex(q, opts = {}, flags = "g") {
   const body = opts.regex ? q : q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(opts.word ? `\\b(?:${body})\\b` : body, `${flags}u${opts.matchCase ? "" : "i"}`);
+  return new RegExp(opts.word ? `${FIND_EDGE}(?:${body})${FIND_EDGE}` : body, `${flags}mu${opts.matchCase ? "" : "i"}`);
 }
 
 // The searchable text of one output, or "" for outputs that aren't text (images, charts, HTML, widgets).
@@ -32,6 +35,7 @@ function findOutputText(o) {
 
 function findMatches(cells, q, opts = {}) {
   if (!q) return { matches: [], error: "" };
+  const cap = opts.limit ?? 5000;  // the bar counts up to 5,000; Replace all asks for every match
   let re;
   try {
     re = findRegex(q, opts);
@@ -45,20 +49,20 @@ function findMatches(cells, q, opts = {}) {
     for (const m of cell.source.matchAll(re)) {
       if (!m[0].length) continue;  // an empty match (a^, x*) would loop on every position
       matches.push({ cell, from: m.index, to: m.index + m[0].length, text: m[0] });
-      if (matches.length >= 5000) return { matches, error: "", capped: true };
+      if (matches.length >= cap) return { matches, error: "", capped: true };
     }
     if (!opts.outputs || cell.type !== "code" || !Array.isArray(cell.outputs)) continue;
     cell.outputs.forEach((o, oi) => {
       const text = findOutputText(o);
-      if (!text || matches.length >= 5000) return;
+      if (!text || matches.length >= cap) return;
       re.lastIndex = 0;
       for (const m of text.matchAll(re)) {
         if (!m[0].length) continue;
         matches.push({ cell, output: oi, from: m.index, to: m.index + m[0].length, text: m[0] });
-        if (matches.length >= 5000) break;
+        if (matches.length >= cap) break;
       }
     });
-    if (matches.length >= 5000) return { matches, error: "", capped: true };
+    if (matches.length >= cap) return { matches, error: "", capped: true };
   }
   return { matches, error: "" };
 }
@@ -86,16 +90,23 @@ function findOpts() {
   return { matchCase: nbFind.matchCase, word: nbFind.word, regex: nbFind.regex, markdown: nbFind.markdown, outputs: nbFind.outputs };
 }
 
-function findRecompute(keepCell = true) {
-  const before = nbFind.matches[nbFind.current];
-  const out = findMatches(state.notebook?.cells || [], nbFind.q, findOpts());
+// keepCell: the current match stays the one at or after where it was (``at``, or the current match)
+// in notebook order, so it moves on to the next cell when its own has no more.
+function findRecompute(keepCell = true, at = null) {
+  const before = at || nbFind.matches[nbFind.current];
+  const cells = state.notebook?.cells || [];
+  const out = findMatches(cells, nbFind.q, findOpts());
   nbFind.matches = out.matches;
   nbFind.capped = !!out.capped;
   nbFind.error = out.error;
   if (!nbFind.matches.length) nbFind.current = -1;
   else if (keepCell && before) {
-    const i = nbFind.matches.findIndex((m) => m.cell === before.cell && m.from >= before.from);
-    nbFind.current = i >= 0 ? i : 0;
+    const ci = cells.indexOf(before.cell);
+    const order = new Map(cells.map((c, i) => [c, i]));
+    const i = ci < 0 ? -1 : nbFind.matches.findIndex((m) =>
+      (order.get(m.cell) - ci || (m.output ?? -1) - (before.output ?? -1) || m.from - before.from) >= 0);
+    // Its cell was deleted: the match after it took its place in the list.
+    nbFind.current = i >= 0 ? i : ci < 0 ? Math.min(Math.max(nbFind.current, 0), nbFind.matches.length - 1) : 0;
   } else if (nbFind.current < 0 || nbFind.current >= nbFind.matches.length) nbFind.current = 0;
   editors.forEach((v) => v.dispatch({ effects: findRefresh.of(null) }));
   findCount();
@@ -217,7 +228,11 @@ function openFind(replace = false) {
   renderNotebook();
   if (top != null) document.querySelector(".cells").scrollTop = top;
   findRecompute(false);
+  // The bar is kept from the last time it was open: show this query and the replace row if asked for.
+  nbFind.bar.classList.toggle("with-replace", nbFind.replace);
+  nbFind.bar.querySelector('[aria-label="Show replace"]')?.setAttribute("aria-expanded", String(nbFind.replace));
   const input = nbFind.bar.querySelector(".nb-find-q");
+  input.value = nbFind.q;
   input.focus();
   input.select();
 }
@@ -291,11 +306,12 @@ function replaceOne() {
   if (!m) return;
   if (m.output != null) { toast("That match is in a cell's output, which can't be changed. Run the cell again to change it."); findStep(1); return; }
   if (m.cell.meta?.frozen) { toast("That match is in a frozen cell, so it wasn't changed. Unfreeze the cell to change it."); findStep(1); return; }
-  findWrite(m.cell, [{ from: m.from, to: m.to, insert: findReplacement(m, nbFind.q, nbFind.with, findOpts()) }]);
+  const insert = findReplacement(m, nbFind.q, nbFind.with, findOpts());
+  findWrite(m.cell, [{ from: m.from, to: m.to, insert }]);
   nbFind.undo = null;
   markDirty();
   findAfterEdit(m.cell);
-  findRecompute();
+  findRecompute(true, { cell: m.cell, from: m.from + insert.length });  // the next match after the new text
   if (nbFind.matches.length) findShow(Math.min(nbFind.current, nbFind.matches.length - 1));
 }
 
@@ -303,7 +319,8 @@ function replaceAll() {
   const byCell = new Map();
   let frozen = 0;
   let outputs = 0;
-  for (const m of nbFind.matches) {
+  // Every match, not only the 5,000 the bar counts, found again in the cells' text as it is now.
+  for (const m of findMatches(state.notebook.cells, nbFind.q, { ...findOpts(), limit: Infinity }).matches) {
     if (m.output != null) { outputs += 1; continue; }
     if (m.cell.meta?.frozen) { frozen += 1; continue; }
     if (!byCell.has(m.cell)) byCell.set(m.cell, []);
@@ -335,7 +352,7 @@ function undoReplaceAll() {
   let kept = 0;
   for (const { cell, before, after } of undo) {
     if (!state.notebook.cells.includes(cell) || cell.source !== after) { kept += 1; continue; }  // changed since
-    setSource(cell, before);
+    findWrite(cell, [{ from: 0, to: cell.source.length, insert: before }]);  // a far cell's editor isn't built for it
     findAfterEdit(cell);
   }
   markDirty();
@@ -414,8 +431,11 @@ function nbFindBar() {
     const el = document.activeElement;
     queueMicrotask(() => el.focus({ preventScroll: true }));
   }
-  queueMicrotask(findCount);
-  queueMicrotask(findOutputMarks);  // the notebook was redrawn: mark the new output elements
+  // The notebook was redrawn: cells may have been deleted, added or moved, and outputs drawn anew.
+  queueMicrotask(() => {
+    if (nbFind.open && nbFind.q && nbFind.nb === state.notebook) findRecompute();
+    else { findCount(); findOutputMarks(); }
+  });
   return nbFind.bar;
 }
 

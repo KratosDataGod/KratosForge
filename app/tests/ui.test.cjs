@@ -4508,7 +4508,8 @@ test("notebook find matches every cell with case, whole word and regex, and repl
   assert.deepStrictEqual([...found.map((f) => findReplacement(f, "(?<=x)a", "B", { regex: true }))], ["B", "B"]);
   assert.strictEqual(findApply(xa[0].source, found.map((f) => ({ from: f.from, to: f.to, insert: "B" }))), "xB ya xB");
   const lines = [{ type: "code", source: "a1\nb2" }];
-  assert.strictEqual(findMatches(lines, "^b(\\d)", { regex: true }).matches.length, 0);  // ^ is the start of the cell
+  assert.strictEqual(findMatches(lines, "^b(\\d)", { regex: true }).matches.length, 1);  // ^ is the start of each line (WR-138)
+  assert.strictEqual(findMatches([{ type: "code", source: "café = xcafé" }], "café", { word: true }).matches.length, 1);  // any script's letters
   const [start] = findMatches(lines, "^(a)(\\d)", { regex: true }).matches;
   assert.strictEqual(findReplacement(start, "^(a)(\\d)", "$2$1", { regex: true }), "1a");
   assert.strictEqual(findApply("ab ab", [{ from: 0, to: 2, insert: "xyz" }, { from: 3, to: 5, insert: "q" }]), "xyz q");

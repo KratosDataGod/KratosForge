@@ -84,6 +84,14 @@ MAPPED = [  # decimals come back as text, as the engine sends them
     ("JSON_QUERY of a scalar, lax", "SELECT JSON_QUERY('{" + DQ + "a" + DQ + ": 1}', '$.a')", None),
     ("JSON_OBJECT keeps NULL", "SELECT JSON_OBJECT('name':'value', 'type':NULL)", '{"name":"value","type":null}'),
     ("JSON_ARRAY leaves NULL out", "SELECT JSON_ARRAY('a', 1, 'b', NULL)", '["a",1,"b"]'),
+    # WR-276: functions/nchar-transact-sql (example A: 248 is 'ø'; 0 to 1114111, NULL outside) and
+    # functions/string-escape-transact-sql (example A, with its tabs and new line written as CHAR)
+    ("NCHAR", "SELECT NCHAR(65)", "A"),
+    ("NCHAR of a Latin letter", "SELECT NCHAR(248)", "\u00f8"),
+    ("NCHAR of a supplementary character", "SELECT NCHAR(143743)", "\U0002317f"),
+    ("NCHAR out of range", "SELECT NCHAR(1114112)", None),
+    ("STRING_ESCAPE json", "SELECT STRING_ESCAPE('\\' + CHAR(9) + '/' + CHAR(10) + '\\\\' + CHAR(9) + '" + DQ + "' + CHAR(9), "
+     "'json')", "\\\\\\t\\/\\n\\\\\\\\\\t\\" + DQ + "\\t"),
 ]
 # Refused with the local-engine message: mapping them faithfully needs more than a rewrite.
 REFUSED = [
@@ -266,6 +274,11 @@ REFUSED_IN_THE_DOCS = {
     "SMALLMONEY": "SELECT CAST(1 AS SMALLMONEY)",
     "ISDATE": "SELECT ISDATE('2024-01-01')",
     "CHECKSUM": "SELECT CHECKSUM('a')",
+    "DIFFERENCE": "SELECT DIFFERENCE('a', 'b')",
+    "FORMATMESSAGE": "SELECT FORMATMESSAGE('x %s', 'y')",
+    "TODATETIMEOFFSET": "SELECT TODATETIMEOFFSET(SYSUTCDATETIME(), '+01:00')",
+    "CURRENT_TIMEZONE": "SELECT CURRENT_TIMEZONE()",
+    "JARO_WINKLER_SIMILARITY": "SELECT JARO_WINKLER_SIMILARITY('Colour', 'Color')",
     "HASHBYTES": "SELECT HASHBYTES('SHA2_256', 'a')",
     "CURRENT_USER": "SELECT CURRENT_USER",
     "USER": "SELECT USER",

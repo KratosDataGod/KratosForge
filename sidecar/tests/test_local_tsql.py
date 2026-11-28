@@ -567,8 +567,11 @@ def test_the_function_list_is_read_only_when_a_query_calls_an_unknown_function(e
     monkeypatch.setattr(type(engine), "_function_names", lambda self, con: reads.append(1) or real(self, con))
     assert tsql(engine, "SELECT TOP 1 id, UPPER(name) AS n FROM dbo.orders ORDER BY id")["rows"] == [[1, "ANN  "]]
     assert reads == []
-    with pytest.raises(ValueError, match="ISDATE isn't mapped yet"):
+    with pytest.raises(ValueError, match="ISDATE isn't mapped yet"):  # WR-276: a T-SQL built-in, refused by name
         tsql(engine, "SELECT ISDATE('2024-01-01')")
+    assert reads == []
+    with pytest.raises(ValueError, match="NO_SUCH_FUNCTION isn't mapped yet"):
+        tsql(engine, "SELECT NO_SUCH_FUNCTION('2024-01-01')")
     assert reads == [1]
     engine.execute("CREATE MACRO twice(x) AS x * 2")  # a macro made in the database is still found
     assert tsql(engine, "SELECT twice(qty) AS t FROM dbo.orders ORDER BY id")["rows"] == [[14], [-14]]

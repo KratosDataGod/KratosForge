@@ -266,7 +266,52 @@ def cases(prefix: str) -> list[tuple[str, str, object]]:
         # MAX of an int column is the larger number; of a text column, the later text ('9' after '10').
         out.append(("UNION_TEXT", f"(SELECT MAX(a) FROM (SELECT {n} AS a UNION ALL SELECT {q(t)}) AS u)", max(n, whole)))
         out.append(("EXCEPT_TEXT", f"(SELECT COUNT(*) FROM (SELECT {whole} AS a EXCEPT SELECT {q(t)}) AS u)", 0))
-    return out + _regex_cases(random.Random(SEED + 3), q) + _null_cases(random.Random(SEED + 5), q)
+    return (out + _regex_cases(random.Random(SEED + 3), q) + _null_cases(random.Random(SEED + 5), q)
+            + _sizes_and_codes(random.Random(SEED + 6), q))
+
+
+_INT_RANGES = {"TINYINT": (0, 255), "SMALLINT": (-2 ** 15, 2 ** 15 - 1), "INT": (-2 ** 31, 2 ** 31 - 1)}
+_JSON_ESCAPED = {'"': '\\"', "\\": "\\\\", "/": "\\/", "\b": "\\b", "\f": "\\f", "\n": "\\n", "\r": "\\r",
+                 "\t": "\\t"}
+
+
+def _overflow(kind: str) -> str:
+    return f"error: Msg 8115, Level 16: Arithmetic overflow error converting expression to data type {kind.lower()}."
+
+
+def _sizes_and_codes(r: random.Random, q) -> list[tuple[str, str, object]]:
+    """WR-276: integers of different sizes, NCHAR and STRING_ESCAPE."""
+    out: list[tuple[str, str, object]] = []
+    ops = {"+": lambda a, b: a + b, "-": lambda a, b: a - b, "*": lambda a, b: a * b}
+    for _ in range(60):
+        # data-types/data-type-precedence-transact-sql: "the data type with the lower precedence is first converted
+        # to the data type with the higher precedence", and two of the same type keep it. A literal such as 2 is
+        # an int; past the result's type is error 8115 in that type's name.
+        kind = r.choice(["TINYINT", "SMALLINT"])
+        low, high = _INT_RANGES[kind]
+        v, op = r.choice([low, high, r.randint(low, high)]), r.choice(list(ops))
+        n = r.randint(-3, 3)
+        got = ops[op](v, n)
+        fits = _INT_RANGES["INT"][0] <= got <= _INT_RANGES["INT"][1]
+        out.append(("INT_SIZES", f"CAST({v} AS {kind}) {op} ({n})", got if fits else _overflow("INT")))
+        m = r.randint(low, high) if r.random() < 0.5 else r.choice([low, high, 1])
+        got = ops[op](v, m)
+        out.append(("INT_SIZES", f"CAST({v} AS {kind}) {op} CAST({m} AS {kind})",
+                    got if low <= got <= high else _overflow(kind)))
+        # language-elements/unary-operators-negative: -tinyint is a smallint
+        t = r.randint(0, 255)
+        out.append(("NEG_TINYINT", f"-CAST({t} AS TINYINT) - CAST({t} AS TINYINT)", -2 * t))
+    for _ in range(40):
+        # functions/nchar-transact-sql: 0 through 1114111 with a supplementary-character collation; NULL outside
+        code = r.choice([r.randint(32, 0xD7FF), r.randint(0xE000, 0x10FFFF), r.randint(-9, -1),
+                         r.randint(0x110000, 0x110100)])
+        out.append(("NCHAR", f"NCHAR({code}) + '|'", chr(code) + "|" if 0 <= code <= 0x10FFFF else None))
+        # functions/string-escape-transact-sql: the JSON special characters, and CHAR(0) to CHAR(31) as \\u00XX
+        pieces = [r.choice(["a", "é", '"', "\\", "/", "x y", chr(r.randint(0, 31))]) for _ in range(r.randint(1, 5))]
+        text = " + ".join(q(p) if ord(p[0]) >= 32 else f"CHAR({ord(p)})" for p in pieces)
+        want = "".join(_JSON_ESCAPED.get(c) or (f"\\u{ord(c):04x}" if ord(c) < 32 else c) for c in "".join(pieces))
+        out.append(("STRING_ESCAPE", f"STRING_ESCAPE({text}, 'json')", want))
+    return out
 
 
 def _regex(pattern: str, flags: str) -> re.Pattern[str]:

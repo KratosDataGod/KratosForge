@@ -90,6 +90,10 @@ CLAIMS: list[Claim] = [
     _ts("4.00", query="SELECT TOP 1 PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY x) OVER () "
                       "FROM (VALUES (1.25), (2.50), (4.00)) AS t(x)"),
     # Local T-SQL dates and times
+    # WR-276: integers of different sizes, by data type precedence
+    _ts("CAST(32767 AS SMALLINT) + 1"),
+    _ts("CAST(255 AS TINYINT) + 1"),
+    _ts("-CAST(255 AS TINYINT)"),
     _ts("DATEADD(month, 1, '2024-01-31')"),
     _ts("DATEADD(year, 1, '2024-02-29')"),
     _ts("DATEDIFF(year, '2023-12-31', '2024-01-01')"),

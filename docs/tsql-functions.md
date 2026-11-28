@@ -21,47 +21,47 @@ System, metadata, security and cursor functions aren't listed: they read a serve
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 75 |
+| Runs | 78 |
 | Differs | 0 |
-| Refused | 33 |
+| Refused | 31 |
 | Fails | 0 |
-| Not checked | 70 |
+| Not checked | 69 |
 | **All** | **178** |
 
 ## String
 
-| Name | Status | Sample | Note |
-| --- | --- | --- | --- |
-| `ASCII` | Not checked |  |  |
-| `CHAR` | Not checked |  |  |
-| `CHARINDEX` | Runs |  | 1 value check |
-| `CONCAT` | Runs |  | 2 value checks |
-| `CONCAT_WS` | Runs |  | 1 value check |
-| `DATALENGTH` | Runs |  | 3 value checks |
-| `DIFFERENCE` | Refused |  | DIFFERENCE isn't mapped yet. |
-| `FORMAT` | Runs |  | 5 value checks |
-| `LEFT` | Runs |  | 1 value check |
-| `LEN` | Runs |  | 1 value check |
-| `LOWER` | Not checked |  |  |
-| `LTRIM` | Not checked |  |  |
-| `NCHAR` | Refused |  | NCHAR isn't mapped yet. |
-| `PATINDEX` | Runs |  | 3 value checks |
-| `QUOTENAME` | Runs |  | 5 value checks |
-| `REPLACE` | Runs |  | 1 value check |
-| `REPLICATE` | Runs |  | 2 value checks |
-| `REVERSE` | Not checked |  |  |
-| `RIGHT` | Runs |  | 1 value check |
-| `RTRIM` | Not checked |  |  |
-| `SOUNDEX` | Refused |  | SOUNDEX is not supported in DuckDB |
-| `SPACE` | Not checked |  |  |
-| `STR` | Runs |  | 5 value checks |
-| `STRING_ESCAPE` | Refused | `SELECT STRING_ESCAPE('a"b', 'json')` | STRING_ESCAPE isn't mapped yet. |
-| `STUFF` | Runs |  | 1 value check |
-| `SUBSTRING` | Runs |  | 2 value checks |
-| `TRANSLATE` | Not checked |  |  |
-| `TRIM` | Runs |  | 1 value check |
-| `UNICODE` | Not checked |  |  |
-| `UPPER` | Runs |  | 1 value check |
+| Function | Status | Note |
+| --- | --- | --- |
+| `ASCII` | Not checked |  |
+| `CHAR` | Runs | 1 value check |
+| `CHARINDEX` | Runs | 1 value check |
+| `CONCAT` | Runs | 2 value checks |
+| `CONCAT_WS` | Runs | 1 value check |
+| `DATALENGTH` | Runs | 3 value checks |
+| `DIFFERENCE` | Refused | DIFFERENCE isn't mapped yet. |
+| `FORMAT` | Runs | 5 value checks |
+| `LEFT` | Runs | 1 value check |
+| `LEN` | Runs | 1 value check |
+| `LOWER` | Not checked |  |
+| `LTRIM` | Not checked |  |
+| `NCHAR` | Runs | 4 value checks |
+| `PATINDEX` | Runs | 3 value checks |
+| `QUOTENAME` | Runs | 5 value checks |
+| `REPLACE` | Runs | 1 value check |
+| `REPLICATE` | Runs | 2 value checks |
+| `REVERSE` | Not checked |  |
+| `RIGHT` | Runs | 1 value check |
+| `RTRIM` | Not checked |  |
+| `SOUNDEX` | Refused | SOUNDEX is not supported in DuckDB |
+| `SPACE` | Not checked |  |
+| `STR` | Runs | 5 value checks |
+| `STRING_ESCAPE` | Runs | 1 value check |
+| `STUFF` | Runs | 1 value check |
+| `SUBSTRING` | Runs | 2 value checks |
+| `TRANSLATE` | Not checked |  |
+| `TRIM` | Runs | 1 value check |
+| `UNICODE` | Not checked |  |
+| `UPPER` | Runs | 1 value check |
 
 ## Math
 

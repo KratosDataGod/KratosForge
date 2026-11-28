@@ -10,7 +10,8 @@ original text, so support can still read it.
 A message that has a SQL Server number with certainty is shown as SQL Server prints it, "Msg 207, Level 16:
 Invalid column name 'x'.", alone or in a script. Others show no number, because none is guessed.
 
-WR-247: arithmetic and conversion errors too. An int, bigint or decimal that overflows in + - * or ABS is 8115,
+WR-247: arithmetic and conversion errors too. An int, bigint, smallint, tinyint (WR-276) or decimal that
+overflows in + - * or ABS is 8115,
 "Arithmetic overflow error converting expression to data type int."; text that isn't a number for an integer is
 245, for a decimal or float 8114, and for a date or time 241. The translator (tsql.py) raises some of these
 itself with SQL Server's words (DuckDB adds "Invalid Input Error: "), such as 8115 for SUM of ints and 245 with
@@ -37,7 +38,7 @@ _OBJECT = [
 _RAISED = "Invalid Input Error: "  # how DuckDB's error() gives a message the translator wrote in SQL Server's words
 _INTEGERS = {"INT32": "int", "INT64": "bigint", "INT16": "smallint", "UINT8": "tinyint"}
 _ARITHMETIC = re.compile(r"^Out of Range Error: Overflow in (?:addition|subtraction|multiplication) of "
-                         r"(?P<kind>INT32|INT64|DECIMAL\(\d+\)) \(")
+                         r"(?P<kind>INT32|INT64|INT16|UINT8|DECIMAL\(\d+\)) \(")
 _ABS = re.compile(r"^Out of Range Error: Overflow on abs\((?P<value>-\d+)\)$")
 _ABS_KINDS = {str(-2 ** 31): "int", str(-2 ** 63): "bigint"}  # the one value of each whose ABS overflows
 # A column's value that doesn't fit an integer type; a constant has its own words in SQL Server (220).

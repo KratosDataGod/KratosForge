@@ -4,7 +4,7 @@
 // Loaded after features.js; everything here runs after startup.
 
 const profilePage = { tab: "overview", data: null, days: 90, achievements: false, report: null,
-  trees: { classId: null, spec: null, talent: null, data: null, error: false } };
+  trees: { classId: null, spec: null, talent: null, data: null, error: false, view: null } };
 const RECORDING_ON = "Recording is on: notebooks that pass Validate, Prove or Side by side are kept in a private record on this PC. Turn it off in Profile > Settings.";
 // Badge glyphs (20x22), from the approved mockup. Locked achievements show the lock.
 const BADGE_GLYPHS = {
@@ -362,7 +362,7 @@ function profileTrees() {
   const tabs = h("div", { class: "tree-specs", role: "tablist", "aria-label": "Specializations" },
     c.specializations.map((s) => h("button", { role: "tab", class: `tree-spec${s.id === spec.id ? " active" : ""}`,
       "aria-selected": s.id === spec.id ? "true" : "false",
-      onclick: () => { t.spec = s.id; t.talent = null; render(); } },
+      onclick: () => { t.spec = s.id; t.talent = null; t.view = null; render(); } },
       s.title, h("span", { class: "tree-spec-count" }, ` ${s.nodes.filter((n) => n.state === "mastered").length}/${s.nodes.length}`))));
   const head = h("section", { class: "tree-head", "aria-label": c.title },
     h("div", { class: "tree-head-text" },
@@ -461,8 +461,147 @@ function treeCanvas(spec, selected) {
     e.preventDefault();
     nodes[spec.nodes.indexOf(next)].focus();
   };
-  return h("div", { class: "tree-canvas", role: "group", "aria-label": `${spec.title} talent tree. Arrow keys move between talents.`,
+  const canvas = h("div", { class: "tree-canvas", role: "group", "aria-label": `${spec.title} talent tree. Arrow keys move between talents. Plus and minus zoom, 0 fits the whole tree.`,
     style: `height:${tiers.length * 128}px`, onkeydown: move }, svg, nodes);
+  return treeZoom(spec, canvas);
+}
+
+// Zoom, pan and fit (approved mockup, 2026-11-27): the tree scales and moves inside its frame; the talent
+// detail panel beside it never does. Fit is the whole tree as it lays out with no zoom. - and + step 25%
+// between 50% and 200%. The view lives only while this specialization is open: a tab switch, another class
+// or a new visit starts at Fit, and nothing is saved.
+const TREE_ZOOM = { min: 0.5, max: 2, step: 0.25 };
+
+function treeZoom(spec, canvas) {
+  const t = profilePage.trees;
+  if (t.view?.key !== `${t.classId}/${spec.id}`) t.view = { key: `${t.classId}/${spec.id}`, s: 1, x: 0, y: 0 };
+  const v = t.view;
+  const world = h("div", { class: "tree-world" }, canvas);
+  const pct = h("span", { class: "tree-zoom-pct" });
+  const out = h("button", { class: "tree-zoom-btn", "aria-label": "Zoom out", onclick: () => step(-1) }, "\u2212");
+  const inn = h("button", { class: "tree-zoom-btn", "aria-label": "Zoom in", onclick: () => step(1) }, "+");
+  const fitBtn = h("button", { class: "tree-zoom-btn", onclick: () => fit() }, "Fit");
+  const box = h("i");
+  const mini = h("div", { class: "tree-zoom-overview", "aria-hidden": "true" }, box);
+  const hint = h("div", { class: "tree-zoom-hint", "aria-hidden": "true" });
+  const view = h("div", { class: "tree-view" },
+    h("div", { class: "tree-zoom", role: "toolbar", "aria-label": "Zoom" }, out, pct, inn, fitBtn), world, mini, hint);
+  const atFit = () => v.s === 1 && v.x === 0 && v.y === 0;
+  const eased = () => document.documentElement.dataset.motion === "on";
+  let said = null;
+  // Keep some of the tree in the frame: it can't be pushed more than half the frame out of sight.
+  const clamp = () => {
+    const w = view.clientWidth, hgt = view.clientHeight;
+    if (!w || !hgt) return;
+    v.x = Math.min(w / 2, Math.max(w / 2 - w * v.s, v.x));
+    v.y = Math.min(hgt / 2, Math.max(hgt / 2 - hgt * v.s, v.y));
+  };
+  const apply = (ease = false) => {
+    world.classList.toggle("easing", ease && eased());
+    world.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.s})`;
+    const fitNow = atFit(), word = fitNow ? "Fit" : `${Math.round(v.s * 100)}%`;
+    if (word !== said) {
+      // The page's status region says it (motion.js); not on the first draw.
+      if (said !== null && typeof announce === "function") announce(fitNow ? "Fit to view" : `Zoom ${word}`);
+      said = word;
+      pct.textContent = word;
+    }
+    out.disabled = v.s <= TREE_ZOOM.min;
+    inn.disabled = v.s >= TREE_ZOOM.max;
+    fitBtn.disabled = fitNow;
+    hint.textContent = v.s > 1 ? "Drag to pan \u00b7 0 to fit" : "Ctrl + wheel or + and \u2212 to zoom";
+    mini.hidden = v.s <= 1;
+    view.classList.toggle("zoomed", !fitNow);
+    if (v.s > 1) {
+      const w = view.clientWidth || 1, hgt = view.clientHeight || 1;
+      const l = Math.max(0, -v.x / v.s / w), tp = Math.max(0, -v.y / v.s / hgt);
+      box.style.cssText = `left:${(l * 100).toFixed(1)}%;top:${(tp * 100).toFixed(1)}%;`
+        + `width:${(Math.min(1 - l, 1 / v.s) * 100).toFixed(1)}%;height:${(Math.min(1 - tp, 1 / v.s) * 100).toFixed(1)}%`;
+    }
+  };
+  // Zoom to s around a point of the frame, so what's under it stays put.
+  const zoomTo = (s, px, py, ease = true) => {
+    s = Math.min(TREE_ZOOM.max, Math.max(TREE_ZOOM.min, Math.round(s * 100) / 100));
+    if (px === undefined) { px = view.clientWidth / 2; py = view.clientHeight / 2; }
+    v.x = px - ((px - v.x) * s) / v.s;
+    v.y = py - ((py - v.y) * s) / v.s;
+    v.s = s;
+    if (s === 1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1) { v.x = 0; v.y = 0; }
+    clamp();
+    apply(ease);
+  };
+  // Where a talent sits in the frame now.
+  const spot = (node) => {
+    const c = node.offsetParent;
+    return { x: v.x + (c.offsetLeft + node.offsetLeft) * v.s, y: v.y + (c.offsetTop + node.offsetTop) * v.s };
+  };
+  const focused = () => (canvas.contains(document.activeElement) && document.activeElement.classList.contains("tree-node") ? document.activeElement : null);
+  const step = (dir) => {
+    const next = Math.round((v.s + dir * TREE_ZOOM.step) / TREE_ZOOM.step) * TREE_ZOOM.step;
+    const n = focused();
+    if (n) { const p = spot(n); zoomTo(next, p.x, p.y); } else zoomTo(next);
+  };
+  const fit = () => { v.s = 1; v.x = 0; v.y = 0; apply(true); };
+  // The talent that has focus stays in sight: the view moves just enough to show it.
+  const reveal = (node) => {
+    view.scrollTop = 0; view.scrollLeft = 0;
+    if (v.s <= 1 && atFit()) return;
+    const p = spot(node), w = view.clientWidth, hgt = view.clientHeight, m = 80 * v.s;
+    const dx = p.x < m ? m - p.x : p.x > w - m ? w - m - p.x : 0;
+    const dy = p.y < m ? m - p.y : p.y > hgt - m - 40 * v.s ? hgt - m - 40 * v.s - p.y : 0;
+    if (!dx && !dy) return;
+    v.x += dx; v.y += dy;
+    clamp();
+    apply(true);
+  };
+  view.addEventListener("focusin", (e) => { if (e.target.classList?.contains("tree-node")) reveal(e.target); });
+  view.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.key === "+" || e.key === "=") step(1);
+    else if (e.key === "-" || e.key === "_") step(-1);
+    else if (e.key === "0") fit();
+    else return;
+    e.preventDefault();
+  });
+  // Ctrl + wheel (and a touchpad pinch, which arrives as one) zooms around the pointer; a plain wheel scrolls the page.
+  view.addEventListener("wheel", (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    const r = view.getBoundingClientRect();
+    zoomTo(v.s * Math.exp(-e.deltaY / 300), e.clientX - r.left, e.clientY - r.top, false);
+  }, { passive: false });
+  // Drag the background to pan; two fingers pinch to zoom around their middle.
+  const down = new Map();
+  let last = null;
+  view.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button, .tree-zoom") || e.button > 0) return;
+    down.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    view.setPointerCapture(e.pointerId);
+    view.classList.add("panning");
+    last = null;
+  });
+  view.addEventListener("pointermove", (e) => {
+    const was = down.get(e.pointerId);
+    if (!was) return;
+    const now = { x: e.clientX, y: e.clientY };
+    if (down.size === 1) {
+      v.x += now.x - was.x; v.y += now.y - was.y;
+      clamp();
+      apply(false);
+    } else {
+      const [a, b] = [...down.entries()].map(([id, p]) => (id === e.pointerId ? now : p));
+      const dist = Math.hypot(a.x - b.x, a.y - b.y), r = view.getBoundingClientRect();
+      if (last) zoomTo(v.s * (dist / last), (a.x + b.x) / 2 - r.left, (a.y + b.y) / 2 - r.top, false);
+      last = dist;
+    }
+    down.set(e.pointerId, now);
+  });
+  const up = (e) => { down.delete(e.pointerId); last = null; if (!down.size) view.classList.remove("panning"); };
+  view.addEventListener("pointerup", up);
+  view.addEventListener("pointercancel", up);
+  requestAnimationFrame(() => { clamp(); apply(false); });
+  apply(false);
+  return view;
 }
 
 function treeDetail(spec, n) {

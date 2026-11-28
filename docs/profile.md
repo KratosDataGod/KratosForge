@@ -133,6 +133,13 @@ specialization is a talent tree of ten talents. Pick a class at the top right an
 on its tabs. Pick a talent to see its level, what the next level needs, the evidence that counts for
 it, and the lessons that teach it. The tab is hidden while Developer progression is off.
 
+The tree opens at Fit, which shows the whole tree. To look closer, use the zoom bar at the tree's top
+right: − and + step 25% between 50% and 200%, and Fit goes back to the whole tree. While a talent has
+focus, + and − zoom around it and 0 fits. Ctrl + wheel or a pinch zooms around the pointer, and
+dragging the background moves the tree. A plain wheel still scrolls the page. While zoomed in, a small
+overview box at the bottom right shows which part of the tree is in view. The talent panel beside the
+tree never zooms. Switching specialization goes back to Fit, and the zoom isn't saved.
+
 Each class has five class achievements, shown above its trees. An earned one shows the day your
 evidence first met it, or just "Earned" when that evidence has no date. One you're working toward
 shows how many of the talents it counts are at the level it needs. One that no lesson, exercise or

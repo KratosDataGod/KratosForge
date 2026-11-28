@@ -222,8 +222,16 @@ def _mixed_array(node: object) -> bool:
         return False
     if {_scalar_kind(v) for v in values} - {"null"} == {"text", "number"}:
         return True
-    lists = [_is_variant_list(v) for v in values if _scalar_kind(v) != "null"]
-    return any(lists) and not all(lists)
+    if any(_is_variant_list(v) for v in values) and not all(_is_variant_list(v) or _scalar_kind(v) == "null"
+                                                         for v in values):
+        return True
+    # an array written beside text or a number (ARRAY_CONSTRUCT(ARRAY_CONSTRUCT(1), 7)): a DuckDB list can't
+    # hold both, and Snowflake's array holds each as it is
+    return any(_is_written_list(v) for v in values) and any(_scalar_kind(v) in ("text", "number") for v in values)
+
+
+def _is_written_list(node: object) -> bool:
+    return isinstance(node, (exp.Array, exp.ArrayConstructCompact)) or _is_variant_list(node)
 
 
 def _is_variant_list(node: object) -> bool:

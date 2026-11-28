@@ -1,0 +1,191 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "mode": "troubleshoot",
+  "id": "E98",
+  "title": "Broken: an eventhouse update policy stops filling its table after a function edit",
+  "objectives": [
+    "3.2.4"
+  ],
+  "objective_text": "Compare an update policy's function output with its target table, find the column order and type that no longer match, fix the function, and make the policy transactional so the target table doesn't lose rows.",
+  "scenario": "In an eventhouse, an update policy on Readings turns each batch that lands in RawTelemetry into typed rows. On Monday someone edited the ExpandTelemetry function it runs. Since then RawTelemetry keeps growing, but Readings gets no new rows, and the dashboards that read Readings have gone flat.",
+  "prerequisites": [],
+  "minutes": 20,
+  "engine_label": "A model of an eventhouse update policy, its function and its tables, checked on this PC",
+  "starter": "settings.json",
+  "fault": {
+    "summary": "The edited function returns Site first and TemperatureC as a string, so its output no longer matches Readings in column order and type, and the update policy fails. The policy isn't transactional, so ingestion into RawTelemetry still succeeds and Readings quietly misses every batch.",
+    "planted": [
+      {
+        "where": "settings.json, function.output",
+        "what": "Site moved to the front, and TemperatureC made with tostring as a string where Readings has real"
+      },
+      {
+        "where": "settings.json, update_policy",
+        "what": "IsTransactional false, so a failing policy leaves rows in RawTelemetry and none in Readings"
+      }
+    ],
+    "symptom": "RawTelemetry keeps growing, but Readings has had no new rows since Monday's edit to ExpandTelemetry."
+  },
+  "verifies": [
+    "Your function returns the four columns in the same order and with the same types as the target table, converts the temperature with toreal or todouble, leaves the tables as they were, and makes the update policy transactional, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That an eventhouse accepts the function or the policy. Nothing is sent to Fabric, and no KQL runs here.",
+    "Backfilling the rows Readings missed since Monday. They're still in RawTelemetry, but this exercise doesn't load them again.",
+    "Where the failures show up. Learn names the .show ingestion failures command for update policy failures, and this model doesn't run it."
+  ],
+  "expected": {
+    "description": "function.output is DeviceId (tostring, string), ReadingTime (todatetime, datetime), TemperatureC (toreal or todouble, real), Site (tostring, string). The tables are unchanged. update_policy is enabled on Readings with Source RawTelemetry, Query ExpandTelemetry() and IsTransactional true."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "The function's output still doesn't match Readings column by column.",
+      "pass": "The function returns Readings' columns in the same order and with the same types.",
+      "rules": [
+        {
+          "path": "function.output",
+          "count": 4,
+          "why": "The function has to return one column for each column of Readings."
+        },
+        {
+          "path": "function.output.0.name",
+          "equals": "DeviceId",
+          "why": "The function's output and the target table must match in column types and order. Site belongs at the end, where Readings has it."
+        },
+        {
+          "path": "function.output.0.type",
+          "equals": "string"
+        },
+        {
+          "path": "function.output.1.name",
+          "equals": "ReadingTime"
+        },
+        {
+          "path": "function.output.1.type",
+          "equals": "datetime"
+        },
+        {
+          "path": "function.output.1.convert",
+          "equals": "todatetime"
+        },
+        {
+          "path": "function.output.2.name",
+          "equals": "TemperatureC"
+        },
+        {
+          "path": "function.output.2.convert",
+          "one_of": [
+            "toreal",
+            "todouble"
+          ],
+          "why": "Readings stores TemperatureC as real. toreal and todouble are the same function, and a value that can't convert becomes a null real, not an error."
+        },
+        {
+          "path": "function.output.2.type",
+          "equals": "real"
+        },
+        {
+          "path": "function.output.3.name",
+          "equals": "Site"
+        },
+        {
+          "path": "function.output.3.type",
+          "equals": "string"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The tables changed. Fix the function to fit Readings instead.",
+      "pass": "Both tables are as they were.",
+      "rules": [
+        {
+          "path": "tables.Readings.columns",
+          "count": 4
+        },
+        {
+          "path": "tables.Readings.columns.0.name",
+          "equals": "DeviceId",
+          "why": "Other teams read Readings. Moving its columns to fit the function breaks them."
+        },
+        {
+          "path": "tables.Readings.columns.2.name",
+          "equals": "TemperatureC"
+        },
+        {
+          "path": "tables.Readings.columns.2.type",
+          "equals": "real",
+          "why": "Dashboards and alerts compare temperatures as numbers. A string column would break them."
+        },
+        {
+          "path": "tables.Readings.columns.3.name",
+          "equals": "Site"
+        },
+        {
+          "path": "tables.RawTelemetry.columns",
+          "count": 1
+        },
+        {
+          "path": "tables.RawTelemetry.columns.0.type",
+          "equals": "dynamic"
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The update policy still lets Readings miss rows, or no longer runs as it should.",
+      "pass": "The policy runs ExpandTelemetry() on RawTelemetry and is transactional.",
+      "rules": [
+        {
+          "path": "update_policy.IsEnabled",
+          "equals": true,
+          "why": "Turning the policy off stops the failures by never filling Readings."
+        },
+        {
+          "path": "update_policy.table",
+          "equals": "Readings"
+        },
+        {
+          "path": "update_policy.Source",
+          "equals": "RawTelemetry"
+        },
+        {
+          "path": "update_policy.Query",
+          "equals": "ExpandTelemetry()",
+          "why": "The query only needed the function fixed. Learn says to refer to the source table by its plain name, never with database() or cluster()."
+        },
+        {
+          "path": "update_policy.IsTransactional",
+          "equals": true,
+          "why": "When a transactional policy fails, nothing is ingested into the source or the target, so the batch isn't half loaded. Learn advises true in production so the target doesn't lose data in transient failures."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Put function.output next to tables.Readings.columns. Do the names line up position by position?",
+    "Which KQL function turns a value into a real?",
+    "Would changing Readings to fit the function be safe for the teams that read it?",
+    "With IsTransactional false, what happens to RawTelemetry when the policy fails? And to Readings?"
+  ],
+  "explanation": "An update policy runs a query on each new batch in the source table and adds the result to the target table. The query's output and the target table must match in column types and order. Monday's edit broke both. Site moved to the front, and TemperatureC became a string while Readings stores real. A schema mismatch makes the policy fail. Because the policy wasn't transactional, the ingestion into RawTelemetry still succeeded, so nothing looked wrong at the source, and Readings simply stopped growing. Fix the function, not the table. Put Site back at the end and convert the temperature with toreal, which is the same as todouble. A value that can't convert becomes a null real, so odd values don't break anything. Then set IsTransactional to true. When a transactional policy fails, nothing is ingested into the source or the target, so the failure is visible and the batch can be ingested again. Learn advises this in production so the target doesn't lose data in transient failures.",
+  "remediation": [
+    "https://learn.microsoft.com/kusto/management/update-policy?view=microsoft-fabric",
+    "https://learn.microsoft.com/kusto/query/toreal-function?view=microsoft-fabric"
+  ],
+  "reset": "Reset puts the original settings.json back.",
+  "review_notes": [
+    "Checked on Learn 2026-11-23. update-policy: the function schema and the target table schema must match in their column types and order. Common failure causes are a mismatch between the query output schema and the target table, and any query error. IsTransactional defaults to false. With false, a failed policy still ingests into the source and the ingestion succeeds. With true, nothing is ingested into source or target and the ingestion fails. In production set IsTransactional true so the target table doesn't lose data in transient failures. Failures show with .show ingestion failures where OriginatesFromUpdatePolicy is true.",
+    "toreal-function: toreal and todouble are equivalent, and a value that can't convert returns real(null).",
+    "The page says types and order must match. It doesn't say names must match, so the model checks names only to read the order.",
+    "How to reload the rows Readings missed isn't graded, because no Learn page fetched for this exercise gives the steps."
+  ]
+}

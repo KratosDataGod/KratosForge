@@ -99,6 +99,8 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E79 | Sliding windows and warm episodes over freezer readings | 2.3.5 | C | LV | duckdb | 25 | LM-15 |
 | E84 | Five shortcuts: type, location, identity and cache | 2.2.3 | C | SIM +FV | config | 25 | |
 | E89 | Incremental copy in a pipeline: parameters, two watermarks and a safe save | 2.2.5 | C | LV +FV | pipeline | 30 | |
+| E94 | Mirror an Azure SQL Database: prerequisites, which tables, what replicates and how to query it | 2.2.4 | C | SIM +FV | config | 25 | |
+| E96 | KQL in SQL: where, extend, summarize by bin, countif and sort | 2.3.4 | G | SIM +FV | duckdb | 20 | |
 
 ## 3. Monitor and optimize an analytics solution
 
@@ -119,6 +121,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E90 | Refresh history: failures in a row, a schedule turned off and slow refreshes | 3.1.3 | C | SIM +FV | duckdb (`runs`) | 20 | LM-09 |
 | E91 | Alerts: pipeline notifications, refresh failure emails and Activator rules | 3.1.4 | C | SIM +FV | config | 20 | |
 | E92 | Optimize a pipeline: partitioned copy, copy parallelism, throughput and no waits | 3.3.2 | C | SIM +FV | config | 25 | |
+| E100 | Optimize an eventstream and an eventhouse: throughput, retention, caching and a materialized view | 3.3.4 | C | SIM +FV | config | 25 | |
 
 ## Broken environments (Troubleshoot)
 
@@ -141,6 +144,11 @@ validation checks both the fix and that nothing else changed.
 | E59 | A query that got slow: a filter that can't skip data | 3.3.6 | LV | duckdb | 20 | LAB-02 |
 | E65 | A nightly T-SQL load stops on a bad value, a zero amount and an order sent twice | 3.2.6 | LV | duckdb | 25 | LAB-04 |
 | E68 | A notebook MERGE fails: two source rows for one key | 3.2.3, 2.2.9 | LV | pyspark | 20 | LM-11 |
+| E93 | A Bronze to Silver stream shares a checkpoint and stops after a cleanup deletes rows | 2.1.3 | LV +FV | pyspark | 25 | |
+| E95 | An eventstream Union drops one source's fields, and a window overlaps | 2.3.2 | SIM +FV | config | 20 | |
+| E97 | A Dataflow Gen2 shows date errors and fails on an empty date: a locale and a non-nullable column | 3.2.2 | SIM | config | 20 | |
+| E98 | An eventhouse update policy stops filling its table: a function that no longer matches the table | 3.2.4 | SIM | config | 20 | |
+| E99 | An eventstream misses a CDC snapshot and shares another app's consumer group | 3.2.5 | SIM | config | 20 | |
 
 ## Capstone projects
 
@@ -154,11 +162,11 @@ validation checks both the fix and that nothing else changed.
 
 | | Count |
 | --- | --- |
-| Exercises | 92 (78 Guided or Challenge, 14 Troubleshoot) |
-| LOCAL VERIFIED | 41 |
-| SIMULATED | 41 |
+| Exercises | 100 (81 Guided or Challenge, 19 Troubleshoot) |
+| LOCAL VERIFIED | 42 |
+| SIMULATED | 48 |
 | KNOWLEDGE ONLY | 10 |
-| With a planned FABRIC VERIFIED version | 48 |
+| With a planned FABRIC VERIFIED version | 53 |
 | Capstones | 3 |
 | Built from existing Learn lessons or labs | 26 |
 

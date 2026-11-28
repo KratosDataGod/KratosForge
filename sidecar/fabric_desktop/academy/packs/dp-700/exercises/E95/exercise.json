@@ -1,0 +1,203 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "simulated",
+  "adapter": "config_model",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "settings.json",
+  "reset": "Reset puts the original settings.json back.",
+  "id": "E95",
+  "title": "Broken: an eventstream Union drops one source's fields and a window overlaps",
+  "objectives": [
+    "2.3.2"
+  ],
+  "mode": "troubleshoot",
+  "minutes": 20,
+  "prerequisites": [],
+  "objective_text": "Repair an eventstream that merges two sources. Line up one source's field names and types with Manage fields before the Union, group with a tumbling window, and pick the Eventhouse ingestion mode that allows operators.",
+  "scenario": "Two loading docks send cold-chain readings into one eventstream. The north dock has worked for months. Since the south dock's sensors went live, its rows land with no temperature and no sensor id, the dashboard shows no south sensors, and every sensor has several overlapping figures where the team expected one per 5 minutes.",
+  "engine_label": "A model of an eventstream's operators and destinations, checked on this PC",
+  "fault": {
+    "summary": "The Union only keeps fields that have the same name and data type in every input, and the south source names its temperature differently and sends its sensor id as a number. The Group by window overlaps, and the Eventhouse is set to direct ingestion behind an operator.",
+    "planted": [
+      {
+        "where": "operators.all_docks",
+        "what": "the Union reads dock-south as it is, with Temperature where the north has TempC and SensorId as Int64 where the north has String"
+      },
+      {
+        "where": "operators.sensor_temps.window",
+        "what": "a Sliding window, where the dashboard needs blocks that don't overlap"
+      },
+      {
+        "where": "destinations.eventhouse.ingestion_mode",
+        "what": "Direct ingestion, behind a Group by operator"
+      }
+    ],
+    "symptom": "South rows in dock_readings have no TempC and no SensorId, sensor_temps shows no south sensors, and each sensor has several overlapping 5-minute figures."
+  },
+  "verifies": [
+    "Your eventstream renames and retypes the south dock's fields to the north dock's before the Union, feeds both docks to the Lakehouse, groups each sensor in 5-minute tumbling windows and sends that to the Eventhouse with event processing before ingestion, as the eventstream pages on Learn describe the operators and destinations, checked against a model on this PC."
+  ],
+  "does_not_verify": [
+    "That any event flows. Nothing is read, merged, grouped or written.",
+    "The exact names of data types and window settings in the eventstream editor. This model uses plain names for them.",
+    "Window types other than tumbling and sliding, which this model leaves out."
+  ],
+  "expected": {
+    "description": "south_fields reads dock-south and keeps EventTime, SensorId as String, Temperature renamed to TempC as Double, and DoorOpen. all_docks unions dock-north and south_fields, and feeds the Lakehouse and sensor_temps. sensor_temps averages TempC by SensorId in a 5-minute Tumbling window, into the Eventhouse with event processing before ingestion."
+  },
+  "validation": [
+    {
+      "kind": "config_matches",
+      "fail": "The south dock's fields still don't match the north dock's when they reach the Union.",
+      "pass": "Both inputs reach the Union with the same field names and types.",
+      "rules": [
+        {
+          "path": "operators.south_fields.input",
+          "equals": "dock-south",
+          "why": "Fix the fields before the Union. After it, the fields that didn't match are already gone."
+        },
+        {
+          "path": "operators.south_fields.fields",
+          "count": 4,
+          "why": "dock_readings keeps all four fields, so Manage fields outputs all four."
+        },
+        {
+          "path": "operators.south_fields.fields",
+          "count": 1,
+          "where": {
+            "source_field": "Temperature",
+            "name": "TempC",
+            "type": "Double"
+          },
+          "why": "The Union only keeps fields with the same name in every input. Rename Temperature to TempC."
+        },
+        {
+          "path": "operators.south_fields.fields",
+          "count": 1,
+          "where": {
+            "source_field": "SensorId",
+            "name": "SensorId",
+            "type": "String"
+          },
+          "why": "The Union also needs the same data type. Change the south SensorId to String, as the north sends it."
+        },
+        {
+          "path": "operators.south_fields.fields",
+          "count": 1,
+          "where": {
+            "source_field": "EventTime",
+            "name": "EventTime",
+            "type": "DateTime"
+          }
+        },
+        {
+          "path": "operators.south_fields.fields",
+          "count": 1,
+          "where": {
+            "source_field": "DoorOpen",
+            "name": "DoorOpen",
+            "type": "Boolean"
+          }
+        },
+        {
+          "path": "operators.all_docks.inputs",
+          "count": 2
+        },
+        {
+          "path": "operators.all_docks.inputs",
+          "contains": "dock-north",
+          "why": "Keep the north dock as it is. dock_readings uses its names and types."
+        },
+        {
+          "path": "operators.all_docks.inputs",
+          "contains": "south_fields",
+          "why": "The Union reads the fixed south fields, not the raw south source."
+        },
+        {
+          "path": "destinations.lakehouse.input",
+          "equals": "all_docks",
+          "why": "dock_readings holds both docks, so it reads the Union."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "sensor_temps doesn't give one average per sensor for each 5-minute block.",
+      "pass": "sensor_temps averages each sensor in 5-minute blocks that don't overlap.",
+      "rules": [
+        {
+          "path": "operators.sensor_temps.input",
+          "equals": "all_docks"
+        },
+        {
+          "path": "operators.sensor_temps.group_by",
+          "count": 1
+        },
+        {
+          "path": "operators.sensor_temps.group_by",
+          "contains": "SensorId"
+        },
+        {
+          "path": "operators.sensor_temps.aggregations",
+          "count": 1,
+          "where": {
+            "function": "Average",
+            "field": "TempC"
+          }
+        },
+        {
+          "path": "operators.sensor_temps.window.type",
+          "equals": "Tumbling",
+          "why": "A tumbling window is a fixed interval. A sliding window overlaps, so one reading counts in several figures."
+        },
+        {
+          "path": "operators.sensor_temps.window.minutes",
+          "equals": 5
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "fail": "The Eventhouse can't take the grouped events as it's set.",
+      "pass": "The Eventhouse takes the grouped events.",
+      "rules": [
+        {
+          "path": "destinations.eventhouse.input",
+          "equals": "sensor_temps"
+        },
+        {
+          "path": "destinations.eventhouse.ingestion_mode",
+          "equals": "Event processing before ingestion",
+          "why": "Direct ingestion lands events without any processing. Operators such as Group by need event processing before ingestion."
+        }
+      ]
+    }
+  ],
+  "hints": [
+    "Compare the two sources' fields, name by name and type by type. What does a Union do with a field that doesn't match?",
+    "Which operator can rename a field and change its data type? Where does it have to sit for the Union to see the result?",
+    "Should one reading count in one 5-minute figure or in several?",
+    "Which Eventhouse ingestion mode lets an operator come first?"
+  ],
+  "explanation": "A Union merges two or more streams into one, keeping the fields that have the same name and data type in every input. Fields that don't match are dropped. The south dock calls its temperature Temperature and sends SensorId as a number, so both fields vanished from its rows, and the Group by on SensorId had nothing to group them by. Manage fields can add, remove, rename and change the data type of fields, so a Manage fields operator on the south source, before the Union, makes its fields match the north's. Fixing them after the Union is too late. A tumbling window cuts time into fixed blocks that don't overlap, so each reading counts once. A sliding window overlaps. The Eventhouse sits behind an operator, so it needs event processing before ingestion. Direct ingestion lands events without any processing.",
+  "troubleshooting": [
+    "South rows still have no TempC. Temperature wasn't renamed to TempC, or Manage fields sits after the Union. Rename it in south_fields, and put south_fields before the Union.",
+    "South rows still have no SensorId. Its type is still Int64. Change it to String.",
+    "Each sensor still has overlapping figures. The window is Sliding. Use Tumbling.",
+    "The Eventhouse destination shows an error. It's on Direct ingestion behind an operator. Set it to Event processing before ingestion."
+  ],
+  "remediation": [
+    "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/route-events-based-on-content",
+    "https://learn.microsoft.com/en-us/training/modules/explore-event-streams-microsoft-fabric/4-route-event-data-to-destinations",
+    "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor",
+    "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/add-destination-kql-database"
+  ],
+  "review_notes": [
+    "Checked on Learn 2026-11-23. route-events-based-on-content: Union connects two or more streams with shared fields of the same name and data type into one stream, and fields that don't match are dropped. Manage fields adds, removes or changes the data type of a field. Group by aggregates event data within a time window, grouped on one or more columns. The training unit explore-event-streams-microsoft-fabric/4-route-event-data-to-destinations: Manage fields can also rename fields, and Group by supports tumbling windows (fixed intervals) and sliding windows (overlapping intervals). process-events-using-event-processor-editor: Lakehouse, Eventhouse with event processing before ingestion, derived stream and Activator can follow an operator. The direct ingestion rule is the same fact E41 uses, from add-destination-kql-database.",
+    "Not checked, so not graded: the editor's exact names for data types and window settings, and hopping, snapshot or session windows. The model uses String, Int64, Double, Boolean and DateTime as plain names."
+  ]
+}

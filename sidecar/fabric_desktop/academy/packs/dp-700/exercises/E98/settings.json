@@ -1,0 +1,83 @@
+{
+  "_about": "A model of two tables in a KQL database, the stored function an update policy runs, and the update policy on Readings. Each entry in function.output is a column the function returns, in order, with the KQL conversion that makes it and the type it returns. Change what the needs call for.",
+  "needs": [
+    "RawTelemetry holds each device event as it arrives, as one dynamic column. The update policy on Readings runs ExpandTelemetry() on each new batch and adds typed rows to Readings. Dashboards and alerts read Readings.",
+    "Readings is shared with other teams. Its columns stay as they are, in the same order.",
+    "On Monday someone edited ExpandTelemetry. They added Site at the front of its output, and changed TemperatureC to tostring so that odd values wouldn't break anything. Since then RawTelemetry keeps growing, but Readings gets no new rows.",
+    "Readings must not lose rows when the policy fails for a passing reason, such as a short outage. When the policy fails, the whole ingestion should fail too, so nothing lands in RawTelemetry without its Readings rows."
+  ],
+  "tables": {
+    "RawTelemetry": {
+      "columns": [
+        {
+          "name": "Payload",
+          "type": "dynamic"
+        }
+      ]
+    },
+    "Readings": {
+      "columns": [
+        {
+          "name": "DeviceId",
+          "type": "string"
+        },
+        {
+          "name": "ReadingTime",
+          "type": "datetime"
+        },
+        {
+          "name": "TemperatureC",
+          "type": "real"
+        },
+        {
+          "name": "Site",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "sample_payload": {
+    "deviceId": "d-17",
+    "ts": "2026-11-23T08:15:02Z",
+    "tempC": 21.4,
+    "site": "Leeds"
+  },
+  "function": {
+    "name": "ExpandTelemetry",
+    "reads": "RawTelemetry",
+    "output": [
+      {
+        "name": "Site",
+        "from": "Payload.site",
+        "convert": "tostring",
+        "type": "string"
+      },
+      {
+        "name": "DeviceId",
+        "from": "Payload.deviceId",
+        "convert": "tostring",
+        "type": "string"
+      },
+      {
+        "name": "ReadingTime",
+        "from": "Payload.ts",
+        "convert": "todatetime",
+        "type": "datetime"
+      },
+      {
+        "name": "TemperatureC",
+        "from": "Payload.tempC",
+        "convert": "tostring",
+        "type": "string"
+      }
+    ]
+  },
+  "update_policy": {
+    "table": "Readings",
+    "IsEnabled": true,
+    "Source": "RawTelemetry",
+    "Query": "ExpandTelemetry()",
+    "IsTransactional": false,
+    "PropagateIngestionProperties": false
+  }
+}

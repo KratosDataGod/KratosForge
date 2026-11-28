@@ -46,7 +46,7 @@ BANNED_NAMES = re.compile(r"god|deity|divine|olympian|immortal", re.I)
 _ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 _NODE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}\.\d{2}$")
 _LEARN = re.compile(r"^(LM|LAB)-\d{2}$")
-_ACADEMY = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}/(E\d{2}|C\d{1,2})$")
+_ACADEMY = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}/(E\d{2,3}|C\d{1,2})$")
 _OBJECTIVE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}:\d{1,2}\.\d{1,2}(\.\d{1,2})?$")
 _RULE = re.compile(r"^[A-Z]{2}\d{3}$")
 

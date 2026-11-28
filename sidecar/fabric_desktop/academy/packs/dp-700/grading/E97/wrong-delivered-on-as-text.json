@@ -1,0 +1,100 @@
+{
+  "_about": "A model of one Dataflow Gen2 query, its project's regional settings and its data destination. Each column in Changed column type has a type, a locale and nullable, which says whether it may be empty. A locale of null means the project's regional settings. Edit what the needs call for, and keep the steps in this order.",
+  "needs": [
+    "The Shipments query reads every file in the bronze folder carriers/northwind_uk on each refresh and replaces silver_shipments with the result. Reports read silver_shipments, so its column types stay as they are.",
+    "Northwind UK writes dates as day/month/year, like 22/10/2026. Weights use a dot for decimals, like 12.5.",
+    "The other queries in this dataflow read files from US carriers. The project's regional settings stay English (United States).",
+    "A shipment that is still on its way has no delivered_on date yet. Those rows load with delivered_on empty. Every shipment reaches silver_shipments, so don't drop rows and don't make up dates."
+  ],
+  "project": {
+    "regional_settings": "English (United States)"
+  },
+  "query": "Shipments",
+  "sample_rows": [
+    {
+      "shipment_id": "40017",
+      "ship_date": "03/11/2026",
+      "delivered_on": "05/11/2026",
+      "weight_kg": "12.5"
+    },
+    {
+      "shipment_id": "40018",
+      "ship_date": "22/10/2026",
+      "delivered_on": "27/10/2026",
+      "weight_kg": "3.75"
+    },
+    {
+      "shipment_id": "40019",
+      "ship_date": "21/11/2026",
+      "delivered_on": null,
+      "weight_kg": "8"
+    }
+  ],
+  "steps": [
+    {
+      "name": "Source",
+      "kind": "source",
+      "from": "Lakehouse bronze, folder carriers/northwind_uk"
+    },
+    {
+      "name": "Promoted headers",
+      "kind": "promote_headers"
+    },
+    {
+      "name": "Changed column type",
+      "kind": "change_type",
+      "columns": {
+        "shipment_id": {
+          "type": "Whole number",
+          "nullable": false,
+          "locale": null
+        },
+        "ship_date": {
+          "type": "Date",
+          "nullable": false,
+          "locale": "English (United Kingdom)"
+        },
+        "delivered_on": {
+          "type": "Text",
+          "nullable": true,
+          "locale": null
+        },
+        "weight_kg": {
+          "type": "Decimal number",
+          "nullable": false,
+          "locale": null
+        }
+      }
+    }
+  ],
+  "destination": {
+    "kind": "Lakehouse table",
+    "table": "silver_shipments",
+    "settings": "manual",
+    "update_method": "Replace",
+    "schema": "fixed",
+    "columns": {
+      "shipment_id": {
+        "type": "Whole number",
+        "nullable": false
+      },
+      "ship_date": {
+        "type": "Date",
+        "nullable": false
+      },
+      "delivered_on": {
+        "type": "Text",
+        "nullable": true
+      },
+      "weight_kg": {
+        "type": "Decimal number",
+        "nullable": false
+      }
+    }
+  },
+  "last_refresh": {
+    "status": "Failed",
+    "error": "E104100 Couldn't refresh entity because of an issue with the mashup document. We can't insert null data into a non-nullable column.",
+    "preview": "ship_date and delivered_on show Error in many rows, for example 22/10/2026."
+  }
+}

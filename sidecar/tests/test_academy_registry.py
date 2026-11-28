@@ -80,7 +80,7 @@ def test_no_objective_is_left_out_and_fabric_ones_say_why(dp700):
 def test_coverage_matches_the_plan(dp700):
     cov = registry.coverage(dp700)
     assert cov["objectives"] == cov["with_exercises"] == 49
-    assert cov["best_local"] == {"local_verified": 21, "simulated": 24, "knowledge_only": 4}
+    assert cov["best_local"] == {"local_verified": 21, "simulated": 27, "knowledge_only": 1}
     assert cov["fabric_required"] == 36
     assert cov["gaps"] == 11
 
@@ -97,7 +97,7 @@ def test_each_objective_status_matches_what_is_built(pack):
 
 
 def test_dp700_status_counts(dp700):
-    assert registry.coverage(dp700)["status"] == {"planned": 1, "in_progress": 0, "covered": 48, "retired": 0}
+    assert registry.coverage(dp700)["status"] == {"planned": 0, "in_progress": 1, "covered": 48, "retired": 0}
 
 
 def test_the_version_is_honest_about_its_date(dp700):

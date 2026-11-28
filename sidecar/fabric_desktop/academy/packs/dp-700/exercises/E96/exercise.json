@@ -1,0 +1,64 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E96",
+  "version": 1,
+  "status": "draft",
+  "title": "KQL in SQL: where, extend, summarize by bin, countif and sort",
+  "objectives": [
+    "2.3.4"
+  ],
+  "objective_text": "Read a KQL query that finds 15-minute windows with server errors, and write the SQL that returns exactly what the KQL query returns. That means the case-sensitive filter, bin rounding down, count and countif, the columns summarize gives, the filter after summarize and KQL's default sort order.",
+  "scenario": "An eventstream lands web requests in an Eventhouse table, AppRequests. The on-call team runs a KQL query each morning that lists, for the eu-west region, every 15-minute window in which a service returned server errors. A new report has to show the same rows, and the report tool only speaks SQL. Your SQL must return what the KQL query returns, row for row and in the same order.",
+  "prerequisites": [],
+  "minutes": 20,
+  "mode": "guided",
+  "class": "simulated",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC, running your SQL over a simulated AppRequests table. No KQL runs here.",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "error_windows.sql",
+  "datasets": [],
+  "parity": null,
+  "verifies": [
+    "Your SQL returns the rows the stated KQL query would return, by the KQL rules the lesson quotes from Learn, in the same columns and order, on simulated data with DuckDB on this PC."
+  ],
+  "does_not_verify": [
+    "Any KQL. Nothing here runs KQL, so a KQL query you write isn't checked. The expected rows come from a SQL reference written by those rules.",
+    "Eventhouse behavior such as ingestion, caching or retention, or how fast the query runs.",
+    "KQL functions the query doesn't use, and bins with no rows, which summarize doesn't return."
+  ],
+  "expected": {
+    "description": "5 rows with the columns Service, TimeBin, Requests, Errors, MaxDurationMs and ErrorPct, newest TimeBin first, then Service A to Z."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "Your SQL returns what the KQL query returns, in the same order.",
+      "fail": "Some row, column or the order is off. Check the region comparison, how bin() rounds, what count() and countif() count, the filter after summarize and the sort."
+    }
+  ],
+  "hints": [
+    "== in KQL is case sensitive. Does 'EU-West' equal 'eu-west'?",
+    "bin(Timestamp, 15m) rounds down to a multiple of 15 minutes. 09:14:59 goes in 09:00 and 09:15:00 in 09:15. DuckDB's time_bucket does the same.",
+    "count() counts rows, even a row with no StatusCode. countif() counts rows where its condition is true.",
+    "The where after summarize filters the groups, like HAVING or an outer WHERE in SQL.",
+    "order by with no direction sorts descending in KQL. The asc applies only to Service."
+  ],
+  "explanation": "Each KQL step has a SQL match. where Region == \"eu-west\" is a case-sensitive equality, so the 'EU-West' rows stay out. extend adds a column, here IsError. summarize ... by Service, TimeBin = bin(Timestamp, 15m) is a GROUP BY on the service and the timestamp rounded down to a multiple of 15 minutes, and its output puts the by columns first, then the aggregates. count() counts every row in the group, including the request with no StatusCode, while countif(IsError) counts only rows where the condition is true. max ignores nulls. The second extend computes ErrorPct from the grouped figures, and the where after summarize keeps only groups with errors, so it filters groups, not requests. Filtering requests to errors first would make every window 100 percent. Finally, order by with no direction sorts descending in KQL, so the newest window comes first, with services A to Z inside it.",
+  "remediation": [
+    "https://learn.microsoft.com/en-us/kusto/query/summarize-operator",
+    "https://learn.microsoft.com/en-us/kusto/query/bin-function",
+    "https://learn.microsoft.com/en-us/kusto/query/countif-aggregation-function",
+    "https://learn.microsoft.com/en-us/kusto/query/datatypes-string-operators",
+    "https://learn.microsoft.com/en-us/kusto/query/sort-operator",
+    "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/kusto-query-set"
+  ],
+  "reset": "Reset rebuilds AppRequests from setup.sql and puts the starter query back.",
+  "review_notes": [
+    "SIMULATED: AppRequests is synthetic and nothing runs KQL. The learner writes SQL, and the reference is SQL written to match the KQL rules below. A KQL emulator isn't approved, so the KQL itself is never executed.",
+    "Checked on Learn 2026-11-23. summarize-operator: the result has as many rows as there are distinct combinations of by values, the by columns come first, then a column per aggregate. avg and sum ignore nulls. bin-function: rounds values down to an integer multiple of the bin size. countif-aggregation-function: counts the rows in which the predicate evaluates to true. datatypes-string-operators: == is case sensitive, =~ isn't. sort-operator: the default direction is desc. round-function: round(number, precision) rounds to that many digits.",
+    "Not graded: the summarize page is inconsistent about whether count(column) counts nulls, so the query uses count(), which counts rows. The data has no ties in ErrorPct at one decimal, so round's tie rule doesn't matter. The data has no null Timestamp, Service or Region."
+  ]
+}

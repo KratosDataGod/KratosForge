@@ -1,0 +1,65 @@
+{
+  "_about": "A model of a fleet telemetry solution, with one eventstream's settings, the KQL database it feeds and the query behind a dashboard tile. A policy value of null means none is set on that table or database. In Kusto, with no policy set, the default applies. Data is kept for 1,000 years, and all of it is hot. Days are whole days. Change what the needs call for.",
+  "needs": [
+    "About 5,000 trucks send telemetry to the FleetStream eventstream through a custom endpoint. The rate peaks at 40 MB/s. The eventstream lands events in the RawEvents table, and a transactional update policy turns them into rows in Telemetry.",
+    "Nothing reads RawEvents. It exists only so the update policy can transform each batch into Telemetry.",
+    "Keep FleetStream's events for at least 3 days, so a paused destination can catch up after a weekend outage, and no more than 7.",
+    "Telemetry must stay queryable for 365 days. Dashboards and most queries read only the last 30 days and must stay fast. Analysts query the whole year a few times a month and accept slower answers.",
+    "The Latest position tile shows each truck's most recent reading and refreshes every 30 seconds. A tile that's a few minutes behind is fine.",
+    "Set each policy on its own table. Other tables in the Fleet database belong to another team, so leave the database's policies alone."
+  ],
+  "eventstream": {
+    "name": "FleetStream",
+    "settings": {
+      "retention_days": 3,
+      "event_throughput": "Medium"
+    },
+    "source": {
+      "type": "Custom endpoint"
+    },
+    "destination": {
+      "type": "Eventhouse",
+      "ingestion_mode": "Event processing before ingestion",
+      "table": "RawEvents"
+    }
+  },
+  "kql_database": {
+    "name": "Fleet",
+    "retention": null,
+    "caching": null,
+    "tables": {
+      "RawEvents": {
+        "retention": {
+          "SoftDeletePeriod_days": 0,
+          "Recoverability": "Disabled"
+        },
+        "caching": null
+      },
+      "Telemetry": {
+        "retention": {
+          "SoftDeletePeriod_days": 365,
+          "Recoverability": "Enabled"
+        },
+        "caching": {
+          "hot_days": 30
+        },
+        "update_policy": {
+          "Source": "RawEvents",
+          "Query": "ExpandFleet()",
+          "IsTransactional": true
+        }
+      }
+    },
+    "materialized_views": [
+      {
+        "name": "LatestByTruck",
+        "source": "Telemetry",
+        "aggregation": "arg_max",
+        "by": "TruckId"
+      }
+    ]
+  },
+  "dashboard": {
+    "latest_position_tile": "LatestByTruck"
+  }
+}

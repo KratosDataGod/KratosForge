@@ -60,7 +60,7 @@ PACK_STATUSES = ("draft", "live", "retired")
 
 _PACK_ID = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_EXERCISE = re.compile(r"^E\d{2}$")
+_EXERCISE = re.compile(r"^E\d{2,3}$")
 _CAPSTONE = re.compile(r"^C\d$")
 _GAP = re.compile(r"^G-\d{2}$")
 

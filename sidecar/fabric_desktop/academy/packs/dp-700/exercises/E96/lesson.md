@@ -4,7 +4,7 @@ An eventstream lands web requests in an Eventhouse table, AppRequests. The on-ca
 
 ## What you'll do
 
-Read a KQL query that finds 15-minute windows with server errors, and write the SQL that returns exactly what it returns. That means the case-sensitive filter, bin rounding down, count and countif, the columns summarize gives, the filter after it, and KQL's default sort order.
+Read a KQL query that finds 15-minute windows with server errors, and write the SQL that returns exactly what the KQL query returns. That means the case-sensitive filter, bin rounding down, count and countif, the columns summarize gives, the filter after summarize and KQL's default sort order.
 
 ## The KQL query
 
@@ -53,5 +53,5 @@ There's no KQL engine on this PC, and this lab doesn't pretend there is one. You
 ## What it doesn't prove
 
 - Any KQL. Nothing here runs KQL, so a KQL query you write isn't checked. The expected rows come from a SQL reference written by those rules.
-- Eventhouse behaviour such as ingestion, caching or retention, or how fast the query runs.
+- Eventhouse behavior such as ingestion, caching or retention, or how fast the query runs.
 - KQL functions the query doesn't use, and bins with no rows, which summarize doesn't return.

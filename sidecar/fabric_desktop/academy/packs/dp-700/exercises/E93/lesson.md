@@ -34,7 +34,7 @@ Sources on Microsoft Learn:
 
 ## How it runs here
 
-Your answer is the notebook's PySpark code. It runs on this PC with DuckDB's PySpark API, not Apache Spark, on Delta tables and files in the exercise's own folder, with no sign-in and no network. Every stream here runs as trigger(availableNow=True). It takes what has arrived, writes it and stops, and its checkpoint under Files/ remembers where it got to. The check runs your notebook, then runs it again, the way the next morning's run would.
+Your answer is the notebook's PySpark code. It runs on this PC with DuckDB's PySpark API, not Apache Spark, on Delta tables and files in the exercise's own folder, with no sign-in and no network. Each stream here runs as trigger(availableNow=True). It takes what has arrived, writes it and stops. Its checkpoint under Files/ remembers where the stream got to. The check runs your notebook, then runs it again, the way the next morning's run would.
 
 ## What this run proves
 

@@ -1,6 +1,6 @@
 # Broken: an eventhouse update policy stops filling its table after a function edit
 
-In an eventhouse, an update policy on Readings turns each batch that lands in RawTelemetry into typed rows. On Monday someone edited the ExpandTelemetry function it runs. Since then RawTelemetry keeps growing, but Readings gets no new rows, and the dashboards that read it have gone flat.
+In an eventhouse, an update policy on Readings turns each batch that lands in RawTelemetry into typed rows. On Monday someone edited the ExpandTelemetry function it runs. Since then RawTelemetry keeps growing, but Readings gets no new rows, and the dashboards that read Readings have gone flat.
 
 ## What you'll do
 
@@ -21,7 +21,7 @@ This lab is a model, not an eventhouse. settings.json holds the two tables, a sa
 
 ## What this run proves
 
-- Your function returns the four columns in the target table's order with its types, converts the temperature with toreal or todouble, leaves the tables as they were, and makes the update policy transactional, checked against a model on this PC.
+- Your function returns the four columns in the same order and with the same types as the target table, converts the temperature with toreal or todouble, leaves the tables as they were, and makes the update policy transactional, checked against a model on this PC.
 
 ## What it doesn't prove
 

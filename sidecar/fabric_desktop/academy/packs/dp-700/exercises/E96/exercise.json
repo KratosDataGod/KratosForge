@@ -7,7 +7,7 @@
   "objectives": [
     "2.3.4"
   ],
-  "objective_text": "Read a KQL query that finds 15-minute windows with server errors, and write the SQL that returns exactly what it returns: the case-sensitive filter, bin rounding down, count and countif, the columns summarize gives, the filter after it, and KQL's default sort order.",
+  "objective_text": "Read a KQL query that finds 15-minute windows with server errors, and write the SQL that returns exactly what the KQL query returns. That means the case-sensitive filter, bin rounding down, count and countif, the columns summarize gives, the filter after summarize and KQL's default sort order.",
   "scenario": "An eventstream lands web requests in an Eventhouse table, AppRequests. The on-call team runs a KQL query each morning that lists, for the eu-west region, every 15-minute window in which a service returned server errors. A new report has to show the same rows, and the report tool only speaks SQL. Your SQL must return what the KQL query returns, row for row and in the same order.",
   "prerequisites": [],
   "minutes": 20,
@@ -25,7 +25,7 @@
   ],
   "does_not_verify": [
     "Any KQL. Nothing here runs KQL, so a KQL query you write isn't checked. The expected rows come from a SQL reference written by those rules.",
-    "Eventhouse behaviour such as ingestion, caching or retention, or how fast the query runs.",
+    "Eventhouse behavior such as ingestion, caching or retention, or how fast the query runs.",
     "KQL functions the query doesn't use, and bins with no rows, which summarize doesn't return."
   ],
   "expected": {
@@ -36,7 +36,7 @@
       "kind": "result_matches",
       "ordered": true,
       "pass": "Your SQL returns what the KQL query returns, in the same order.",
-      "fail": "Some row, column or the order is off. Check the region comparison, how bin() rounds, what count() and countif() count, the filter after summarize, and the sort."
+      "fail": "Some row, column or the order is off. Check the region comparison, how bin() rounds, what count() and countif() count, the filter after summarize and the sort."
     }
   ],
   "hints": [

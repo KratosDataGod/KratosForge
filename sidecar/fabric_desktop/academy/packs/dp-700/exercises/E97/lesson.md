@@ -1,6 +1,6 @@
 # Broken: a Dataflow Gen2 shows date errors and its refresh stops on an empty date
 
-The Shipments dataflow loads files from a new carrier, Northwind UK, into silver_shipments. The preview shows Error in many ship_date and delivered_on cells, and last night's refresh failed with error E104100, which says it can't insert null data into a non-nullable column. The other queries in the same dataflow read US files and work fine.
+The Shipments dataflow loads files from a new carrier, Northwind UK, into silver_shipments. The preview shows Error in many ship_date and delivered_on cells, and last night's refresh failed with error E104100, which says the refresh can't insert null data into a non-nullable column. The other queries in the same dataflow read US files and work fine.
 
 ## What you'll do
 
@@ -8,11 +8,11 @@ Read a Dataflow Gen2 query's type conversions and its data destination, find why
 
 ## Symptom
 
-The preview shows Error in ship_date and delivered_on for dates like 22/10/2026, and the refresh fails with error E104100, which says it can't insert null data into a non-nullable column.
+The preview shows Error in ship_date and delivered_on for dates like 22/10/2026, and the refresh fails with error E104100, which says the refresh can't insert null data into a non-nullable column.
 
 ## How it runs here
 
-This lab is a model, not a dataflow. settings.json holds what the load needs, a few sample rows, the query's applied steps in order, the project's regional settings and the data destination. In Changed column type, each column has a type, whether it may be empty, and a locale. A locale of null means the project's regional settings. Check my work reads the file as data. Run lists every setting so you can see what the checks read.
+This lab is a model, not a dataflow. settings.json holds what the load needs, a few sample rows, the query's applied steps in order, the project's regional settings and the data destination. In Changed column type, each column has a type, a locale and a nullable flag that says whether it may be empty. A locale of null means the project's regional settings. Check my work reads the file as data. Run lists every setting so you can see what the checks read.
 
 ## Two things to know
 

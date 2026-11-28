@@ -101,7 +101,7 @@ on the objective.
 
 | Gap | Objectives | Why | Closes with |
 | --- | --- | --- | --- |
-| G-01 No local KQL engine | 2.2.6 (KQL), 2.3.4, 2.3.5 (KQL), 3.2.4, 3.3.4 | Nothing in the repository runs KQL. E96 practises KQL by writing its SQL equivalent (SIMULATED) | Fabric Eventhouse exercises (ACD-014), or embedding Microsoft's Kusto emulator if Chris approves installing it (ACD-016) |
+| G-01 No local KQL engine | 2.2.6 (KQL), 2.3.4, 2.3.5 (KQL), 3.2.4, 3.3.4 | Nothing in the repository runs KQL. E96 practices KQL by writing its SQL equivalent (SIMULATED) | Fabric Eventhouse exercises (ACD-014), or embedding Microsoft's Kusto emulator if Chris approves installing it (ACD-016) |
 | G-02 No Eventstream runtime | 2.3.2, 3.2.5, 3.3.4 | Eventstream is a Fabric service | Topology checks locally (SIMULATED), real runs in Fabric (ACD-014) |
 | G-03 T-SQL never runs here | 1.2.2 (deploy), 1.3.3 (security policy), 1.3.4, 3.2.6, 3.3.3 | DuckDB is not the Warehouse engine (`sql_dialects.py`) | Fabric Warehouse exercises (ACD-014) |
 | G-04 Workspace, tenant and domain settings, roles and endorsement | 1.1.1–1.1.4, 1.3.1, 1.3.2, 1.3.6 | Settings and permissions live in Fabric; some need admin roles | SIMULATED settings models locally, read-only checks in the learner's own workspace |

@@ -1,5 +1,5 @@
 {
-  "_about": "A model of a fleet telemetry solution: one eventstream's settings, the KQL database it feeds, and the query behind a dashboard tile. A policy value of null means none is set on that table or database, so the default applies: no retention limit, and all data hot. Days are whole days. Change what the needs call for.",
+  "_about": "A model of a fleet telemetry solution, with one eventstream's settings, the KQL database it feeds and the query behind a dashboard tile. A policy value of null means none is set on that table or database. In Kusto, with no policy set, the default applies. Data is kept for 1,000 years, and all of it is hot. Days are whole days. Change what the needs call for.",
   "needs": [
     "About 5,000 trucks send telemetry to the FleetStream eventstream through a custom endpoint. The rate peaks at 40 MB/s. The eventstream lands events in the RawEvents table, and a transactional update policy turns them into rows in Telemetry.",
     "Nothing reads RawEvents. It exists only so the update policy can transform each batch into Telemetry.",

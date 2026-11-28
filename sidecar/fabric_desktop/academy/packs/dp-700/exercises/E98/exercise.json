@@ -14,7 +14,7 @@
     "3.2.4"
   ],
   "objective_text": "Compare an update policy's function output with its target table, find the column order and type that no longer match, fix the function, and make the policy transactional so the target table doesn't lose rows.",
-  "scenario": "In an eventhouse, an update policy on Readings turns each batch that lands in RawTelemetry into typed rows. On Monday someone edited the ExpandTelemetry function it runs. Since then RawTelemetry keeps growing, but Readings gets no new rows, and the dashboards that read it have gone flat.",
+  "scenario": "In an eventhouse, an update policy on Readings turns each batch that lands in RawTelemetry into typed rows. On Monday someone edited the ExpandTelemetry function it runs. Since then RawTelemetry keeps growing, but Readings gets no new rows, and the dashboards that read Readings have gone flat.",
   "prerequisites": [],
   "minutes": 20,
   "engine_label": "A model of an eventhouse update policy, its function and its tables, checked on this PC",
@@ -34,7 +34,7 @@
     "symptom": "RawTelemetry keeps growing, but Readings has had no new rows since Monday's edit to ExpandTelemetry."
   },
   "verifies": [
-    "Your function returns the four columns in the target table's order with its types, converts the temperature with toreal or todouble, leaves the tables as they were, and makes the update policy transactional, checked against a model on this PC."
+    "Your function returns the four columns in the same order and with the same types as the target table, converts the temperature with toreal or todouble, leaves the tables as they were, and makes the update policy transactional, checked against a model on this PC."
   ],
   "does_not_verify": [
     "That an eventhouse accepts the function or the policy. Nothing is sent to Fabric, and no KQL runs here.",
@@ -48,7 +48,7 @@
     {
       "kind": "config_matches",
       "fail": "The function's output still doesn't match Readings column by column.",
-      "pass": "The function returns Readings' columns in its order, with its types.",
+      "pass": "The function returns Readings' columns in the same order and with the same types.",
       "rules": [
         {
           "path": "function.output",

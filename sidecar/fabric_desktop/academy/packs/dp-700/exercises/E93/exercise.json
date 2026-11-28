@@ -87,7 +87,7 @@
       "required": true,
       "data": "practice",
       "pass": "bronze.orders holds the real orders after the cleanup.",
-      "fail": "bronze.orders doesn't hold the four real orders after the cleanup."
+      "fail": "bronze.orders doesn't hold the four real orders after the cleanup. Check that the Bronze stream has its own checkpoint and that the cleanup still runs last."
     },
     {
       "kind": "table_shape",
@@ -123,22 +123,22 @@
       "weight": 1,
       "required": true,
       "pass": "Another run left bronze.orders as it was.",
-      "fail": "Another run changed bronze.orders. The Bronze stream must remember the files it took."
+      "fail": "Another run changed bronze.orders. Keep the Bronze stream's checkpoint folder the same on every run, so the stream remembers the files it took."
     }
   ],
   "hints": [
     "Read the first error. A checkpoint records one query's progress against one source. How many queries does this notebook start?",
     "Give each query its own checkpoint folder, and keep its name the same on every run.",
-    "Run it twice. A Delta source only accepts appends by default. Which option tells the stream to pass over commits that delete or change rows?",
+    "Run the notebook twice. A Delta source only accepts appends by default. Which option tells the stream to pass over commits that delete or change rows?",
     "skipChangeCommits passes over the delete, so it never reaches Silver. Silver has to drop the test orders itself."
   ],
-  "explanation": "A checkpoint holds one streaming query's progress, meaning which files or table versions it has taken. Each query needs its own checkpoint location, and two queries must never share one. Here the Silver query found the Bronze query's progress in the folder and stopped. A stream that reads a Delta table accepts only appends by default, and fails when a commit updates or deletes rows. The cleanup deletes test orders from Bronze after the Silver stream has read it, so the next run meets that delete commit and stops. The option skipChangeCommits tells the stream to pass over commits that delete or modify rows and to process only appends. It doesn't carry the change downstream, so Silver has to apply the same rule itself, here by filtering out the test customer. ignoreDeletes isn't enough: it only covers deletes of whole partitions. A new checkpoint on every run, or a batch read appended to Silver, makes the error go away but loads the same orders again.",
+  "explanation": "A checkpoint holds one streaming query's progress, meaning which files or table versions it has taken. Each query needs its own checkpoint location, and two queries must never share one. Here the Silver query found the Bronze query's progress in the folder and stopped. A stream that reads a Delta table accepts only appends by default, and fails when a commit updates or deletes rows. The cleanup deletes test orders from Bronze after the Silver stream has read it, so the next run meets that delete commit and stops. The option skipChangeCommits tells the stream to pass over commits that delete or modify rows and to process only appends. It doesn't carry the change downstream, so Silver has to apply the same rule itself, here by filtering out the test customer. ignoreDeletes isn't enough. It only covers deletes of whole partitions. A new checkpoint on every run, or a batch read appended to Silver, makes the error go away but loads the same orders again.",
   "troubleshooting": [
     "The checkpoint belongs to another source. Two queries share one checkpointLocation. Give the Silver stream its own folder.",
     "The second run stops because bronze.orders had rows deleted. Add .option(\"skipChangeCommits\", \"true\") to the Silver stream's readStream.",
     "ignoreDeletes didn't help. It covers only deletes at partition boundaries. Use skipChangeCommits.",
     "Silver holds the test orders. The delete in Bronze never reaches Silver. Filter them out in the Silver stream.",
-    "Silver doubles on the second run. Its checkpoint changes on each run, or it reads Bronze as a batch and appends it."
+    "Silver doubles on the second run. Its checkpoint changes on each run, or the Silver step reads Bronze as a batch and appends the rows. Use one fixed checkpoint folder and readStream."
   ],
   "remediation": [
     "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/checkpoints",

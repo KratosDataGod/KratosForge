@@ -17,7 +17,7 @@
   "mode": "challenge",
   "minutes": 25,
   "prerequisites": [],
-  "objective_text": "Plan the mirroring of an Azure SQL Database: set the server identity, the creator's role and the database user's permissions, choose the tables to mirror, say which tables and columns can't come across, and decide where fixes, joins and row security happen.",
+  "objective_text": "Plan the mirroring of an Azure SQL Database. Set the server identity, the creator's role and the database user's permissions, choose the tables to mirror, say which tables and columns can't come across, and decide where fixes, joins and row security happen.",
   "scenario": "Reports at a retailer read straight from the production Azure SQL Database and slow it down. The team wants the sales tables mirrored into Fabric and queried there, with HR data kept out. The first draft of the plan mirrors everything, expects every column to arrive, and assumes the copy can be fixed and secured like the source.",
   "engine_label": "A model of a mirrored database's setup and table choices, checked on this PC",
   "verifies": [

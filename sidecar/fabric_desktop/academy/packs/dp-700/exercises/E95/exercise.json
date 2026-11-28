@@ -17,7 +17,7 @@
   "mode": "troubleshoot",
   "minutes": 20,
   "prerequisites": [],
-  "objective_text": "Repair an eventstream that merges two sources: line up one source's field names and types with Manage fields before the Union, group with a tumbling window, and pick the Eventhouse ingestion mode that allows operators.",
+  "objective_text": "Repair an eventstream that merges two sources. Line up one source's field names and types with Manage fields before the Union, group with a tumbling window, and pick the Eventhouse ingestion mode that allows operators.",
   "scenario": "Two loading docks send cold-chain readings into one eventstream. The north dock has worked for months. Since the south dock's sensors went live, its rows land with no temperature and no sensor id, the dashboard shows no south sensors, and every sensor has several overlapping figures where the team expected one per 5 minutes.",
   "engine_label": "A model of an eventstream's operators and destinations, checked on this PC",
   "fault": {
@@ -185,10 +185,10 @@
   ],
   "explanation": "A Union merges two or more streams into one, keeping the fields that have the same name and data type in every input. Fields that don't match are dropped. The south dock calls its temperature Temperature and sends SensorId as a number, so both fields vanished from its rows, and the Group by on SensorId had nothing to group them by. Manage fields can add, remove, rename and change the data type of fields, so a Manage fields operator on the south source, before the Union, makes its fields match the north's. Fixing them after the Union is too late. A tumbling window cuts time into fixed blocks that don't overlap, so each reading counts once. A sliding window overlaps. The Eventhouse sits behind an operator, so it needs event processing before ingestion. Direct ingestion lands events without any processing.",
   "troubleshooting": [
-    "South rows still have no TempC. Temperature wasn't renamed to TempC, or Manage fields sits after the Union.",
+    "South rows still have no TempC. Temperature wasn't renamed to TempC, or Manage fields sits after the Union. Rename it in south_fields, and put south_fields before the Union.",
     "South rows still have no SensorId. Its type is still Int64. Change it to String.",
     "Each sensor still has overlapping figures. The window is Sliding. Use Tumbling.",
-    "The Eventhouse destination shows an error. It's on Direct ingestion behind an operator."
+    "The Eventhouse destination shows an error. It's on Direct ingestion behind an operator. Set it to Event processing before ingestion."
   ],
   "remediation": [
     "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/route-events-based-on-content",

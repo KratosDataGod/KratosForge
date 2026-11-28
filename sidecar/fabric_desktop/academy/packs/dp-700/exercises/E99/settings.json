@@ -1,5 +1,5 @@
 {
-  "_about": "A model of the production copy of OrdersStream before it's published: its sources, operators and destinations, and the consumer groups on the payments event hub. Activation says how the Eventhouse destination starts. start_from is one of Now, When streaming was last stopped or Custom time, and custom_time is used only with Custom time. Change what the needs call for.",
+  "_about": "A model of the production copy of OrdersStream before it's published. The model holds its sources, operators and destinations, and the consumer groups on the payments event hub. Activation says how the Eventhouse destination starts. start_from is one of Now, When streaming was last stopped or Custom time, and custom_time is used only with Custom time. Change what the needs call for.",
   "needs": [
     "In test, OrdersStream lost the initial snapshot of dbo.orders. The CDC source sent it at publish, but OrdersTable got only the changes made after that. The production copy below has the same settings and is published tomorrow, 2026-11-24 at 09:00 UTC.",
     "OrdersTable must hold every EU order, including the snapshot rows sent when the stream starts. It sits after the Filter operator EU only.",

@@ -1,5 +1,5 @@
 {
-  "_about": "A model of one Dataflow Gen2 query, its project's regional settings and its data destination. Each column in Changed column type has a type, whether it may be empty (nullable), and a locale. A locale of null means the project's regional settings. Edit what the needs call for, and keep the steps in this order.",
+  "_about": "A model of one Dataflow Gen2 query, its project's regional settings and its data destination. Each column in Changed column type has a type, a locale and nullable, which says whether it may be empty. A locale of null means the project's regional settings. Edit what the needs call for, and keep the steps in this order.",
   "needs": [
     "The Shipments query reads every file in the bronze folder carriers/northwind_uk on each refresh and replaces silver_shipments with the result. Reports read silver_shipments, so its column types stay as they are.",
     "Northwind UK writes dates as day/month/year, like 22/10/2026. Weights use a dot for decimals, like 12.5.",

@@ -147,7 +147,7 @@ validation checks both the fix and that nothing else changed.
 | E93 | A Bronze to Silver stream shares a checkpoint and stops after a cleanup deletes rows | 2.1.3 | LV +FV | pyspark | 25 | |
 | E95 | An eventstream Union drops one source's fields, and a window overlaps | 2.3.2 | SIM +FV | config | 20 | |
 | E97 | A Dataflow Gen2 shows date errors and fails on an empty date: a locale and a non-nullable column | 3.2.2 | SIM | config | 20 | |
-| E98 | An eventhouse update policy stops filling its table: a function that no longer matches it | 3.2.4 | SIM | config | 20 | |
+| E98 | An eventhouse update policy stops filling its table: a function that no longer matches the table | 3.2.4 | SIM | config | 20 | |
 | E99 | An eventstream misses a CDC snapshot and shares another app's consumer group | 3.2.5 | SIM | config | 20 | |
 
 ## Capstone projects

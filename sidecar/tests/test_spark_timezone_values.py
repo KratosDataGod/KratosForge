@@ -9,7 +9,7 @@ does is refused by name below, and listed in docs/sql-compatibility.md."""
 from __future__ import annotations
 
 import pytest
-from spark_values import Refused, check, load
+from spark_values import Refused, check_part, check_still_needed, parts
 
 from fabric_desktop.notebook import Kernel
 
@@ -24,8 +24,13 @@ def spark():
     return Kernel().namespace["spark"]
 
 
-def test_spark_time_zone_answers_as_spark_3_5_or_is_refused_by_name(spark):
-    check(spark, load("timezone"), REFUSED)
+@pytest.mark.parametrize("cases", parts("timezone"))
+def test_spark_time_zone_answers_as_spark_3_5_or_is_refused_by_name(spark, cases):
+    check_part(spark, cases, REFUSED)
+
+
+def test_each_refusal_of_timezone_is_still_needed_and_listed(spark):
+    check_still_needed(spark, "timezone", REFUSED)
 
 
 def test_utc_keeps_duckdbs_own_casts_and_a_zone_with_daylight_saving_wraps_them(spark, monkeypatch):

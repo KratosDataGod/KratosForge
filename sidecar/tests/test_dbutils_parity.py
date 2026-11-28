@@ -36,7 +36,7 @@ def test_fs_mv_moves_a_file_on_this_pc(tmp_path):
     assert not (tmp_path / "a.txt").exists() and (tmp_path / "b.txt").read_text() == "hi"
 
 
-@pytest.mark.parametrize("src, dest", [("dbfs:/tmp/a", "file:/x"), ("file:/x", "/Volumes/main/raw/a"),
+@pytest.mark.parametrize("src, dest", [("dbfs:/tmp/a", "file:/x"), ("file:/x", "dbfs:/mnt/raw/a"),
                                        ("/mnt/raw/a", "file:/x")])
 def test_fs_mv_refuses_databricks_storage_on_either_side(tmp_path, src, dest):
     out = _error(Kernel().run(f"dbutils.fs.mv({src!r}, {dest!r})"))

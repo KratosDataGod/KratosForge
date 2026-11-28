@@ -1,0 +1,3 @@
+role 'EU readers'
+	modelPermission: read
+	tablePermission customers = [country] = "DE"

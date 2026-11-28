@@ -61,6 +61,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [finops/usage-import.md](finops/usage-import.md) | Engineers, capacity admins, FinOps | Import a Capacity Metrics app export as measured CU and compare it with this app's estimates; import an Azure Cost Management export for what each capacity was billed |
 | [optimize/README.md](optimize/README.md) | Engineers, platform owners, admins | The central lakehouse (Preview): setting it up, permissions, what each installation writes, who can see what, the policy key |
 | [optimize/excellence-assessment.md](optimize/excellence-assessment.md) | Engineers, platform owners | Fabric Excellence Assessment methodology: controls, outcomes, evidence, profiles, scores and their limits (on Optimize > Assessment > Excellence, Preview) |
+| [optimize/excellence-api-matrix.md](optimize/excellence-api-matrix.md) | Engineers, platform owners | Every Fabric read the excellence assessment makes, the scope and workspace role it needs, and the controls that depend on it |
 | [finops/cost-evidence.md](finops/cost-evidence.md) | Engineers, platform owners | Optimize > Cost and savings figures: measured, estimated, scenario and unknown, what is counted, units, and the measurement schema |
 | [notebook-resources.md](notebook-resources.md) | Engineers, analysts | Notebook resources: files beside a notebook, read in cells as `builtin/<file>`, and where they go |
 | [notebook-magics.md](notebook-magics.md) | Engineers, analysts | Notebook magics and cell languages: SQL results in `_sqldf`, `%sql` inside Python, what runs on this PC |
@@ -97,7 +98,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [governance.md](governance.md) | Platform owners, team leads | Governance policies (Preview): the policy registry, drafts and versions, enterprise to entity scopes, mandatory policies, governance.toml, who can change what |
 | [governance-guide.md](governance-guide.md) | Platform owners, team leads | Governance guide (Preview): draft to result, worked examples (naming, classification, ownership), what can be enforced and by whom |
 | [data-mesh.md](data-mesh.md) | Team leads, engineers | Domains, workspace designations, data products, links between teams, asking another team for data, following a product, catalog text |
-| [direct-lake-check.md](direct-lake-check.md) | Engineers, team leads | The Direct Lake check (Preview): Direct Lake limits per capacity, schema drift and relationship keys, checked on this PC |
+| [direct-lake-check.md](direct-lake-check.md) | Engineers, team leads | Direct Lake fallback risk (Preview): whether a model will fall back to DirectQuery, Direct Lake limits per capacity with a forecast, schema drift and relationship keys, predicted on this PC |
 | [data-dictionary.md](data-dictionary.md) | Engineers, data stewards | The data dictionary (Preview): descriptions for a layer's model, exported to Excel and imported back, then written into the model |
 | [semantic-model-ossie.md](semantic-model-ossie.md) | Engineers, team leads | Semantic models to and from Apache Ossie (Preview): export to a `.ossie.yaml` file, import with a preview of every change, what a round trip keeps, an Ossie file written as TMDL in the project, structural and expression parity checks, and Fabric Semantic View files with the steps to publish them |
 | [shortcuts.md](shortcuts.md) | Engineers, platform owners | The shortcut command center: health checks, who can read a shortcut, shortcut rules, change history with undo, repointing, requests |
@@ -140,6 +141,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [product/enterprise-savings-intelligence-plan.md](product/enterprise-savings-intelligence-plan.md) | Contributors, platform owners, FinOps | The Enterprise Savings Intelligence program (ESI): the shared savings ledger, attribution and sync, phased stories |
 | [product/savings-reporting-schema.md](product/savings-reporting-schema.md) | Contributors, FinOps | The savings reporting layer (ESI-501): the `dim_` and `fact_` names a report or semantic model uses over the shared Optimization Lakehouse |
 | [product/central-control-plane-plan.md](product/central-control-plane-plan.md) | Contributors, platform owners | The KratosForge Environment: one manifest per organization, discovery, provisioning and status ([decisions](product/central-control-plane-decisions.md), [stories](product/central-control-plane-backlog.md)) |
+| [product/mobile-companion-plan.md](product/mobile-companion-plan.md) | Contributors, Chris | Mobile companion evaluation (proposed): pairing a phone by QR to monitor and steer this PC's runs ([decisions](product/mobile-companion-decisions.md), [UX](product/mobile-companion-ux.md), [security](product/mobile-companion-security.md), [stories](product/mobile-companion-backlog.md)) |
 | [product/platform-parity-assessment.md](product/platform-parity-assessment.md) | Contributors, platform owners | The three-platform parity program: assessment, scored backlog and a plan per area ([backlog](product/platform-parity-backlog.md)) |
 | [finops/plan.md](finops/plan.md) | Contributors, platform owners | The administration and FinOps program (FINOPS-001 to 005): audit, overlaps, PRs |
 | [product/enterprise-gap-analysis.md](product/enterprise-gap-analysis.md) | Platform owners, contributors | The enterprise product program: what exists for each capability FD-101 to FD-140, what's missing and who owns it ([backlog](product/enterprise-backlog.md), [decisions](product/implementation-decisions.md)) |
@@ -200,6 +202,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Cost | Monitor |
 | Capacity status | Optimize > Cost and savings, Data mesh > Environments |
 | Measured usage import | Optimize > Cost and savings |
+| Merge a notebook changed in VS Code and here, cell by cell | Notebook, when a save finds the file also saved in VS Code (or by a Git pull): each cell that differs is picked ([vscode.md](vscode.md#when-both-sides-changed)) |
 | OneLake shortcuts | OneLake > Shortcuts |
 | Shortcut fixes | OneLake > Shortcuts > Health and a shortcut's panel (find a lakehouse that moved, repoint many at once, accept a crossed environment; [shortcuts.md](shortcuts.md#fixing-shortcuts)) |
 | OneLake access | OneLake > Access |
@@ -208,7 +211,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Semantic model | Data mesh > Deploy |
 | Semantic models and Apache Ossie | Data mesh > Deploy > Semantic model ([semantic-model-ossie.md](semantic-model-ossie.md)) |
 | Semantic View files and publish steps | Data mesh > Deploy > Semantic model ([semantic-model-ossie.md](semantic-model-ossie.md#publish-the-view-in-fabric-preview)) |
-| Direct Lake check | Data mesh > Deploy > Semantic model ([direct-lake-check.md](direct-lake-check.md)) |
+| Direct Lake fallback risk | Data mesh > Deploy > Semantic model ([direct-lake-check.md](direct-lake-check.md)) |
 | Semantic model best practices check | Data mesh > Deploy > Semantic model ([semantic-model-best-practices.md](semantic-model-best-practices.md)) |
 | Data dictionary | Data mesh > Deploy > Semantic model ([data-dictionary.md](data-dictionary.md)) |
 | Tests | Data mesh > Quality |
@@ -222,6 +225,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Best practices: checks and templates | Platform > Governance > Templates and Check this project; Data mesh > Products, open a product: its checklist ([governance.md](governance.md#best-practices-checks-and-templates-preview)) |
 | Source control | Source control |
 | Workloads | Monitor > KratosForge > Operations > Workloads, Home (inventory, health, ownership, the workload page, Your workloads) |
+| Incident SLA report | Monitor > KratosForge > Operations > Incidents > Reports: opened, resolved and still open, time to acknowledge and resolve, and SLAs met per priority ([incidents.md](incidents.md#sla-reports-preview)) |
 | Incidents | Monitor > KratosForge > Operations > Incidents (numbers, priorities, SLAs, reported incidents, your service desk, Who's affected; [incidents.md](incidents.md)) |
 | Agents | Monitor > KratosForge > Operations > Agents |
 | Queue | Monitor > KratosForge > Operations > Queue |
@@ -238,6 +242,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Altair charts in notebooks | Notebook > a cell that shows an Altair chart ([notebooks.md](notebooks.md)) |
 | Result downloads | Notebook > a table output > Download ([notebooks.md](notebooks.md)) |
 | Column lineage | Entity page, Lineage card: Columns, and Impact for what a column change breaks ([metadata-guide.md](metadata-guide.md#impact-of-a-column-change-preview)); **Export OpenLineage...** in Impact writes the lineage to Downloads ([metadata-guide.md](metadata-guide.md#export-lineage-as-openlineage-preview)) |
+| Compare data | SQL page on a lakehouse: Explorer › **Compare data**, or a table's menu › **Compare with…** compares the rows of two tables or queries on this PC, read only ([sql-execution.md](sql-execution.md#compare-data-preview)) |
 | Roll back a release | Data mesh > Deploy, Roll back... on a Test or Prod Last release card |
 | Promote | Data mesh > Deploy (always shown) |
 | Delta table features at publish | Data mesh > Deploy > Environments and promote, a choice for each table |
@@ -252,6 +257,8 @@ KratosForge is new, and it's honest about what has been proven.
 | Result history and pinned results on the SQL page | SQL query or Warehouse page, History beside Results ([sql-execution.md](sql-execution.md#result-history-and-pinned-results-preview)) |
 | Scratch console in notebooks | Notebook > View > Scratch ([user-guide.md](user-guide.md#scratch-console-preview)) |
 | Notebook as a report | Notebook > Share > Open as report ([user-guide.md](user-guide.md#notebook-as-a-read-only-report-preview)) |
+| Notebook Present mode | Notebook > View > Present, or Ctrl+Shift+F5 ([notebooks.md](notebooks.md#present-mode-preview)) |
+| Markdown toolbar and preview | Notebook > a Markdown cell you're editing: the formatting toolbar and View ([notebooks.md](notebooks.md#formatting-markdown-cells-preview)) |
 | Table diagram on the SQL page | SQL query > Explorer > Diagram ([user-guide.md](user-guide.md#table-diagram-preview)) |
 | SQL best practices | SQL query or Warehouse page, Best practices chip beside Compatibility, for T-SQL ([sql-best-practices.md](sql-best-practices.md)) |
 | New build banner | Below the top bar while KratosForge is open; Settings > Updates ([user-guide.md](user-guide.md#a-new-build-while-the-app-is-open-preview)) |
@@ -259,6 +266,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Risk check before a run | Before a run in Workloads, Notebook > Run in Fabric and Data mesh ([risk-check.md](finops/risk-check.md); always shown) |
 | Embed Studio (Power BI) | Workspaces > Power BI tab and Embed Studio ([embed-studio.md](embed-studio.md)) |
 | KratosForge Environment | Settings > Environment ([user guide](user-guide.md#kratosforge-environment-preview)) |
+| Unity Catalog volumes on this PC | Workspaces > Databricks > Volumes on this PC ([engines.md](engines.md#unity-catalog-volumes-on-this-pc-preview)) |
 | VS Code pairing | Settings > Integrations > VS Code ([vscode.md](vscode.md); always shown, so a pairing that is on can always be turned off) |
 | Academy | Academy at the bottom of the left rail: certification prep for DP-700 with exercises on this PC, readiness by objective ([academy-guide.md](academy-guide.md)) |
 | Learn | Lessons, practice labs on this PC and the best-practice rules, opened from Academy > Practice ([learn.md](learn.md)) |

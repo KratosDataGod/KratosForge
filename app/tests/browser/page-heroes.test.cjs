@@ -4,7 +4,7 @@
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
-const { playwright, openApp } = require("./harness.cjs");
+const { playwright, openApp, animationsDone } = require("./harness.cjs");
 const { heroArt } = require("./hero-art.cjs");
 
 const SHOTS = process.env.SCREENSHOT_DIR;
@@ -21,7 +21,9 @@ const PAGES = [
   { view: "academy", name: "academy", title: "Academy", prep: () => { academyPage.open = null; } },
   { view: "source", name: "source", title: "Source control" },
   { view: "settings", name: "settings", title: "Settings" },
-  { view: "profile", name: "profile", title: "Profile", prep: () => { profilePage.tab = "overview"; } },
+  // Profile draws its header twice: at once with "Loading...", then again when profile_get answers. ready is
+  // what only the second draw has, so the picture is measured on the page as it stays.
+  { view: "profile", name: "profile", title: "Profile", prep: () => { profilePage.tab = "overview"; }, ready: ".page.profile .profile-id" },
   // With the Forge view off: its band carries #2226's own Monitor art, and the header steps aside for it.
   { view: "monitor", name: "monitor", title: "Monitor", prep: () => { forgeActivity.on = false; monitorPage.panel = "runs"; } },
 ];
@@ -52,6 +54,7 @@ for (const p of PAGES) for (const art of heroArt().filter((e) => e.page === p.na
     await open(p.view);
     const hero = `.${p.name}-hero`;
     await page().locator(hero).waitFor();
+    if (p.ready) await page().locator(p.ready).waitFor();
     assert.ok(await page().locator(`${hero} h1`).getByText(p.title).isVisible());
     assert.strictEqual(await page().locator("#view h1").count(), 1);
     assert.strictEqual(await page().locator(`${hero} .home-hero-kicker`).count(), 0, "no KratosForge kicker on a page's header");
@@ -70,6 +73,7 @@ for (const p of PAGES) for (const art of heroArt().filter((e) => e.page === p.na
     for (const width of WIDTHS) {
       await page().setViewportSize({ width, height: 900 });
       await page().waitForFunction((s) => document.querySelector(`${s} .home-hero-img`)?.complete, hero);
+      await animationsDone(page());  // the page's own entrance moves the band and the picture while it plays
       const r = await page().evaluate(([s, sky]) => {
         const img = document.querySelector(`${s} .home-hero-img`);
         const band = document.querySelector(s).getBoundingClientRect();
@@ -79,12 +83,16 @@ for (const p of PAGES) for (const art of heroArt().filter((e) => e.page === p.na
           ...[...document.querySelectorAll(`${s} .home-hero-actions button, ${s} .home-hero-actions a`)].map((e) => e.getBoundingClientRect().right));
         const a = img.getBoundingClientRect();
         return { shown: true, ratio: a.width / a.height, fills: Math.abs(a.height - band.height) < 1,
-          inside: a.left >= band.left - 0.5 && a.right <= band.right + 0.5, sky: a.left + sky * a.width, textRight };
+          inside: a.left >= band.left - 0.5 && a.right <= band.right + 0.5, sky: a.left + sky * a.width, textRight,
+          // Said when a check fails, to tell a picture not drawn yet from one laid out wrong.
+          seen: { img: [a.left, a.top, a.width, a.height].map(Math.round), band: [band.left, band.top, band.width, band.height].map(Math.round),
+            complete: img.complete, natural: img.naturalWidth, connected: img.isConnected } };
       }, [hero, art.sky]);
       if (r.shown) {
-        assert.ok(Math.abs(r.ratio - RATIO) < 0.02, `${p.title} ratio at ${width}: ${r.ratio}`);
-        assert.ok(r.fills && r.inside, `${p.title}: the whole picture fills the band's height at ${width}`);
-        assert.ok(r.sky >= r.textRight, `${p.title} at ${width}: the sky ends at ${r.sky}, the text at ${r.textRight}`);
+        const seen = JSON.stringify(r.seen);
+        assert.ok(Math.abs(r.ratio - RATIO) < 0.02, `${p.title} ratio at ${width}: ${r.ratio} ${seen}`);
+        assert.ok(r.fills && r.inside, `${p.title}: the whole picture fills the band's height at ${width} ${seen}`);
+        assert.ok(r.sky >= r.textRight, `${p.title} at ${width}: the sky ends at ${r.sky}, the text at ${r.textRight} ${seen}`);
       } else {
         assert.ok(width <= 960, `${p.title}: the picture shows at ${width}`);
         // Without the art the band holds its title and buttons, no empty navy block below them.

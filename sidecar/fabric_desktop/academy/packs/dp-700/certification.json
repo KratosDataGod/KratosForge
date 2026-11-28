@@ -66,7 +66,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E03"
+                "E03",
+                "E85"
               ],
               "capstones": [],
               "lessons": [],
@@ -90,7 +91,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E04"
+                "E04",
+                "E86"
               ],
               "capstones": [],
               "lessons": [
@@ -115,15 +117,17 @@
               "text": "Configure data workflow workspace settings",
               "competency": "Set the workspace settings for data workflows (Apache Airflow jobs) and know when they apply.",
               "fabric_required": true,
-              "best_local": "knowledge_only",
+              "best_local": "simulated",
               "exercises": [
-                "E05"
+                "E05",
+                "E87"
               ],
               "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
                 "assessment",
+                "config_matches",
                 "fabric_check"
               ],
               "docs": [
@@ -203,7 +207,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E09"
+                "E09",
+                "E88"
               ],
               "capstones": [
                 "C3"
@@ -699,9 +704,10 @@
               "text": "Ingest data by using pipelines",
               "competency": "Ingest data with pipeline activities, including copy settings that suit the source.",
               "fabric_required": true,
-              "best_local": "simulated",
+              "best_local": "local_verified",
               "exercises": [
-                "E31"
+                "E31",
+                "E89"
               ],
               "capstones": [],
               "lessons": [],
@@ -1067,7 +1073,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E45"
+                "E45",
+                "E90"
               ],
               "capstones": [],
               "lessons": [
@@ -1095,7 +1102,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E46"
+                "E46",
+                "E91"
               ],
               "capstones": [],
               "lessons": [],
@@ -1307,12 +1315,14 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E60"
+                "E60",
+                "E92"
               ],
               "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
+                "config_matches",
                 "fabric_check",
                 "pipeline_outcome"
               ],
@@ -1510,7 +1520,7 @@
       "id": "G-07",
       "title": "Data workflows (Apache Airflow jobs)",
       "why": "No local Airflow job runtime in KratosForge",
-      "closes_with": "KO; Fabric exercise later",
+      "closes_with": "SIMULATED runtime settings model locally (E87); Fabric exercise later",
       "objectives": [
         "1.1.4"
       ]

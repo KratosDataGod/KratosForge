@@ -10,7 +10,7 @@ no fixed answer to compare, so they are checked here to be refused by name."""
 from __future__ import annotations
 
 import pytest
-from spark_values import Refused, check, load
+from spark_values import Refused, check_part, check_still_needed, parts
 
 from fabric_desktop.notebook import Kernel
 
@@ -32,8 +32,13 @@ def spark():
     return Kernel().namespace["spark"]
 
 
-def test_spark_functions_listed_as_not_checked_answer_as_spark_3_5_or_are_refused_by_name(spark):
-    check(spark, load("functions"), REFUSED)
+@pytest.mark.parametrize("cases", parts("functions"))
+def test_spark_functions_listed_as_not_checked_answer_as_spark_3_5_or_are_refused_by_name(spark, cases):
+    check_part(spark, cases, REFUSED)
+
+
+def test_each_refusal_of_functions_is_still_needed_and_listed(spark):
+    check_still_needed(spark, "functions", REFUSED)
 
 
 @pytest.mark.parametrize("query, name", [

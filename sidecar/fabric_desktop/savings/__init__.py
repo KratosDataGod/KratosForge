@@ -16,6 +16,10 @@ benefit, a projection that is always Estimated and never written (ESI-304).
 ``pricing``: versioned pricing scenarios and the capacity value of avoided CU under one, priced at
 the version in effect when each run happened; always a Scenario figure, never savings (ESI-401).
 
+``compare``: what one workload used on this PC, Fabric, Databricks and Snowflake, each in its own unit
+(time, CU, DBU, credits), never converted into each other. Money only under one pricing version, a
+Scenario figure, and a closing line that compares, never recommends (Preview).
+
 ``overhead``: what one run on a PC still cost (transfer seconds, bytes, OneLake read and write
 operations, and its share of the sync that carried it), one measurement per figure, Unknown where
 not recorded, and the Fabric CU overhead the waterfall subtracts for net: Unknown unless a measured
@@ -52,6 +56,24 @@ validation. A finding is resolved only by a Verified validation and the assessme
 outcome verified_fixed (FEA-602). Anything else leaves it open. Records hold fingerprints and ids,
 never code or evidence text.
 Writing them, version-aware updates and the responsible user and device wait on ESI-301 (ESI-601).
+
+``planner_inputs``: optimization demand changes shaped for the capacity planner (OE-040, OE-041), which
+isn't built yet. Per capacity and per workload there are two inputs, verified first, never summed.
+``verified`` holds Measured accruals of optimizations whose latest validation is Verified. ``estimated``
+holds Estimated accruals and optimizations still Validating, Regressed or not validated. Regressions
+count as increases and are labelled. A change that isn't known is None with the reason, never 0. Every
+output says it isn't enough to right-size a capacity: that needs peak, concurrency and throttling
+evidence from the planner's own inputs. Nothing recommends a SKU (ESI-602).
+
+``exports``: CSV text for the eight reports in the brief (executive summary, workspace, capacity,
+developer contribution, monthly statement, audit history, estimated versus verified, capacity
+readiness), read from the ledger's chains (each layer as its chain's head says) and the results of
+``realized``, ``pricing``, ``recurring`` and ``baselines``. Every figure has its classification in the
+next column, and different classifications are never added into one cell; Unknown is an empty cell,
+never 0; a price is a Scenario, never savings; text cells that start like a formula get an apostrophe.
+Developer contribution is per device: per-person reporting waits on D3 and D5. Capacity readiness
+shows evidence and recommends nothing; right-sizing belongs to the planner (OE-040). Text only: the
+download screen waits on the ESI-502 mockup (ESI-507).
 
 Pure: nothing here reads or writes a lakehouse, Fabric or this PC. Figures come in and go out as
 ``measurement.py`` measurements.

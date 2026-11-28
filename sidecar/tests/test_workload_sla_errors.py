@@ -2,6 +2,7 @@
 isn't an object, timestamps that can't be read, timestamps in another zone, and timestamps with no zone."""
 
 import datetime as dt
+import time
 
 import pytest
 
@@ -9,6 +10,18 @@ from fabric_desktop.workloads import sla
 
 UTC = dt.timezone.utc
 NOW = dt.datetime(2026, 11, 18, 13, tzinfo=UTC)
+
+
+@pytest.fixture
+def away_from_utc(monkeypatch):
+    """Run in a zone that isn't UTC, so reading a time with no zone as local time would show."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("needs time.tzset to set this process's time zone")
+    monkeypatch.setenv("TZ", "America/Chicago")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
 
 
 def inc(**kw):
@@ -75,7 +88,7 @@ def test_an_opening_time_in_another_zone_is_measured_in_utc():
         ),
     ],
 )
-def test_a_timestamp_with_no_zone_is_read_as_utc(field, value, ack):
+def test_a_timestamp_with_no_zone_is_read_as_utc(away_from_utc, field, value, ack):
     assert (
         sla.status(inc(**{field: value}), sla.DEFAULT_TARGETS, NOW)["acknowledge"]
         == ack

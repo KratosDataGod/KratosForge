@@ -35,7 +35,7 @@ from .meta.promote import promote_checks, releases, rollback
 from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, ran_on
 from .meta.templates import TEMPLATES, describe, entity_text, init_project
 from .redact import describe as describe_error
-from .jsonfile import read_object, write_json, write_text
+from .jsonfile import read_object, write_bytes, write_json, write_text
 from . import known_folders, trees
 
 _log = logging.getLogger(__name__)
@@ -594,10 +594,23 @@ class MetaMixin:
             downstream = impact(project, name) if name in project.entities else []
             if downstream:
                 raise GateError("save", [f"can't rename {name}: {', '.join(downstream)} read it"])
+        old_path = project.entities_dir / f"{name}.toml"
+        before = {p: p.read_bytes() if p.exists() else None for p in (path, old_path)}
         write_text(path, text)
         if new_name != name:  # only once the new file is in place, so a failed save loses neither
-            (project.entities_dir / f"{name}.toml").unlink(missing_ok=True)
-        return self.meta_entity(new_name)
+            old_path.unlink(missing_ok=True)
+        try:
+            return self.meta_entity(new_name)
+        except Exception as exc:
+            # A file this app can't open again is never left behind: put back what was there.
+            for p, was in before.items():
+                if was is None:
+                    p.unlink(missing_ok=True)
+                else:
+                    write_bytes(p, was)
+            raise ValueError(f"Not saved: {new_name} couldn't be opened with this change "
+                             f"({describe_error(exc)}). Nothing was changed. Fix what the error names, "
+                             "then save again.") from exc
 
     def meta_set_delta_features(self, name: str, delta_features: str | None = None,
                                 delta_readers: list[str] | None = None, confirm_name: str | None = None) -> dict[str, Any]:
@@ -1326,7 +1339,7 @@ class MetaMixin:
             raise GateError("save", [(f"{env.title()}'s keys come from {db}, so a notebook that merges into LH_Keys "
                                      "would give rows keys the rest of the platform doesn't have. Run "
                                      f"{name} from Data mesh instead: its run takes the keys from {db}.")])
-        src = project.entities[e.spec["source"]["entity"]]
+        src = project.entities[keys_mod.source_entity(e)]
         nb_name = f"nb_{src.layer}_to_{e.layer}_{e.table}"
         cells = keys_mod.template_cells(project, e, project.environments.get(env, {}).get("keys_workspace_name", ""))
         self.notebooks.save(nb_name, cells)  # type: ignore[attr-defined]

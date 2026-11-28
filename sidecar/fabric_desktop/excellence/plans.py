@@ -70,6 +70,9 @@ _MAINT = {"title": "Use table maintenance feature to manage delta tables in Fabr
           "url": "https://learn.microsoft.com/fabric/data-engineering/lakehouse-table-maintenance"}
 _INTEROP = {"title": "Delta Lake table format interoperability",
             "url": "https://learn.microsoft.com/fabric/fundamentals/delta-lake-interoperability"}
+_ENDPOINT = {"title": "What is the SQL analytics endpoint for a lakehouse?",
+             "url": "https://learn.microsoft.com/fabric/data-engineering/lakehouse-sql-analytics-endpoint"}
+_COLLATION = {"title": "Data Warehouse collation", "url": "https://learn.microsoft.com/fabric/data-warehouse/collation"}
 
 
 def _p(role: str, where: str, *, also: tuple[str, ...] = (), refs: tuple[dict[str, str], ...] = (_ROLES,),
@@ -187,6 +190,13 @@ SPECIFIC: dict[str, dict[str, Any]] = {
                        notes=(("Readers move to the rewritten table: check its rows and columns match before "
                               "they do."),
                               "A job that turns the feature on again undoes the change on its next run.")),
+    "FEA-WH-001": _p(_CONTENT, "workspace", refs=(_ROLES, _ENDPOINT),
+                     notes=(("T-SQL readers of the lakehouse stay unavailable until provisioning finishes; its Delta "
+                            "tables and Spark are unaffected."),)),
+    "FEA-WH-002": _p(_CONTENT, "workspace", refs=(_ROLES, _COLLATION),
+                     notes=(("Moving to another collation changes how text compares: a filter or join that relied on "
+                            "case can return different rows."),
+                            "Every reader of the old warehouse must be pointed at the new one.")),
     "FEA-SM-001": _p(_CONTENT, "workspace", refs=(_ROLES, _RLS),
                      notes=(_REPUBLISH, "Visuals that relied on filtering both ways can show different numbers.")),
     "FEA-SM-003": _p(_CONTENT, "workspace", notes=(_REPUBLISH, ("With Direct Lake only, a query that would have "

@@ -519,3 +519,27 @@ def sleep_jump(monkeypatch):
         offset[0] += seconds
     yield jump
     active[0] = False
+
+
+_SETTRACE, _SETPROFILE = sys.settrace, sys.setprofile
+
+
+@pytest.fixture(autouse=True)
+def _tracer_and_profiler_kept(monkeypatch):
+    """A test that calls sys.settrace or sys.setprofile puts back what was there. Turning it off instead
+    takes coverage's tracer off this worker, and every later test on it goes unmeasured. The tracer is put
+    back after every test, since Python also drops it when deep recursion runs out of stack (the SQL depth
+    fuzz does that); only a test that changed it itself and left it changed fails."""
+    before = sys.gettrace(), sys.getprofile()
+    called: list[str] = []
+    monkeypatch.setattr(sys, "settrace", lambda f: called.append("settrace") or _SETTRACE(f))
+    monkeypatch.setattr(sys, "setprofile", lambda f: called.append("setprofile") or _SETPROFILE(f))
+    yield
+    after = sys.gettrace(), sys.getprofile()
+    if after != before:
+        _SETTRACE(before[0])
+        _SETPROFILE(before[1])
+        if called:
+            pytest.fail(f"this test called sys.{' and sys.'.join(sorted(set(called)))} and left sys.gettrace(), "
+                        f"sys.getprofile() as {after!r}, not {before!r}: save them first and put them back",
+                        pytrace=False)

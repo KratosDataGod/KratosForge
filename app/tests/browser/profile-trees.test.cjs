@@ -42,6 +42,7 @@ json.dump({"profile": s.profile_get(), "mastery": s.profile_mastery()}, sys.stdo
 
 let app;
 let data;
+let failMastery = false;
 const asked = [];
 
 before(async () => {
@@ -53,7 +54,11 @@ before(async () => {
   app = await openApp({
     mocks: {
       profile_get: () => data.profile,
-      profile_mastery: (params) => { asked.push(params); return data.mastery; },
+      profile_mastery: (params) => {
+        asked.push(params);
+        if (failMastery) throw new Error("The engine stopped");
+        return data.mastery;
+      },
     },
   });
 });
@@ -124,6 +129,7 @@ test("class achievements sit above the tree: earned with its day, progress as ta
   assert.strictEqual(real.length, 5);
   // The engine's own answer for this profile, then one earned and one no one can earn yet.
   data.mastery.class.achievements = real.map((a, i) => i === 0 ? { ...a, earned: true, earned_on: "2026-11-12", met: a.of }
+    : i === 1 ? { ...a, available: true, unavailable_reason: "" }   // one being worked toward, whatever content is published today
     : i === 4 ? { ...a, earned: false, available: false, unavailable_reason: "No lesson, exercise or check verifies this skill yet." } : a);
   await page.evaluate(() => { profilePage.trees.data = null; });
   await openTrees();
@@ -155,4 +161,56 @@ test("class achievements sit above the tree: earned with its day, progress as ta
   }
   if (SHOTS) await row.screenshot({ path: path.join(SHOTS, "profile-class-achievements.png") });
   data.mastery.class.achievements = real;
+});
+
+test("class achievements: 3 per line in a narrow window, no glow with reduced motion or Professional, none shown when a class has none", { skip }, async () => {
+  const page = app.page;
+  const real = data.mastery.class.achievements;
+  data.mastery.class.achievements = real.map((a, i) => (i === 0 ? { ...a, earned: true, earned_on: "2026-11-12", met: a.of } : a));
+  await page.evaluate(() => { profilePage.trees.data = null; });
+  await openTrees();
+  const columns = () => page.evaluate(() => getComputedStyle(document.querySelector(".tree-ach-row")).gridTemplateColumns.split(" ").length);
+  const glow = () => page.evaluate(() => getComputedStyle(document.querySelector(".tree-ach.earned .tree-ach-badge")).filter);
+  const noGlow = () => page.waitForFunction(() => document.documentElement.dataset.motion === "off"
+    && getComputedStyle(document.querySelector(".tree-ach.earned .tree-ach-badge")).filter === "none", null, { timeout: 5000 });
+  const size = page.viewportSize();
+  assert.strictEqual(await columns(), 5);
+  await page.setViewportSize({ width: 860, height: 900 });   // below 900 px (mockup state 3)
+  assert.strictEqual(await columns(), 3);
+  if (SHOTS) await page.locator(".tree-achs").screenshot({ path: path.join(SHOTS, "profile-class-achievements-narrow.png") });
+  await page.setViewportSize(size);
+  // The ember glow is branded motion: on at Heroic, off with Windows' reduced motion and in Professional (mockup state 4).
+  const motion = (level) => page.evaluate((lv) => {
+    state.settings = { ...(state.settings || {}), motion_level: { value: lv }, motion_follow_system: { value: true } };
+    applyMotion();
+  }, level);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await motion(2);
+  assert.match(await glow(), /drop-shadow/);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await motion(2);
+  await noGlow();
+  assert.match(await page.locator(".tree-ach.earned").getAttribute("class"), /earned/);   // still earned: the ring stays
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await motion(0);
+  await noGlow();
+  // A class with no achievements shows no row at all.
+  data.mastery.class.achievements = [];
+  await page.evaluate(() => { profilePage.trees.data = null; });
+  await openTrees();
+  assert.strictEqual(await page.getByRole("region", { name: "Class achievements" }).count(), 0);
+  data.mastery.class.achievements = real;
+});
+
+test("when the engine can't answer, Skill trees says so and Try again opens it", { skip }, async () => {
+  const page = app.page;
+  failMastery = true;
+  await page.evaluate(() => { profilePage.trees.data = null; profilePage.trees.error = false; profilePage.tab = "trees"; go("profile"); });
+  const msg = page.getByText("Couldn't open your skill trees.");
+  await msg.waitFor();
+  assert.strictEqual(await page.locator(".tree-achs, .tree-canvas").count(), 0);
+  failMastery = false;
+  await page.getByRole("button", { name: "Try again" }).click();
+  await page.locator(".tree-canvas").waitFor();
+  assert.ok(await page.getByRole("region", { name: "Class achievements" }).isVisible());
 });

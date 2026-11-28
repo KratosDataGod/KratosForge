@@ -513,12 +513,63 @@ def test_an_achievement_no_one_can_earn_yet_says_why():
     assert awards(profile(lab_pass("LM-00", DAY1)), cat)["a2"]["earned"]
 
 
-def test_every_lakehouse_warden_achievement_can_be_earned_on_this_pc():
+def test_an_achievement_is_available_only_when_published_content_can_take_someone_there():
+    # Only published content counts (progress.from_lab and from_academy refuse drafts), Journeyman needs
+    # practice checked on this PC, and Adept two different such sources (levels.reach).
+    src = {"LM-A": {"practice": {"LM-A"}}, "LM-B": {"practice": {"LM-B"}}, "LM-R": {"knowledge": {"LM-R"}},
+           "p/E01": {"simulated": {"p/E01"}}, "p/E02": {"draft": {"p/E02"}},
+           "p:1.1": {"practice": {"p/E03", "p/E04"}}}
+    reach = lambda ev, cloud=False: levels.reach({"evidence": ev, "cloud": cloud}, src)  # noqa: E731
+    assert reach({"learn": ["LM-A", "LM-B"]}) == (6, "")
+    assert reach({"objectives": ["p:1.1"]}) == (6, "")      # an objective is every published exercise that carries it
+    assert reach({"learn": ["LM-A"], "academy": ["p/E01"]})[0] == 3
+    assert "Adept needs two different" in reach({"learn": ["LM-A"]})[1]
+    assert reach({"academy": ["p/E01"], "learn": ["LM-R"]})[0] == 2
+    assert "only simulated exercises or reading" in reach({"academy": ["p/E01"]})[1]
+    assert reach({"academy": ["p/E01"], "learn": ["LM-A"]}, cloud=True) == (6, "")   # simulated counts for cloud-only
+    assert reach({"academy": ["p/E02"]}) == (0, "The lessons and exercises that check this skill aren't published yet.")
+    assert reach({"events": ["validate.pass"]})[0] == 1      # notebook work alone stops at Initiate (level())
+    assert reach({"learn": ["LM-unknown"]}) == (6, "")       # content it doesn't know isn't capped
+    src["p:9.9"] = {}                                        # an objective no exercise carries yet adds nothing
+    assert reach({"learn": ["LM-A"], "objectives": ["p:9.9"]})[0] == 3
+    assert catalog.hook_sources()["dp-700:1.1.1"] is not None  # every registry objective is known, carried or not
+    assert reach({}) == (6, "")                              # planned content: ceiling() says so
+
+
+def test_level_rules_agree_with_reach():
+    # reach() mirrors level(): one real source stops at Journeyman, a simulated pass at Apprentice, a draft adds nothing.
+    sk = {"id": "s", "evidence": {"learn": ["LM-00"]}, "cloud": False}
+    one = [{"category": "practice", "source": "LM-00", "independent": True, "advanced": False, "measured": False,
+            "simulated": False, "platform": False, "at": f"2026-0{m}-01T10:00:00+00:00"} for m in (1, 3)]
+    assert levels.level(sk, one) == 3
+    sim = [{**one[0], "simulated": True, "source": "p/E01"}]
+    assert levels.level(sk, sim) == 2
+    eng = [{**one[0], "category": "engineering"}]
+    assert levels.level(sk, eng) == 1
+
+
+def test_an_unreachable_talent_names_why_unless_it_is_already_there():
+    cat = award_cat({"level": 3, "talents": ["alpha.01"]})
+    skill = cat["skills"][next(n["skill"] for n in catalog.nodes(cat["classes"]["test-class"]) if n["id"] == "alpha.01")]
+    skill["evidence"] = {"academy": ["dp-700/E10"]}         # a draft, simulated exercise today
+    a = awards(progress.empty(), cat)["a0"]
+    assert not a["available"] and a["unavailable_reason"] == levels.reach(skill)[1] != ""
+
+
+def test_an_objective_no_exercise_carries_caps_the_skill():
+    sources = catalog.hook_sources()
+    bare = [k for k, v in sources.items() if ":" in k and not v]
+    assert bare, "the registry has objectives no exercise carries yet"
+    assert levels.reach({"evidence": {"objectives": bare[:1]}, "cloud": False})[0] == 0
+
+
+def test_every_unavailable_shipped_achievement_says_why():
     view = levels.evaluate(progress.empty(), CAT)["classes"]["lakehouse-warden"]
-    assert all(a["available"] and not a["earned"] and a["progress"] == 0 for a in view["achievements"])
+    assert {a["id"] for a in view["achievements"] if a["available"]} >= {"three-tiers-raised"}
     for cls in levels.evaluate(progress.empty(), CAT)["classes"].values():
         for a in cls["achievements"]:
             assert a["available"] or a["unavailable_reason"], (cls["id"], a["id"])
+            assert not a["earned"] and a["progress"] == 0
 
 
 def test_each_specialization_has_one_capstone_alone_on_its_top_tier():

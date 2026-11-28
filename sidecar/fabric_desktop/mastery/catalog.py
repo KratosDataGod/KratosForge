@@ -90,6 +90,35 @@ def known_ids() -> dict[str, set[str]]:
     return out
 
 
+@lru_cache(maxsize=1)
+def hook_sources() -> dict[str, dict[str, set[str]]]:
+    """What passing the content a hook can name gives, as the sources it counts as, by kind: ``practice``
+    (work checked on this PC), ``simulated`` (a configuration checked, not a service), ``knowledge``
+    (reading or a quiz) or ``draft`` (not published, so nothing counts yet: levels only count published
+    content). A Learn module with an exercise, or a lab, is practice. An exam objective is every published
+    exercise that carries it, each its own source, and nothing when none does. A hook this doesn't list
+    isn't known here."""
+    from ..academy import exercises, registry
+    from ..learn import content
+
+    kind_of = {"simulated": "simulated", "knowledge_only": "knowledge"}
+    out: dict[str, dict[str, set[str]]] = {}
+    for m in content.modules(include_drafts=True):
+        mid = str(m["id"])
+        kind = "draft" if m.get("status") != "live" else "practice" if m.get("exercises") or mid.startswith("LAB-") else "knowledge"
+        out[mid] = {kind: {mid}}
+    for pack in registry.pack_ids():
+        for o in registry.objectives(registry.certification(pack)):   # one no exercise carries yet counts as nothing
+            out[f"{pack}:{o['id']}"] = {}
+        for ex in exercises.exercises(pack, include_drafts=True):
+            ref = f"{pack}/{ex['id']}"
+            kind = "draft" if ex.get("status") != "live" else kind_of.get(ex["class"], "practice")
+            out[ref] = {kind: {ref}}
+            for o in ex.get("objectives") or []:
+                out.setdefault(f"{pack}:{o}", {}).setdefault(kind, set()).add(ref)
+    return out
+
+
 def problems(skills_doc: Any, classes: Iterable[Any], known: dict[str, set[str]] | None = None) -> list[str]:
     """Everything wrong with a catalog. ``known`` (from known_ids) also checks that hooks name real content."""
     out: list[str] = []

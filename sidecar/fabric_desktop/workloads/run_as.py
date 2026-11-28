@@ -16,7 +16,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from .agents import agent_state
+from .agents import agent_state, newer
 
 EXPIRING_DAYS = 30
 _RUNS_AS = {"service_principal": "Service principal", "managed_identity": "Managed identity", "user": "User sign-in"}
@@ -87,8 +87,9 @@ def agent_rows(by_env: dict[str, list[dict[str, Any]]], now: dt.datetime) -> lis
             if not name:
                 continue
             held = newest.get(name)
-            envs = (held[1] if held else []) + [env]
-            if held is None or str(r.get("heartbeat_at") or "") > str(held[0].get("heartbeat_at") or ""):
+            envs = held[1] if held else []
+            envs = envs if env in envs else envs + [env]
+            if held is None or newer(r, held[0]):
                 newest[name] = (r, envs)
             else:
                 newest[name] = (held[0], envs)

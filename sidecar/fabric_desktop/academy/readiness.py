@@ -37,6 +37,9 @@ from . import exercises, registry
 
 RETENTION_DAYS = 7
 INDEPENDENT_MAX_HINTS = 1
+KNOWLEDGE_MIN_ANSWERED = 2   # the dashboard's Knowledge: at least this many answered...
+KNOWLEDGE_MET = 0.75         # ...and at least this share of the points right
+LIST_MAX = 5                 # strengths and weaknesses shown
 ESTIMATE_LABEL = "KratosForge readiness estimate"
 _NOTE_TEMPLATE = ("This is KratosForge's own estimate from the evidence on this PC. It isn't {vendors} score and it "
                  "doesn't promise a pass.")
@@ -131,10 +134,95 @@ def readiness(profile: dict[str, Any], pack_id: str = "dp-700") -> dict[str, Any
                         "shown": sum(x["state"] == "shown" for x in mine),
                         "practised": sum(x["state"] == "practised" for x in mine),
                         "need_platform": sum(x["needs_platform"] for x in mine)})
-    return {"certification": cert["id"], "version": cert["version"], "platform": cert["platform"],
-            "platform_label": plat["label"], "label": ESTIMATE_LABEL, "note": note(cert["platform"]),
-            "objectives": out, "domains": domains, "earlier_version_rows": earlier,
-            "next": next_exercises(out, pack_id)}
+    result = {"certification": cert["id"], "version": cert["version"], "platform": cert["platform"],
+              "platform_label": plat["label"], "label": ESTIMATE_LABEL, "note": note(cert["platform"]),
+              "objectives": out, "domains": domains, "earlier_version_rows": earlier,
+              "next": next_exercises(out, pack_id)}
+    result["dashboard"] = dashboard(result)
+    return result
+
+
+def knowledge_met(k: dict[str, Any]) -> bool:
+    """Knowledge counts as met for an objective with at least KNOWLEDGE_MIN_ANSWERED answered and at least
+    KNOWLEDGE_MET of the points right."""
+    return int(k.get("answered") or 0) >= KNOWLEDGE_MIN_ANSWERED and float(k["correct"]) >= KNOWLEDGE_MET * k["answered"]
+
+
+def _met(o: dict[str, Any], m: str) -> bool:
+    return knowledge_met(o["measures"]["knowledge"]) if m == "knowledge" else bool(o["measures"][m])
+
+
+def dashboard(r: dict[str, Any]) -> dict[str, Any]:
+    """The Readiness dashboard's summary (ACD-015), worked out from ``readiness()`` with fixed rules, nothing
+    guessed: by domain, how many objectives meet each measure (Platform verified counts only objectives that
+    need the platform); strengths (proved objectives, then those meeting the most measures); weaknesses
+    (objectives with questions answered and under half of the points right, then started objectives with no
+    exercise passed); and what's still to do."""
+    objs = r["objectives"]
+    domains = []
+    for d in r["domains"]:
+        mine = [o for o in objs if o["domain"] == d["id"]]
+        measures = {}
+        for m in MEASURES:
+            pool = [o for o in mine if o["platform_required"]] if m == "platform_verified" else mine
+            measures[m] = {"met": sum(_met(o, m) for o in pool), "of": len(pool)}
+        domains.append({"id": d["id"], "measures": measures})
+    count = lambda o: sum(_met(o, m) for m in MEASURES)  # noqa: E731 - a sort key, used twice
+    strong = sorted((o for o in objs if o["state"] == "shown" or count(o) >= 2), key=lambda o: (o["state"] != "shown", -count(o), o["id"]))
+    weak_k = [o for o in objs if o["measures"]["knowledge"]["answered"] >= KNOWLEDGE_MIN_ANSWERED
+              and o["measures"]["knowledge"]["correct"] < 0.5 * o["measures"]["knowledge"]["answered"]]
+    weak_x = [o for o in objs if o["state"] == "practised" and o not in weak_k
+              and not any(o["measures"][m] for m in MEASURES[1:])]
+    item = lambda o, why: {"id": o["id"], "text": o["text"], "domain": o["domain"], "why": why}  # noqa: E731
+    k = lambda o: o["measures"]["knowledge"]  # noqa: E731
+    todo = [o for o in objs if o["state"] == "not_started"]
+    return {"knowledge_rule": {"min_answered": KNOWLEDGE_MIN_ANSWERED, "share": KNOWLEDGE_MET},
+            "domains": domains,
+            "strengths": [item(o, "proved" if o["state"] == "shown" else f"{count(o)} measures met") for o in strong[:LIST_MAX]],
+            "weaknesses": ([item(o, f"{_points(k(o)['correct'])} of {k(o)['answered']} question points right") for o in weak_k]
+                           + [item(o, "started, no exercise passed yet") for o in weak_x])[:LIST_MAX],
+            "todo": {"objectives": len(todo), "by_domain": {d["id"]: sum(o["domain"] == d["id"] for o in todo) for d in r["domains"]},
+                     "need_platform": sum(o["platform_required"] for o in todo)}}
+
+
+def _points(x: float) -> str:
+    return f"{x:g}"
+
+
+def report(r: dict[str, Any], title: str, today: str) -> str:
+    """The exported readiness report as Markdown: the estimate's label and note first, then the totals, each
+    domain's measures, every objective, strengths, weaknesses and what's left. Only what this screen shows."""
+    names = {"knowledge": "Knowledge", "guided": "Guided", "independent": "Independent", "troubleshooting": "Troubleshooting",
+             "platform_verified": f"{r['platform_label']} verified", "retention": "Retention"}
+    dash = r.get("dashboard") or dashboard(r)
+    objs = r["objectives"]
+    cell = lambda s: " ".join(str(s).replace("|", "/").split())  # noqa: E731 - one table cell, on one line
+    lines = [f"# {cell(title)}: {r['label']}", "", f"Exported {today}. Study guide of {r['version']}.", "", r["note"], "",
+             f"- Objectives proved: {sum(o['state'] == 'shown' for o in objs)} of {len(objs)}",
+             f"- Started, not proved yet: {sum(o['state'] == 'practised' for o in objs)}",
+             f"- Still to do: {dash['todo']['objectives']}", "", "## By domain", "",
+             "| Domain | " + " | ".join(names[m] for m in MEASURES) + " |", "|" + " --- |" * (len(MEASURES) + 1)]
+    titles = {d["id"]: d["title"] for d in r["domains"]}
+    for d in dash["domains"]:
+        lines.append(f"| {d['id']} {cell(titles[d['id']])} | " + " | ".join(
+            f"{x['met']} of {x['of']}" if x["of"] else "not needed" for x in (d["measures"][m] for m in MEASURES)) + " |")
+    lines += ["", "## By objective", "", "| Objective | State | " + " | ".join(names[m] for m in MEASURES) + " |",
+              "|" + " --- |" * (len(MEASURES) + 2)]
+    state = {"shown": "proved", "practised": "started", "not_started": "not started"}
+    for o in objs:
+        kn = o["measures"]["knowledge"]
+        vals = [f"{_points(kn['correct'])} of {kn['answered']}" if kn["answered"] else "not yet"]
+        for m in MEASURES[1:]:
+            vals.append("not needed" if m == "platform_verified" and not o["platform_required"]
+                        else ", ".join(e.split("/")[-1] for e in o["measures"][m]) or "not yet")
+        lines.append(f"| {o['id']} {cell(o['text'])} | {state[o['state']]} | " + " | ".join(cell(v) for v in vals) + " |")
+    for head, key in (("Strengths", "strengths"), ("Weaknesses", "weaknesses")):
+        lines += ["", f"## {head}", ""] + ([f"- {x['id']} {cell(x['text'])}: {x['why']}" for x in dash[key]] or ["- None yet"])
+    lines += ["", "## How it's worked out", "",
+              (f"Knowledge counts as met with at least {KNOWLEDGE_MIN_ANSWERED} questions answered and {round(KNOWLEDGE_MET * 100)}% "
+               "of the points right. Guided, Independent, Troubleshooting and Retention each need an exercise passed that way. "
+               f"{names['platform_verified']} counts only objectives that need it. Worked out on this PC from Academy records only."), ""]
+    return "\n".join(lines)
 
 
 def next_exercises(objective_states: list[dict[str, Any]], pack_id: str = "dp-700", limit: int = 3) -> list[dict[str, Any]]:

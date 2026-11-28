@@ -12,7 +12,7 @@ const noAxe = skip || (!axeSource && "axe-core is not installed");
 const ENGINE = ["app_settings", "save_app_settings", "academy_catalog", "academy_exercise", "academy_start", "academy_save",
   "academy_run", "academy_validate", "academy_hint", "academy_explanation", "academy_reset", "academy_readiness",
   "profile_get", "learn_catalog", "academy_exam_home", "academy_exam_start", "academy_exam_open", "academy_exam_heartbeat",
-  "academy_exam_pause"];
+  "academy_exam_pause", "academy_readiness_export"];
 const SOLUTION = `CREATE OR REPLACE TABLE silver_orders AS
 SELECT order_id, status, amount, loaded_at
 FROM (
@@ -165,4 +165,28 @@ test("Readiness keeps six measures apart and says it isn't the vendor's score", 
   assert.deepStrictEqual(heads, ["Objective", "Knowledge", "Guided", "Independent", "Troubleshooting", "Fabric verified", "Retention"]);
   assert.match(await page().locator(".academy-body").textContent(), /Not yet/);
   assert.doesNotMatch(await page().locator(".academy-table").first().textContent(), /—/);
+});
+
+test("Readiness is a dashboard: totals, each domain's measures, the chosen domain's objectives, strengths and an export", { skip }, async () => {
+  await openTab("readiness");
+  await page().locator(".academy-dtable").waitFor();
+  const tiles = (await page().locator(".academy-tile .muted-text").first().textContent()).trim();
+  assert.strictEqual(tiles, "Objectives proved");
+  assert.match(await page().locator(".academy-tile-next").textContent(), /Next exercise/);
+  assert.strictEqual(await page().locator(".academy-dtable tbody tr").count(), 3);
+  assert.deepStrictEqual((await page().locator(".academy-dtable th[scope=col]").allTextContents()).map((t) => t.trim()),
+    ["Domain", "Knowledge", "Guided", "Independent", "Troubleshooting", "Fabric verified", "Retention"]);
+  assert.match(await page().locator(".academy-dtable tbody tr").nth(1).textContent(), /1 of \d+/, "E37 passed guided in domain 2");
+  assert.strictEqual(await page().locator(".academy-table").count(), 1, "one domain's objectives at a time");
+  await page().locator(".academy-dtable button", { hasText: "2 " }).click();
+  await page().locator(".academy-dtable button[aria-pressed=true]", { hasText: "2 " }).waitFor();
+  assert.match(await page().locator("#academy-r-2").textContent(), /2 .* by objective/);
+  assert.match(await page().locator(".academy-r-lists").textContent(), /Strengths[\s\S]*2\.2\.9/);
+  assert.match(await page().locator(".academy-body").textContent(), /isn't Microsoft's score/);
+  assert.match(await page().locator(".academy-r-list", { hasText: "Still to do" }).textContent(),
+    /\d+ objectives not started \(\d+ in domain 1, \d+ in domain 2 and \d+ in domain 3\)\. \d+ of them needs? your own Fabric workspace to be verified\./);
+  await page().locator(".page.academy .head-actions .tool", { hasText: "Export report" }).click();
+  await page().waitForFunction(() => /Saved to/.test(document.getElementById("toast")?.textContent || ""));
+  assert.ok(app.calls.some((c) => c.method === "academy_readiness_export" && c.params.pack_id === "dp-700"));
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "academy-readiness.png"), fullPage: true });
 });

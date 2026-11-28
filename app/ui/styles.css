@@ -3516,6 +3516,16 @@ table.bundle-files .num { text-align: right; white-space: nowrap; color: inherit
 .academy-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
 .academy-tile { display: flex; flex-direction: column; gap: 4px; }
 .academy-tile b { font-size: 26px; font-weight: 600; }
+.academy-tile-next a { font-weight: 600; }
+.academy-r-sub { margin: 0; padding: 0 16px 8px; }
+.academy-dtable { min-width: 900px; }
+.academy-dtable td { min-width: 96px; vertical-align: top; }
+.academy-dtable tr.selected th { background: var(--accent-soft-2); }
+.academy-link { background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--accent); text-align: left; cursor: pointer; text-decoration: underline; }
+.academy-link[aria-pressed="true"] { text-decoration: none; }
+.academy-r-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.academy-r-list h2 { font-size: 15px; margin: 0 0 6px; }
+.academy-r-list p { margin: 0 0 6px; }
 .academy-work { flex: 1 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 .academy-panel { flex: 0 1 360px; position: sticky; top: 0; display: flex; flex-direction: column; }
 .academy-panel .subtabs { padding: 0 8px; }

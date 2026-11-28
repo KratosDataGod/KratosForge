@@ -63,6 +63,10 @@ async function renderAcademy() {
       reads: "The certification packs that ship with KratosForge, each exercise's folder on this PC, and your Profile's evidence.",
       changes: "Starting an exercise makes a folder under this PC's KratosForge data (academy/<pack>/<exercise>) with generated data and your answer. Reset deletes that folder and makes it again. A passed exercise is recorded in Profile. Nothing in Fabric or OneLake changes.",
       results: "This page and Profile. Readiness is KratosForge's own estimate, not the vendor's score.",
+      more: academyPage.tab === "readiness" ? [
+        ["How readiness is worked out", "Knowledge: questions answered right in diagnostics, drills and practice exams. Guided: an exercise passed with its steps. Independent: a challenge passed with at most one hint and the explanation closed. Troubleshooting: a broken-on-purpose exercise fixed. Verified on the platform: passed in your own workspace, where the objective needs it. Retention: passed again a week or more later. An objective is proved when the evidence it needs is there."],
+        ["What it isn't", "KratosForge's own estimate. It isn't the vendor's score or an official result, and it doesn't promise a pass. Real exam questions are never used."],
+        ["Export report", "Saves this estimate as a new Markdown file in Downloads. Nothing is sent anywhere."]] : [],
     }))));
   // The Assessment Center (academy-assessments.js, its own PR) draws into the tab when it's there.
   if (academyPage.tab === "assessments") return typeof renderAssessments === "function" ? renderAssessments(body, academyPage.pack) : fill(body, academyAssessments());
@@ -76,9 +80,16 @@ async function renderAcademy() {
   else fill(body, ...academyHome(data));
 }
 
-// The page's actions follow the tab. Home: Take a diagnostic, which opens the diagnostic screen in
-// Assessments (academy-assessments.js, board 6 of the mockup); a running exam stays where it is.
+// The page's actions follow the tab. Readiness: Export report (a new Markdown file in Downloads). Home: Take a
+// diagnostic, which opens the diagnostic screen in Assessments (academy-assessments.js, board 6 of the
+// mockup); a running exam stays where it is.
 function academyHeadActions() {
+  if (academyPage.tab === "readiness") {
+    return btn("Export report", "arrowDownload", async () => {
+      const out = await attempt(() => rpc("academy_readiness_export", { pack_id: academyPage.pack }), "Could not export the report");
+      if (out) toast(`Saved to ${out.path}`);
+    }, "tool outline", { title: "Save this readiness estimate as a new Markdown file in Downloads" });
+  }
   if (academyPage.tab !== "home" || typeof assess === "undefined") return null;
   return btn("Take a diagnostic", null, () => {
     if (assess.mode !== "exam") Object.assign(assess, { mode: "home", pick: "diagnostic", fromHome: true });
@@ -223,34 +234,77 @@ function academyPortfolio({ pack, ready }) {
 
 // ---------- Readiness ----------
 
-function academyReadiness({ ready }) {
+// The Readiness dashboard (ACD-015, board 7 of the mockup): totals and the next exercise, each domain's
+// measures (how many objectives meet each one, by the engine's fixed rules in readiness.dashboard), the
+// chosen domain's objectives, strengths, weaknesses and what's left. Export report is in the page's actions.
+function academyReadiness({ pack, ready }) {
   const plat = academyPlatform(ready);
+  const dash = ready.dashboard;
+  const name = (key, label) => (key === "platform_verified" ? `${plat} verified` : label);
+  if (!ready.domains.some((d) => d.id === academyPage.rdomain)) academyPage.rdomain = ready.domains[0]?.id;
   const count = (s) => ready.objectives.filter((o) => o.state === s).length;
   const tile = (label, n, of) => h("div", { class: "card pad academy-tile" }, h("span", { class: "muted-text small" }, label),
     h("b", {}, String(n), of ? h("span", { class: "muted-text small" }, ` of ${of}`) : null));
+  const live = Object.fromEntries(pack.exercises.filter((e) => e.status === "live").map((e) => [e.id, e]));
+  const next = ready.next.map((n) => ({ ...n, ...live[n.exercise] })).find((n) => n.id);
+  const nextTile = h("div", { class: "card pad academy-tile academy-tile-next" }, h("span", { class: "muted-text small" }, "Next exercise"),
+    next ? [h("a", { href: "#", onclick: (e) => { e.preventDefault(); academyOpen(next.id); } }, `${next.id} ${next.title}`),
+      h("span", { class: "muted-text small" }, `${next.objective} · ${academyMeta(next)}`)]
+      : h("span", { class: "muted-text" }, "You've passed every published exercise."));
   const cell = (o, key) => {
     if (key === "knowledge") {
       const k = o.measures.knowledge;
-      return k.answered ? `${Math.round(k.correct * 100) / 100} of ${k.answered}` : h("span", { class: "muted-text" }, "Not yet");
+      return k.answered ? `${k.correct} of ${k.answered}` : h("span", { class: "muted-text" }, "Not yet");
     }
     if (key === "platform_verified" && !o.platform_required) return h("span", { class: "muted-text" }, "Not needed");
     const ids = o.measures[key];
     return ids.length ? h("span", { class: "academy-ok" }, `✓ ${ids.map((r) => r.split("/").pop()).join(", ")}`)
       : h("span", { class: key === "platform_verified" ? "academy-needs" : "muted-text" }, key === "platform_verified" ? "Needed" : "Not yet");
   };
+  const share = (x) => {
+    if (!x.of) return h("span", { class: "muted-text" }, "Not needed");
+    const pct = Math.round((100 * x.met) / x.of);
+    return [h("div", { class: "small" }, `${x.met} of ${x.of}`),
+      h("div", { class: "academy-bar", "aria-hidden": "true" }, h("div", { style: `width:${pct}%` }))];
+  };
+  const byDomain = h("section", { class: "card academy-domain-card", "aria-labelledby": "academy-r-domains" },
+    h("h2", { id: "academy-r-domains", class: "academy-acc-head" }, "By domain"),
+    h("p", { class: "muted-text small academy-r-sub" }, "How many of each domain's objectives meet each measure. Choose a domain to see its objectives."),
+    h("div", { class: "academy-scroll", tabindex: "0", role: "region", "aria-label": "Readiness by domain" }, h("table", { class: "list academy-dtable" },
+      h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "Domain"), ACADEMY_MEASURES.map(([key, label]) => h("th", { scope: "col" }, name(key, label))))),
+      h("tbody", {}, ready.domains.map((d) => {
+        const m = dash.domains.find((x) => x.id === d.id)?.measures || {};
+        const on = academyPage.rdomain === d.id;
+        return h("tr", { class: on ? "selected" : null },
+          h("th", { scope: "row" }, h("button", { type: "button", class: "academy-link", "aria-pressed": on ? "true" : "false",
+            onclick: () => { academyPage.rdomain = d.id; render(); } }, `${d.id} ${d.title}`),
+          h("div", { class: "muted-text small" }, `${d.shown} of ${d.objectives} objectives proved`)),
+          ACADEMY_MEASURES.map(([key]) => h("td", {}, m[key] ? share(m[key]) : null)));
+      })))));
+  const d = ready.domains.find((x) => x.id === academyPage.rdomain);
+  const byObjective = d ? h("section", { class: "card academy-domain-card", "aria-labelledby": `academy-r-${d.id}` },
+    h("h2", { id: `academy-r-${d.id}`, class: "academy-acc-head" }, `${d.id} ${d.title} · by objective`),
+    h("div", { class: "academy-scroll", tabindex: "0", role: "region", "aria-label": `${d.id} ${d.title}, by objective` }, h("table", { class: "list academy-table" },
+      h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "Objective"), ACADEMY_MEASURES.map(([key, label]) => h("th", { scope: "col" }, name(key, label))))),
+      h("tbody", {}, ready.objectives.filter((o) => o.domain === d.id).map((o) => h("tr", {},
+        h("th", { scope: "row" }, `${o.id} ${o.text}`), ACADEMY_MEASURES.map(([key]) => h("td", {}, cell(o, key))))))))) : null;
+  const list = (id, title, items, empty) => h("section", { class: "card pad academy-r-list", "aria-labelledby": id }, h("h2", { id }, title),
+    items.length ? h("ul", { class: "academy-list" }, items.map((x) => h("li", {}, h("b", {}, x.id), ` ${x.text}: ${x.why}`))) : h("p", { class: "muted-text" }, empty));
+  const todo = dash.todo;
+  const todoBits = ready.domains.filter((x) => todo.by_domain[x.id]).map((x) => `${todo.by_domain[x.id]} in domain ${x.id}`);
+  const todoList = todoBits.length > 1 ? `${todoBits.slice(0, -1).join(", ")} and ${todoBits[todoBits.length - 1]}` : todoBits.join("");
+  const left = h("section", { class: "card pad academy-r-list", "aria-labelledby": "academy-r-todo" }, h("h2", { id: "academy-r-todo" }, "Still to do"),
+    h("p", {}, todo.objectives ? `${todo.objectives} objective${todo.objectives === 1 ? "" : "s"} not started${todoList ? ` (${todoList})` : ""}.${todo.need_platform ? ` ${todo.need_platform} of them ${todo.need_platform === 1 ? "needs" : "need"} your own ${plat} workspace to be verified.` : ""}` : "Every objective is started."),
+    h("div", { class: "row wrap" }, btn("See them on the path", null, () => { academyPage.tab = "path"; academyPage.left = true; render(); }, "tool link"),
+      typeof assess !== "undefined" ? btn("Take a diagnostic", null, () => { if (assess.mode !== "exam") Object.assign(assess, { mode: "home", pick: "diagnostic", fromHome: false }); academyPage.tab = "assessments"; render(); }, "tool link") : null));
   return [h("div", { role: "note", class: "academy-note" }, `${ready.note} Results stay tied to the study guide of ${ready.version}.`,
     ready.earlier_version_rows ? ` ${ready.earlier_version_rows} earlier results belong to an older study guide and are kept as they were.` : ""),
   h("div", { class: "academy-tiles" }, tile("Objectives proved", count("shown"), ready.objectives.length),
-    tile(`Practised on this PC, still need ${plat}`, ready.objectives.filter((o) => o.state === "practised" && o.needs_platform).length),
-    tile("Not started", count("not_started"))),
-  ...ready.domains.map((d) => h("section", { class: "card academy-domain-card", "aria-labelledby": `academy-r-${d.id}` },
-    h("h2", { id: `academy-r-${d.id}`, class: "academy-acc-head" }, `${d.id} ${d.title}`),
-    h("div", { class: "academy-scroll", tabindex: "0", role: "region", "aria-label": `${d.id} ${d.title}, by objective` }, h("table", { class: "list academy-table" },
-      h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "Objective"), ACADEMY_MEASURES.map(([key, label]) =>
-        h("th", { scope: "col" }, key === "platform_verified" ? `${plat} verified` : label)))),
-      h("tbody", {}, ready.objectives.filter((o) => o.domain === d.id).map((o) => h("tr", {},
-        h("th", { scope: "row" }, `${o.id} ${o.text}`), ACADEMY_MEASURES.map(([key]) => h("td", {}, cell(o, key)))))))))),
-  h("p", { class: "muted-text small" }, "Independent means a challenge passed with at most one hint and the explanation closed. Retention means the same exercise passed again a week or more later.")];
+    tile("Started, not proved yet", count("practised")), tile("Still to do", count("not_started")), nextTile),
+  byDomain, byObjective,
+  h("div", { class: "academy-r-lists" }, list("academy-r-strong", "Strengths", dash.strengths, "Nothing yet. A proved objective, or one that meets two measures, shows here."),
+    list("academy-r-weak", "Weaknesses", dash.weaknesses, "Nothing stands out yet."), left),
+  h("p", { class: "muted-text small" }, `Knowledge counts as met with at least ${dash.knowledge_rule.min_answered} questions answered and ${Math.round(dash.knowledge_rule.share * 100)}% of the points right. Independent means a challenge passed with at most one hint and the explanation closed. Retention means the same exercise passed again a week or more later. ${plat} verified counts only objectives that need it.`)];
 }
 
 // ---------- Exercise workspace ----------

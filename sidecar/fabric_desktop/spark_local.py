@@ -2245,6 +2245,27 @@ class LocalMergeBuilder:
         self._evolve = True
         return self
 
+    def _names_resolve(self, text: str, source_alias: str) -> None:
+        """As delta-spark: a column the merge qualifies with a name that is neither the table's (its name or
+        alias) nor the source's alias doesn't resolve. A source with no df.alias(...) has no name to qualify by."""
+        import sqlglot
+        from sqlglot import exp
+
+        table = self._table._alias or self._table._name.split(".")[-1].strip("`")
+        known = {table.lower()} | ({source_alias.lower()} if source_alias else set())
+        try:
+            tree = sqlglot.parse_one(text, read="spark")
+        except sqlglot.errors.ParseError:
+            return  # spark.sql names the problem
+        for col in tree.find_all(exp.Column):
+            if col.table and col.table.lower() not in known:
+                from duckdb.experimental.spark.errors import AnalysisException
+                raise AnalysisException(
+                    f"[DELTA_MERGE_UNRESOLVED_EXPRESSION] Cannot resolve {col.sql(dialect='spark')} in the merge: "
+                    + ("the source DataFrame has no alias, so give it one with .alias(...) and qualify its columns "
+                       "with that" if not source_alias else f"name the table as {table} and the source as "
+                       f"{source_alias}") + ".")
+
     def execute(self) -> DataFrame:
         if not self._clauses:
             raise ValueError("The merge has no whenMatched or whenNotMatched clause, so there is nothing to do.")
@@ -2254,14 +2275,16 @@ class LocalMergeBuilder:
         spark = session()
         view = f"__merge_builder_{next(self._MERGE_VIEWS)}"
         source_alias = getattr(relation, "alias", "") or ""
-        if not source_alias or source_alias.startswith(("unnamed_relation", "arrow_object")):  # no df.alias(...)
-            source_alias = "source"
+        if source_alias.startswith(("unnamed_relation", "arrow_object")):  # no df.alias(...)
+            source_alias = ""
+        target = self._table._name + (f" AS `{self._table._alias}`" if self._table._alias else "")
+        how = "MERGE WITH SCHEMA EVOLUTION INTO" if self._evolve else "MERGE INTO"
+        text = (f"{how} {target} USING {view}" + (f" AS `{source_alias}`" if source_alias else "")
+                + f" ON {self._on} " + " ".join(self._clauses))
+        self._names_resolve(text, source_alias)
         relation.create_view(view, replace=True)
         try:
-            target = self._table._name + (f" AS `{self._table._alias}`" if self._table._alias else "")
-            how = "MERGE WITH SCHEMA EVOLUTION INTO" if self._evolve else "MERGE INTO"
-            return spark.sql(f"{how} {target} USING {view} AS `{source_alias}` ON {self._on} "
-                             + " ".join(self._clauses))
+            return spark.sql(text)
         finally:
             spark.conn.execute(f"DROP VIEW IF EXISTS {view}")
 

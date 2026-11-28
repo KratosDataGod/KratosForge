@@ -196,12 +196,19 @@ def test_the_delta_table_merge_builder(lake):
     assert "'num_updated_rows': 1, 'num_deleted_rows': 1, 'num_inserted_rows': 1" in text
     assert rows(lake) == [{"id": 1, "region": "EU", "amount": 10.0}, {"id": 2, "region": "US", "amount": 50.0},
                           {"id": 4, "region": "APAC", "amount": 40.0}]
-    # Without aliases the source is "source", and the table goes by its name, as in delta-spark.
+    # Without .alias() the source has no name, as in delta-spark 3.2: `source.id` doesn't resolve, and the
+    # table is left as it was. The table goes by its name, and an unqualified column resolves.
     out, text = run("from delta.tables import DeltaTable\n"
                     "src = spark.createDataFrame([(1, 'EU', 1.0)], ['id', 'region', 'amount'])\n"
                     "DeltaTable.forName(spark, 'sales').merge(src, 'sales.id = source.id').whenMatchedUpdateAll().execute()")
+    assert out["status"] == "error" and "[DELTA_MERGE_UNRESOLVED_EXPRESSION] Cannot resolve source.id" in text, text
+    assert rows(lake)[0]["amount"] == 10.0
+    out, text = run("from delta.tables import DeltaTable\n"
+                    "src = spark.createDataFrame([(1, 1.0)], ['key', 'amount'])\n"
+                    "DeltaTable.forName(spark, 'sales').merge(src, 'sales.id = key')"
+                    ".whenMatchedUpdate(set={'amount': 'sales.amount * 3'}).execute()")
     assert out["status"] == "ok", text
-    assert rows(lake)[0]["amount"] == 1.0
+    assert rows(lake)[0]["amount"] == 30.0
     out, text = run("from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'sales').merge(spark.table('sales'), "
                     "'sales.id = source.id').execute()")
     assert out["status"] == "error" and "no whenMatched or whenNotMatched clause" in text

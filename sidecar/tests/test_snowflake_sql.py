@@ -19,8 +19,8 @@ from fabric_desktop.engines.contract import CellRequest, SessionConfig
 
 SETUP = [
     "CREATE TABLE t(id INT, grp VARCHAR, amt DOUBLE, ts TIMESTAMP, v JSON)",
-    """INSERT INTO t VALUES (1,'a',10,'2026-01-01 10:00','{"k":{"x":1},"arr":[1,2]}'),"""
-    """(2,'a',20,'2026-01-02','{"k":{"x":2},"arr":[3]}'),(3,'b',5,'2026-01-03','{"k":{"x":3},"arr":[]}')""",
+    ("""INSERT INTO t VALUES (1,'a',10,'2026-01-01 10:00','{"k":{"x":1},"arr":[1,2]}'),"""
+    """(2,'a',20,'2026-01-02','{"k":{"x":2},"arr":[3]}'),(3,'b',5,'2026-01-03','{"k":{"x":3},"arr":[]}')"""),
 ]
 
 # (name, Snowflake SQL, verdict, note ids)
@@ -43,9 +43,9 @@ PROBE = [
     ("TRY_TO_NUMBER", "select try_to_number('12x'), try_cast('5' as int)", "translated", []),
     ("SPLIT_PART/REGEXP_SUBSTR", "select split_part('a-b-c','-',2), regexp_substr('abc123','[0-9]+')",
      "translated", []),
-    ("MERGE", "merge into t using (select 1 id, 99.0 amt) s on t.id=s.id when matched then update set amt=s.amt "
-              "when not matched then insert (id, amt) values (s.id, s.amt)", "translated", []),
-    ("CREATE OR REPLACE TABLE AS", "create or replace table t2 as select * from t", "difference", ["SFD-001"]),
+    ("MERGE", ("merge into t using (select 1 id, 99.0 amt) s on t.id=s.id when matched then update set amt=s.amt "
+              "when not matched then insert (id, amt) values (s.id, s.amt)"), "translated", []),
+    ("CREATE OR REPLACE TABLE AS", "create or replace table t2 as select * from t", "translated", []),
     ("Time travel AT", "select * from t at(offset => -60)", "not_translatable", ["SFN-006"]),
     ("GENERATOR/SEQ4", "select seq4() from table(generator(rowcount => 3))", "translated", []),
     ("UNPIVOT", "select * from (select id, amt, amt*2 as amt2 from t) unpivot (val for col in (amt, amt2))",
@@ -54,12 +54,12 @@ PROBE = [
     ("EXECUTE IMMEDIATE", "execute immediate 'select 1'", "not_translatable", ["SFN-005"]),
     ("DDL VARIANT/NUMBER/TIMESTAMP_TZ",
      "create table s(a variant, b number(38,0), c timestamp_ltz, d timestamp_tz, e string)",
-     "difference", ["SFD-001", "SFD-002", "SFD-004"]),
+     "difference", ["SFD-002", "SFD-004"]),
     ("TIMESTAMP_TZ literal with offset", "select '2026-01-01 10:00:00 +05:00'::timestamp_tz",
      "not_translatable", ["SFN-013"]),
     ("Integer division 7/2", "select 7/2, 7 % 2", "difference", ["SFD-003"]),
     ("Quoted alias", 'select 1 as "Mixed", 2 as plain', "translated", []),
-    ("Unquoted identifier case", "create table up_test(MyCol int)", "difference", ["SFD-001"]),
+    ("Unquoted identifier case", "create table up_test(MyCol int)", "translated", []),
     ("CREATE STREAM", "create stream s1 on table t", "not_translatable", ["SFN-001"]),
     ("CREATE DYNAMIC TABLE", "create dynamic table dt target_lag='1 minute' warehouse=wh as select * from t",
      "not_translatable", ["SFN-003"]),
@@ -227,8 +227,8 @@ def test_sfx004_object_construct_star_is_refused():
 
 
 @pytest.mark.parametrize("code,note", [
-    ("create table x(MyCol int)", "SFD-001"),
-    ("select '2026-01-01'::timestamp_tz", "SFD-002"),
+    ("create view x as select MyCol * 2 from t", "SFD-001"),
+    ("create table x (c timestamp_tz)", "SFD-002"),
     ("select amt / 2 from t", "SFD-003"),
     ("select current_timestamp()", "SFD-004"),
     ("select date_trunc('month', ts) from t", "SFD-006"),
@@ -525,27 +525,41 @@ def test_typeof_of_a_column_names_json_values_and_flags_what_it_cant_know():
                 """ ('99999999999999999999'), ('123.12'), ('1.912e2')""")
     (report,) = sf.translate("select typeof(v) from j").statements
     assert report.verdict == "difference" and [n.id for n in report.notes] == ["SFD-007"]
-    got = [r[0] for r in con.execute(report.duckdb_sql).fetchall()]
-    # A fraction or an exponent in a column: DuckDB may have written it again, so it isn't named.
-    assert got == ["NULL_VALUE", "BOOLEAN", "INTEGER", "VARCHAR", "ARRAY", "OBJECT", None, "INTEGER",
-                   "DECIMAL or DOUBLE", "DECIMAL or DOUBLE"]
+    got = [r[0] for r in con.execute(report.duckdb_sql + " LIMIT 8").fetchall()]
+    assert got == ["NULL_VALUE", "BOOLEAN", "INTEGER", "VARCHAR", "ARRAY", "OBJECT", None, "INTEGER"]
+    # A fraction or an exponent in a column: DuckDB may have written it again, so the query stops at it (SFN-072)
+    # rather than name it
+    for number in ("123.12", "1.912e2"):
+        con.execute("delete from j")
+        con.execute("insert into j values (?)", [number])
+        with pytest.raises(duckdb.Error, match="SFN-072 The type of a JSON number with a fraction"):
+            con.execute(report.duckdb_sql).fetchall()
 
 
 @pytest.mark.parametrize("code, want", [
-    ("""select typeof(v:a) from (select parse_json('{"a": 1.912e2}') as v)""", "DECIMAL or DOUBLE"),  # 191.2 here
+    ("""select typeof(v:a) from (select parse_json('{"a": 1.912e2}') as v)""", "SFN-072"),  # 191.2 here: it stops
     ("""select typeof(v:a) from (select parse_json('{"a": 10}') as v)""", "INTEGER"),
-    ("select typeof('2026-01-01 10:00'::timestamp_ltz)", "TIMESTAMP WITH TIME ZONE"),  # LTZ or TZ: DuckDB's name
+    # LTZ or TZ isn't known for a column's value: it stops (SFN-073). A cast written in the query is named (SFX-009)
+    ("select typeof(c) from (select '2026-01-01 10:00'::timestamp_ltz as c)", "SFN-073"),
 ])
 def test_typeof_never_gives_a_confident_wrong_name(code, want):
     (report,) = sf.translate(code).statements
     assert "SFD-007" in [n.id for n in report.notes]
+    if want.startswith("SFN-"):
+        with pytest.raises(duckdb.Error, match=want):
+            duckdb.connect().execute(report.duckdb_sql).fetchone()
+        return
     assert duckdb.connect().execute(report.duckdb_sql).fetchone()[0] == want
 
 
 def test_typeof_reads_its_argument_as_a_tree_and_the_rule_is_listed():
     sql = sf.translate("select typeof(v:k.x) from t").duckdb_sql
     assert "LAMBDA" not in sql.upper() and "->" in sql  # a path stays a path (#1252)
-    assert "VARIANT" not in sf.translate("select typeof('a'::variant)").duckdb_sql
+    # the ::variant is read past: the value isn't cast to VARIANT, except where the VARIANT branch (a DuckDB
+    # VARIANT value, SFX-024) asks variant_typeof what it holds
+    sql = sf.translate("select typeof('a'::variant)").duckdb_sql
+    assert sql.count("AS VARIANT") == sql.upper().count("VARIANT_TYPEOF(CAST(")
+    assert _first("select typeof('a'::variant)") == "VARCHAR"
     assert "SFX-009" in [row[0] for row in sf.CATALOG] and "SFX-009" in sf.docs_table()
 
 
@@ -623,10 +637,24 @@ def test_is_and_as_of_sql_null_are_null_and_json_null_is_its_own_type():
     assert row == (None, None, True, False, None)
 
 
-def test_the_decimal_family_is_labelled_and_the_rest_is_not():
-    assert [n.id for n in _one("SELECT is_decimal(parse_json('1.5'))")[1].notes] == ["SFD-008"]
-    assert [n.id for n in _one("SELECT as_number(parse_json('1.5'), 4, 1)")[1].notes] == ["SFD-008"]
+def test_the_decimal_family_goes_by_how_the_number_was_written_or_stops():
+    # SFN-072 (SFD-008 retired): PARSE_JSON's own text says DECIMAL or DOUBLE, as does a path into PARSE_JSON of
+    # text in the query; a stored value doesn't, so the query stops at it instead of calling 1.912e2 a decimal
+    assert _one("SELECT is_decimal(parse_json('1.5'))")[1].notes == ()
     assert _one("SELECT is_integer(parse_json('1')), as_double(parse_json('1.5'))")[1].notes == ()
+    assert _first("SELECT is_decimal(parse_json('1.5'))") is True
+    assert _first("SELECT is_decimal(parse_json(' 1.912e2 '))") is False
+    assert _first("SELECT as_number(parse_json('1.912E2'))") is None
+    assert float(_first("SELECT as_number(parse_json('1.5'), 4, 1)")) == 1.5
+    assert _first("SELECT is_decimal(parse_json('{\"a\": 1.912e2}'):a)") is False
+    assert _first("SELECT is_decimal(parse_json('{\"a\": [191.2]}'):a[0])") is True
+    assert _first("SELECT is_decimal(parse_json(column1)) FROM VALUES ('1.912e2')") is False
+    assert _first("SELECT is_decimal(v) FROM (SELECT parse_json('-17') AS v)") is True
+    for code in ("SELECT is_decimal(v) FROM (SELECT parse_json('1.912e2') AS v)",
+                 "SELECT as_decimal(v:a) FROM (SELECT parse_json('{\"a\": 123.12}') AS v)",
+                 "SELECT as_number(v) FROM (SELECT parse_json('0.5') AS v)"):
+        with pytest.raises(duckdb.Error, match="SFN-072 .*Runs only in Snowflake"):
+            _first(code)
 
 
 @pytest.mark.parametrize("sql, rule", [
@@ -816,8 +844,8 @@ def test_object_pick_with_one_key_column_reads_it_as_a_key():
 @pytest.mark.parametrize("code,rule", [
     ("SELECT to_decfloat('1.5')", "SFN-018"), ("SELECT try_to_decfloat(a) FROM t", "SFN-018"),
     ("SELECT CAST(a AS DECFLOAT) FROM t", "SFN-018"),
-    ("SELECT * FROM t MATCH_RECOGNIZE (ORDER BY a MEASURES FIRST(a) AS f ONE ROW PER MATCH PATTERN (x+) "
-     "DEFINE x AS a > 0)", "SFN-019"),
+    (("SELECT * FROM t MATCH_RECOGNIZE (ORDER BY a MEASURES FIRST(a) AS f ONE ROW PER MATCH PATTERN (x+) "
+     "DEFINE x AS a > 0)"), "SFN-019"),
     ("INSERT OVERWRITE INTO t SELECT * FROM s", "SFN-020"),
 ])
 def test_decfloat_match_recognize_and_insert_overwrite_are_refused_by_name(code, rule):
@@ -841,7 +869,7 @@ def test_time_of_a_timestamp_is_its_time_of_day():
     "SELECT TIME(SYSDATE())",
     "SELECT TIME('2024-01-01 10:20:30+00:00'::TIMESTAMP_TZ)",
     "SELECT TIME('2024-01-01 10:20:30'::TIMESTAMP_LTZ)",
-    "SELECT TIME(CONVERT_TIMEZONE('UTC', '2024-01-01 10:20:30+02:00'::TIMESTAMP_TZ))",
+    "SELECT TIME(CONVERT_TIMEZONE('UTC', '2024-01-01 10:20:30+00:00'::TIMESTAMP_TZ))",
 ])
 def test_time_of_a_zoned_timestamp_runs(code):
     import duckdb
@@ -856,9 +884,14 @@ def test_time_of_a_zoned_timestamp_runs(code):
 def test_time_of_a_timestamp_tz_is_the_local_time():
     import duckdb
     con = duckdb.connect()
-    con.execute("SET TimeZone = 'UTC'")
+    con.execute("SET TimeZone = 'Etc/GMT-2'")  # UTC+02:00, the text's own offset, as Snowflake keeps it
     t = sf.translate("SELECT TIME('2024-01-01 10:20:30+02:00'::TIMESTAMP_TZ)")
-    assert str(con.execute(t.duckdb_sql).fetchone()[0]) == "08:20:30"
+    assert str(con.execute(t.duckdb_sql).fetchone()[0]) == "10:20:30"
+    # in another zone Snowflake still gives 10:20:30 (the value keeps +02:00); DuckDB would give that zone's
+    # time, so it stops by name (SFN-071)
+    con.execute("SET TimeZone = 'UTC'")
+    with pytest.raises(duckdb.Error, match="SFN-071 TIMESTAMP_TZ with another UTC offset"):
+        con.execute(t.duckdb_sql).fetchone()
 _EVENTS = ("SELECT * FROM VALUES ('a', 1, 5), ('a', 2, NULL), ('a', 3, 5), ('a', 4, 7), ('b', 1, NULL), ('b', 2, 9) "
            "AS t(p, o, x)")
 
@@ -942,3 +975,441 @@ def test_sfx018_lag_and_running_count_read_tied_rows_in_one_order():
     rows = _rows("SELECT CONDITIONAL_CHANGE_EVENT(x) OVER (ORDER BY o) FROM VALUES (1, 'a'), (1, 'b'), (1, 'a'), "
                  "(2, 'a') AS t(o, x)")
     assert max(r[0] for r in rows) in (1, 2, 3)  # tied rows come in some order, but one order for LAG and count
+
+
+@pytest.mark.parametrize(("sql", "why"), [
+    ("SELECT hash(10)", "Snowflake's own hash"), ("SELECT hash(a, b) FROM t", "Snowflake's own hash"),
+    ("SELECT uniform(1, 10, 42)", "UNIFORM with a generator other than RANDOM()"),
+    ("SELECT uniform(1, 10, random(12))", "UNIFORM with a generator other than RANDOM()"),
+    ("SELECT uniform(1, 10, a) FROM t", "UNIFORM with a generator other than RANDOM()"),
+])
+def test_snowflake_own_hash_and_a_uniform_series_are_refused(sql, why):
+    translation = sf.translate(sql)
+    assert not translation.runnable and why in translation.first_refusal()
+
+
+def test_uniform_from_random_still_runs():
+    assert sf.translate("SELECT uniform(1, 10, random())").runnable
+
+
+def _first(sql):
+    translation = sf.translate(sql)
+    assert translation.runnable, translation.first_refusal()
+    return duckdb.connect().sql(translation.duckdb_sql).fetchall()[0][0]
+
+
+def test_alter_session_sets_the_time_zone_and_refuses_other_parameters():
+    translation = sf.translate("ALTER SESSION SET TIMEZONE = 'America/New_York'")
+    assert translation.runnable and translation.duckdb_sql == "SET TimeZone = 'America/New_York'"
+    for sql in ("ALTER SESSION UNSET TIMESTAMP_OUTPUT_FORMAT", "ALTER SESSION SET TIMESTAMP_OUTPUT_FORMAT = 'x'"):
+        translation = sf.translate(sql)  # no longer an AttributeError
+        assert not translation.runnable and "Session parameters" in translation.first_refusal()
+
+
+def test_array_distinct_keeps_first_places_and_flatten_of_a_null_is_null():
+    assert _first("SELECT array_distinct([3, 1, 3, NULL, 2, NULL, 1])") == [3, 1, None, 2]
+    # the array is worked out once: random values aren't drawn again for each element
+    assert _first("SELECT array_size(array_distinct(array_construct(random(), random(), random())))") == 3
+    assert _first("SELECT array_flatten([[1], NULL])") is None
+    assert _first("SELECT array_flatten([[1], [NULL]])") == [1, None]
+
+
+def test_array_insert_past_the_end_fills_the_gap_and_keeps_its_places_before():
+    assert _first("SELECT array_insert(array_construct(0, 1), 4, 9)") == [0, 1, None, None, 9]
+    assert _first("SELECT array_insert(array_construct(0, 1), 1, 9)") == [0, 9, 1]
+    assert _first("SELECT array_insert(array_construct(0, 1), 2, 9)") == [0, 1, 9]
+    assert _first("SELECT array_insert(NULL::ARRAY, 2, 9)") is None
+
+
+def test_sample_row_and_block_are_bernoulli_and_system():
+    sql = sf.translate("SELECT * FROM t SAMPLE ROW (0); SELECT * FROM t SAMPLE BLOCK (3) SEED (82)").duckdb_sql
+    assert "BERNOULLI (0 PERCENT)" in sql and "SYSTEM (3 PERCENT) REPEATABLE (82)" in sql
+    con = duckdb.connect()
+    con.execute("CREATE TABLE t AS SELECT * FROM range(5) r(i)")
+    assert con.execute(sf.translate("SELECT count(*) FROM t SAMPLE ROW (0)").duckdb_sql).fetchone() == (0,)
+    assert con.execute(sf.translate("SELECT count(*) FROM t SAMPLE BLOCK (100)").duckdb_sql).fetchone() == (5,)
+
+
+def test_get_of_an_object_key_cast_to_text_has_no_json_quotes():
+    assert _first("SELECT get(object_construct('a', 'x'), 'a')::VARCHAR") == "x"
+    assert _first("SELECT strip_null_value(parse_json('{\"c\": \"3\"}'):c)::VARCHAR") == "3"
+    assert _first("SELECT get([2.5, 1], 0)") == 2.5  # an array's element is left as it is
+
+
+def test_the_e_parameter_gives_the_first_group_unless_one_is_named():
+    assert _first("SELECT regexp_substr('the best', 'the\\\\W+(\\\\w+)', 1, 1, 'e')") == "best"
+    assert _first("SELECT regexp_substr('ab', '(a)(b)', 1, 1, 'e', 2)") == "b"
+    assert _first("SELECT regexp_substr('ab', '(a)(b)')") == "ab"  # no 'e': the whole match
+    assert _first("SELECT regexp_substr('ab', 'a.', 1, 1, 'e')") == "ab"  # no group in the pattern: kept as before
+
+
+def test_a_whole_number_in_a_string_is_read_by_its_size():
+    import datetime as dt
+    for text in ("31536000", "31536000000", "31536000000000", "31536000000000000"):
+        assert _first(f"SELECT to_timestamp('{text}')") == dt.datetime(1971, 1, 1), text
+    assert _first("SELECT to_timestamp(31536000)") == dt.datetime(1971, 1, 1)  # a number is seconds
+
+
+def test_timestamp_tz_from_parts_is_in_the_session_zone():
+    con = duckdb.connect()
+    for statement in sf.translate("ALTER SESSION SET TIMEZONE = 'America/New_York'; "
+                                  "SELECT date_part(epoch_second, timestamp_tz_from_parts(2013, 4, 5, 12, 0, 0))"
+                                  ).statements:
+        last = con.execute(statement.duckdb_sql)
+    assert last.fetchall()[0][0] == 1365177600  # 12:00 -0400
+
+
+@pytest.mark.parametrize("pattern", ["(" * 1000 + "a" + ")" * 1000, "a{99999999999999999999}"])
+def test_a_pattern_python_cannot_read_still_translates(pattern):
+    translation = sf.translate(f"SELECT regexp_substr('a', '{pattern}', 1, 1, 'e')")
+    assert translation.runnable, translation.first_refusal()
+
+
+def test_get_reads_a_to_variant_value_as_json():
+    assert _first("SELECT get(to_variant(object_construct('t', 31.5)), 't')::FLOAT") == 31.5
+    assert _first("SELECT to_variant(object_construct('a', 'x')):a::VARCHAR") == "x"
+    assert _first("SELECT get(object_construct('a', 2)::VARIANT, 'a')::INT") == 2
+    assert _first("SELECT get(to_variant(array_construct(1, 2)), 1)::INT") == 2
+
+
+def test_an_array_column_holds_arrays_and_an_object_column_holds_json():
+    rows = _rows("CREATE TABLE t (a ARRAY, o OBJECT); "
+                 "INSERT INTO t SELECT ARRAY_CONSTRUCT(1, 2), OBJECT_CONSTRUCT('k', 1); "
+                 "UPDATE t SET a = ARRAY_APPEND(a, 'x'); "
+                 "SELECT a, ARRAY_SIZE(a), TYPEOF(a[0]), TYPEOF(a[2]), o:k::INT FROM t")
+    assert rows == [([1, 2, "x"], 3, "INTEGER", "VARCHAR", 1)]
+
+
+def test_a_cast_to_array_reads_a_list_or_a_json_array_and_object_is_json():
+    assert _first("SELECT PARSE_JSON('[1, \"a\"]')::ARRAY") == [1, "a"]
+    assert _first("SELECT ARRAY_CONSTRUCT(1, 2)::ARRAY") == [1, 2]
+    assert _first("SELECT CAST(NULL AS ARRAY)") is None
+    assert _first("SELECT TYPEOF(CAST(NULL AS OBJECT))") is None
+    # a structured ARRAY(INT) keeps its element type
+    assert "INT[]" in sf.translate("SELECT CAST(NULL AS ARRAY(INT))").duckdb_sql
+
+
+def test_to_json_of_an_array_column_keeps_each_element_type():
+    rows = _rows("CREATE TABLE t (a ARRAY, n INT); INSERT INTO t SELECT ARRAY_CONSTRUCT(1, 2), 1; "
+                 "INSERT INTO t SELECT NULL, 2; UPDATE t SET a = ARRAY_APPEND(a, 'five') WHERE n = 1; "
+                 "SELECT TO_JSON(a), TO_JSON(ARRAY_APPEND(a, 3)), TO_JSON(OBJECT_CONSTRUCT('k', a)), TO_JSON(n) "
+                 "FROM t ORDER BY n")
+    assert rows == [('[1,2,"five"]', '[1,2,"five",3]', '{"k":[1,2,"five"]}', "1"), (None, None, "{}", "2")]
+    assert _first("SELECT TO_JSON(ARRAY_CONSTRUCT(1, 2)::ARRAY)") == "[1,2]"
+    # a list inside an object inside an object too, and the outer object isn't copied for the check
+    nested = "SELECT TO_JSON(OBJECT_CONSTRUCT('k', OBJECT_CONSTRUCT('j', a))) FROM t"
+    assert sf.translate(nested).duckdb_sql.upper().count("MAP_FROM_ENTRIES") == 1
+    assert _rows("CREATE TABLE t (a ARRAY); INSERT INTO t SELECT ARRAY_CONSTRUCT(1, 'x'::VARIANT); "
+                 + nested) == [('{"k":{"j":[1,"x"]}}',)]
+
+
+_VARIANT_TABLE = ("CREATE TABLE t (id INT, g VARCHAR, v INT, j VARIANT); "
+                  "INSERT INTO t SELECT 1, 'a', 10, PARSE_JSON('{\"arr\": [1, 2], \"o\": {\"k\": 1}}'); "
+                  "INSERT INTO t SELECT 2, 'a', 20, PARSE_JSON('[5]'); "
+                  "INSERT INTO t SELECT 3, 'b', 30, TO_VARIANT('plain'); ")
+
+
+def test_a_variant_column_reads_its_paths_flattens_and_prints_as_json():
+    assert _rows(_VARIANT_TABLE + "SELECT j:arr[1]::INT, j:o.k::INT, GET_PATH(j, 'o.k')::INT FROM t WHERE id = 1") \
+        == [(2, 1, 1)]
+    assert _rows(_VARIANT_TABLE + "SELECT t.id, f.value::INT FROM t, LATERAL FLATTEN(INPUT => t.j:arr) f "
+                 "ORDER BY 1, 2") == [(1, 1), (1, 2)]
+    assert _rows(_VARIANT_TABLE + "SELECT f.key FROM t, LATERAL FLATTEN(INPUT => t.j) f WHERE t.id = 1 "
+                 "ORDER BY 1") == [("arr",), ("o",)]
+    assert _rows(_VARIANT_TABLE + "SELECT j::VARCHAR, TO_VARCHAR(j) FROM t ORDER BY id") == [
+        ('{"arr":[1,2],"o":{"k":1}}', '{"arr":[1,2],"o":{"k":1}}'), ("[5]", "[5]"), ("plain", "plain")]
+    # ARRAY_SIZE is NULL for a value that isn't an array, as Snowflake's page says
+    assert _rows(_VARIANT_TABLE + "SELECT ARRAY_SIZE(j), ARRAY_SIZE(j:arr), ARRAY_SIZE(j:o) FROM t ORDER BY id") \
+        == [(None, 2, None), (1, None, None), (None, None, None)]
+
+
+def test_text_casts_keep_their_column_names_and_text_columns_that_arent_json_still_read():
+    translation = sf.translate(
+        "CREATE TABLE t (n INT, s VARCHAR, j VARIANT); INSERT INTO t SELECT 1, 'x', PARSE_JSON('{\"a\":[1]}'); "
+        "SELECT n::VARCHAR, TRY_CAST(s AS VARCHAR), j::VARCHAR, TO_VARCHAR(s), UPPER(s::VARCHAR), ARRAY_SIZE(j:a), "
+        "n::VARCHAR AS named, (SELECT MAX(n::VARCHAR) FROM t) FROM t")
+    con = duckdb.connect()
+    for statement in translation.statements[:-1]:
+        con.execute(statement.duckdb_sql)
+    result = con.sql(translation.statements[-1].duckdb_sql)
+    assert result.columns == ["CAST(n AS TEXT)", "TRY_CAST(s AS TEXT)", "CAST(j AS TEXT)", "CAST(s AS TEXT)",
+                              "UPPER(CAST(s AS TEXT))", "ARRAY_LENGTH(CAST(j AS JSON) -> '$.a')", "NAMED",
+                              '(SELECT MAX(CAST(n AS TEXT)) AS "MAX(CAST(n AS TEXT))" FROM t)']
+    # 'x' isn't JSON: the VARIANT branch is never taken for it, even when DuckDB works it out for every row
+    assert result.fetchall() == [("1", "x", '{"a":[1]}', "x", "X", 1, "1", "1")]
+
+
+def test_merge_stops_when_a_target_row_matches_several_source_rows_for_an_update():
+    setup = _VARIANT_TABLE + "CREATE TABLE s (id INT, v INT); INSERT INTO s VALUES (1, 100), (1, 101), (4, 400); "
+    with pytest.raises(duckdb.Error, match="more than one source row"):
+        _rows(setup + "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET v = s.v")
+    with pytest.raises(duckdb.Error, match="more than one source row"):
+        _rows(setup + "MERGE INTO t USING (SELECT id, v FROM s) AS src ON t.id = src.id "
+              "WHEN MATCHED THEN UPDATE SET v = src.v")
+    # several deletes don't conflict, as on Snowflake's page, on DuckDB 1.x (the pinned one) and 2.0.1 on. DuckDB
+    # 2.0.0 alone refuses them itself, stricter than Snowflake: still a stop with nothing changed, never another answer
+    delete = setup + "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE; SELECT list(id ORDER BY id) FROM t"
+    if duckdb.__version__ == "2.0.0":
+        with pytest.raises(duckdb.Error, match="more than once"):
+            _rows(delete)
+    else:
+        assert _rows(delete) == [([2, 3],)]
+    assert _rows(setup + "MERGE INTO t AS tt USING (SELECT 1 AS id, 7 AS v) AS x ON tt.id = x.id "
+                 "WHEN MATCHED THEN UPDATE SET v = x.v; SELECT v FROM t WHERE id = 1") == [(7,)]
+
+
+def test_pivot_names_its_columns_with_the_quotes_and_any_is_refused_by_name():
+    translation = sf.translate(_VARIANT_TABLE + "SELECT * FROM (SELECT g, v FROM t) PIVOT (SUM(v) FOR g IN ('a', 'b'))")
+    con = duckdb.connect()
+    for statement in translation.statements[:-1]:
+        con.execute(statement.duckdb_sql)
+    result = con.sql(translation.statements[-1].duckdb_sql)
+    assert result.columns == ["'a'", "'b'"] and result.fetchall() == [(30, 30)]
+    for code in ("SELECT * FROM t PIVOT (SUM(v) FOR g IN (ANY ORDER BY g))",
+                 "SELECT * FROM t PIVOT (SUM(v) FOR g IN (SELECT g FROM t))"):
+        assert sf.translate(code).first_refusal().startswith("Statement 1 runs only in Snowflake: PIVOT on ANY")
+
+
+def test_session_variables_and_identifier_of_a_variable_the_cell_sets():
+    assert _rows("SET x = 5; SELECT $x + 1, $X") == [(6, 5)]
+    assert _rows(_VARIANT_TABLE + "SET tn = 't'; SET c = 'v'; SELECT SUM(IDENTIFIER($c)) FROM IDENTIFIER($tn)") \
+        == [(60,)]
+    assert "IDENTIFIER() of a variable this cell doesn't set" in sf.translate(
+        "SELECT * FROM IDENTIFIER($nope)").first_refusal()
+    # a value that isn't a plain name stays refused
+    assert not sf.translate("SET tn = 't; DROP TABLE x'; SELECT * FROM IDENTIFIER($tn)").runnable
+
+
+@pytest.mark.parametrize(("sql", "want"), [
+    ("SELECT array_construct(1, 'a', NULL)", [1, "a", None]),
+    ("SELECT array_construct_compact(NULL, 'a', -1)", ["a", -1]),
+    ("SELECT array_insert(array_construct(0, 1), 2, 'x')", [0, 1, "x"]),
+    ("SELECT array_prepend(array_construct('a'), 2.5::double)", [2.5, "a"]),
+    ("SELECT array_append(array_construct(1, 2), 'a')", [1, 2, "a"])])
+def test_an_array_of_text_and_numbers_is_a_list_of_variants(sql, want):
+    """SFX-075 (SFN-025 retired): each element keeps its own type, as in Snowflake's array."""
+    translation = sf.translate(sql)
+    assert translation.runnable and "VARIANT" in translation.duckdb_sql
+    assert duckdb.connect().execute(translation.duckdb_sql).fetchone()[0] == want
+
+
+def test_an_array_of_one_kind_or_from_a_column_still_runs():
+    assert sf.translate("SELECT array_construct(1, 2), array_construct('a', NULL), array_append(array_construct(1), x) "
+                        "FROM t").runnable
+
+
+@pytest.mark.parametrize("query", ["SELECT IFF(b = 0 OR c, 0, a / b) FROM t", "SELECT IFF(b = 0 AND NOT c, 0, a / b) FROM t"])
+def test_an_iff_that_only_looks_like_div0_keeps_its_division_guard(query):
+    # Telling DIV0's form apart used to move the divisor (OR) or the numerator (AND) out of the query.
+    sql = sf.translate(query).duckdb_sql
+    assert "ELSE a / CASE WHEN b = 0 THEN ERROR('Division by zero') ELSE b END END" in sql
+
+
+def test_div0_and_div0null_still_divide_without_the_guard():
+    sql = sf.translate("SELECT DIV0(a, b), DIV0NULL(a, b) FROM t").duckdb_sql
+    assert "ERROR" not in sql and sql.count("ELSE a / b END") == 2
+
+
+@pytest.mark.parametrize("fn", ["TO_TIMESTAMP_NTZ", "TO_TIMESTAMP"])
+def test_to_timestamp_ntz_of_a_column_reads_it_by_its_type(fn):
+    # DuckDB has no TO_TIMESTAMP_NTZ, so a column stopped with its catalog error (a literal was rewritten already).
+    import datetime as dt
+    con = duckdb.connect()
+    numbers = con.execute(sf.translate(f"SELECT {fn}(x) FROM (VALUES (1700000000), (-3600), (NULL)) AS t(x)")
+                          .duckdb_sql).fetchall()
+    assert numbers == [(dt.datetime(2023, 11, 14, 22, 13, 20),), (dt.datetime(1969, 12, 31, 23, 0),), (None,)]
+    fraction = con.execute(sf.translate(f"SELECT {fn}(x) FROM (VALUES (1700000000.123456789)) AS t(x)")
+                           .duckdb_sql).fetchall()
+    assert fraction == [(dt.datetime(2023, 11, 14, 22, 13, 20, 123456),)]
+    texts = con.execute(sf.translate(
+        f"SELECT {fn}(x) FROM (VALUES ('2024-01-01 10:00:00'), ('1700000000'), ('1700000000123'), "
+        "('1700000000123456'), ('1700000000123456789')) AS t(x)").duckdb_sql).fetchall()
+    second = dt.datetime(2023, 11, 14, 22, 13, 20)
+    assert texts == [(dt.datetime(2024, 1, 1, 10, 0),), (second,), (second.replace(microsecond=123000),),
+                     (second.replace(microsecond=123456),), (second.replace(microsecond=123456),)]
+    dates = con.execute(sf.translate(f"SELECT {fn}(x) FROM (VALUES (DATE '2024-01-01')) AS t(x)").duckdb_sql).fetchall()
+    assert dates == [(dt.datetime(2024, 1, 1),)]
+    with pytest.raises(duckdb.Error, match="(?i)timestamp"):
+        con.execute(sf.translate(f"SELECT {fn}(x) FROM (VALUES ('nope')) AS t(x)").duckdb_sql).fetchall()
+    # Text with a UTC offset: the offset is dropped, as Snowflake's NTZ reads it (DuckDB 1.5.6 stopped, 2.0 dropped it).
+    offsets = con.execute(sf.translate(
+        f"SELECT {fn}(x) FROM (VALUES ('2024-01-02 03:04:05 +02:00'), ('2024-01-02 03:04:05.5-0700'), "
+        "('2024-01-02T03:04:05Z'), ('2024-01-02')) AS t(x)").duckdb_sql).fetchall()
+    assert offsets == [(dt.datetime(2024, 1, 2, 3, 4, 5),), (dt.datetime(2024, 1, 2, 3, 4, 5, 500000),),
+                       (dt.datetime(2024, 1, 2, 3, 4, 5),), (dt.datetime(2024, 1, 2),)]
+    # A TIMESTAMPTZ column: the session time zone's wall clock (DuckDB keeps no offset of its own per value),
+    # which is the value's own when its offset is the session zone's (SFN-071 stops any other)
+    con.execute("SET TimeZone = 'Etc/GMT-2'")
+    zoned = con.execute(sf.translate(
+        f"SELECT {fn}(x) FROM (SELECT CAST('2024-01-02 03:04:05+02' AS TIMESTAMPTZ) AS x) AS t").duckdb_sql).fetchall()
+    assert zoned == [(dt.datetime(2024, 1, 2, 3, 4, 5),)]
+
+
+# ---------------------------------------------------------------- 2026.11.23: no answer that differs silently
+
+
+def test_jarowinkler_similarity_is_refused_by_name():
+    # https://docs.snowflake.com/en/sql-reference/functions/jarowinkler_similarity: 'Gute nacht' and
+    # 'Ich weis nicht' score 56 there, 'Ich weiß nicht' and 'Ich weiss nicht' 97; DuckDB's gives 57 and 94
+    t = sf.translate("SELECT jarowinkler_similarity(s, t) FROM ed")
+    assert not t.runnable and t.statements[0].notes[0].id == "SFN-070"
+    assert "EDITDISTANCE runs here" in t.first_refusal()
+    assert sf.RULES_VERSION == "2026.11.23" and "SFN-070" in sf.docs_table()
+
+
+@pytest.mark.parametrize("code, want", [
+    # https://docs.snowflake.com/en/sql-reference/functions/to_json: TO_JSON(PARSE_JSON('{"b":1,"a":2}')) is {"a":2,"b":1}
+    ("""SELECT to_json(parse_json('{"b":1,"a":2}'))""", '{"a":2,"b":1}'),
+    ("""SELECT to_json(parse_json('{"food":"bard"}'))""", '{"food":"bard"}'),
+    # every level, inside arrays too; an array keeps its order
+    ("""SELECT to_json(parse_json('{"b":[3,{"z":1,"y":[]}],"a":{"d":null,"c":"x"}}'))""",
+     '{"a":{"c":"x","d":null},"b":[3,{"y":[],"z":1}]}'),
+    ("""SELECT to_json(parse_json('[{"b":1,"a":2},{}]'))""", '[{"a":2,"b":1},{}]'),
+    # keys that need escaping, and the empty key, sort by the key itself
+    ("""SELECT to_json(parse_json('{"k\\\\"q":1,"a b":2,"":3}'))""", '{"":3,"a b":2,"k\\"q":1}'),
+    ("SELECT to_json(parse_json('\"s\"'))", '"s"'),
+    ("SELECT to_json(NULL)", None),
+    ("SELECT to_json(v) FROM (SELECT parse_json('{\"b\":1,\"a\":2}') AS v)", '{"a":2,"b":1}'),
+    ("SELECT to_json(object_construct('b', 1, 'a', object_construct('d', 1, 'c', 2)))", '{"a":{"c":2,"d":1},"b":1}'),
+])
+def test_to_json_sorts_an_objects_keys_at_every_level(code, want):
+    t = sf.translate(code)
+    assert t.statements[0].verdict == "translated", t.summary()
+    assert _first(code) == want
+
+
+@pytest.mark.parametrize("text", ['{"a":1,"a":2}', '{"x":{"b":1,"b":1}}', '[{"k":1,"k":2}]'])
+def test_to_json_of_an_object_with_a_key_given_twice_stops_as_parse_json_does(text):
+    # Snowflake's PARSE_JSON stops at a key given twice; written with the keys sorted the two would run together
+    with pytest.raises(duckdb.Error, match="Duplicate field key"):
+        _first(f"SELECT to_json(parse_json('{text}'))")
+
+
+def test_to_json_with_no_alias_keeps_a_short_column_name():
+    con = duckdb.connect()
+    cur = con.execute(sf.translate("""SELECT to_json(parse_json('{"b":1,"a":2}'))""").duckdb_sql)
+    [name] = [d[0] for d in cur.description]
+    assert name.lower().startswith("to_json(") and len(name) < 80, name
+
+
+def test_to_json_of_a_column_sorts_each_rows_keys():
+    con = duckdb.connect()
+    con.execute(sf.translate("CREATE TABLE j (v VARIANT)").duckdb_sql)
+    con.execute(sf.translate("""INSERT INTO j SELECT parse_json(s) FROM (SELECT column1 AS s FROM VALUES """
+                             """('{"b":1,"a":2}'), ('{"y":{"q":1,"p":2}}'), (NULL))""").duckdb_sql)
+    rows = con.execute(sf.translate("SELECT to_json(v) FROM j").duckdb_sql).fetchall()
+    assert sorted(rows, key=str) == [('{"a":2,"b":1}',), ('{"y":{"p":2,"q":1}}',), (None,)]
+
+
+def test_to_timestamp_tz_answers_as_snowflake_or_stops_by_name():
+    # https://docs.snowflake.com/en/sql-reference/functions/to_timestamp: in America/Los_Angeles,
+    # TO_TIMESTAMP_TZ('2024-04-05 01:02:03') is 2024-04-05 01:02:03.000 -0700
+    import datetime as dt
+    con = duckdb.connect()
+    la = "ALTER SESSION SET TIMEZONE = 'America/Los_Angeles'; "
+    value = con.execute(sf.translate(la + "SELECT to_timestamp_tz('2024-04-05 01:02:03')").duckdb_sql).fetchone()[0]
+    assert value.replace(tzinfo=None) == dt.datetime(2024, 4, 5, 1, 2, 3)
+    assert value.utcoffset() == dt.timedelta(hours=-7)
+    # of a column (sqlglot left TO_TIMESTAMP_TZ, which DuckDB doesn't have), and its own offset when it is the zone's
+    code = ("SELECT to_timestamp_tz(x), try_to_timestamp_tz(x) FROM "
+            "(SELECT column1 AS x FROM VALUES ('2024-04-05 01:02:03'), ('2024-04-05T01:02:03-07:00'))")
+    t = sf.translate(code)
+    assert t.statements[0].verdict == "translated", t.summary()
+    rows = con.execute(t.duckdb_sql).fetchall()
+    assert {r[0] for r in rows} == {r[1] for r in rows} == {value}
+    assert con.execute(sf.translate("SELECT try_to_timestamp_tz('Invalid')").duckdb_sql).fetchone() == (None,)
+    # another offset: Snowflake keeps +05:00 with the value (hour 10), DuckDB would show 21:00 the day before
+    for stop in ("SELECT hour(to_timestamp_tz('2024-01-01T10:00:00+05:00'))",
+                 "SELECT try_to_timestamp_tz(x) FROM (SELECT '2024-01-01 10:00:00Z' AS x)",
+                 "SELECT x::timestamp_tz FROM (SELECT '2024-01-01T10:00:00+05:00' AS x)"):
+        t = sf.translate(stop)
+        assert t.runnable, stop
+        with pytest.raises(duckdb.Error, match="SFN-071 TIMESTAMP_TZ with another UTC offset"):
+            con.execute(t.duckdb_sql).fetchall()
+    # a format with TZH or TZM reads an offset, which DuckDB doesn't keep
+    t = sf.translate("SELECT to_timestamp_tz(x, 'YYYY-MM-DD HH24:MI:SS TZH:TZM') FROM t")
+    assert not t.runnable and t.statements[0].notes[0].id == "SFN-071"
+    # a TIMESTAMP_TZ column keeps its label: what was written into it isn't seen here
+    assert [n.id for n in sf.translate("CREATE TABLE z (c TIMESTAMP_TZ)").statements[0].notes] == ["SFD-002"]
+
+
+def test_a_refusal_written_into_the_query_reads_as_one():
+    from fabric_desktop import snowflake_sql_parity as parity
+    case = parity.Case("TO_TIMESTAMP_TZ", "Conversion", "SELECT to_timestamp_tz('2024-01-01T10:00:00+05:00')",
+                       None, "untranslated", "", "")
+    outcome, value = parity.run(case)
+    assert outcome == "untranslated" and value.startswith("SFN-071 ")
+    assert not sf.stopped_by_name(duckdb.Error("Conversion Error: SFN-071 written by someone"))
+
+
+def test_unquoted_names_are_stored_in_upper_case():
+    # https://docs.snowflake.com/en/sql-reference/identifiers-syntax: unquoted identifiers "are stored and resolved
+    # as uppercase characters"; a double-quoted one "is stored and resolved exactly as entered, including case"
+    con = duckdb.connect()
+    for code in ("CREATE TABLE mytable (c1 INT, \"c2\" INT, MixedCase INT)", "INSERT INTO MyTable VALUES (1, 2, 3)",
+                 "CREATE VIEW v AS SELECT c1, c1 AS alias1, \"c2\" AS \"lower\", mytable.mixedcase FROM mytable",
+                 "CREATE TABLE copy AS SELECT * FROM mytable", "ALTER TABLE copy ADD COLUMN added INT",
+                 "ALTER TABLE copy RENAME COLUMN added TO renamed", "ALTER TABLE copy RENAME TO copy2",
+                 "CREATE SCHEMA mine", "CREATE TABLE mine.tmp (x INT)", "CREATE TEMPORARY TABLE tmp2 (y INT)"):
+        t = sf.translate(code)
+        assert t.statements[0].verdict == "translated", (code, t.summary())
+        con.execute(t.duckdb_sql)
+    names = con.execute("SELECT table_schema, table_name, string_agg(column_name, ',' ORDER BY ordinal_position) "
+                        "FROM information_schema.columns WHERE table_name IN ('MYTABLE', 'V', 'COPY2', 'TMP', 'TMP2') "
+                        "GROUP BY ALL ORDER BY 2").fetchall()
+    assert names == [("main", "COPY2", "C1,c2,MIXEDCASE,RENAMED"), ("main", "MYTABLE", "C1,c2,MIXEDCASE"),
+                     ("MINE", "TMP", "X"), ("main", "TMP2", "Y"), ("main", "V", "C1,ALIAS1,lower,MIXEDCASE")]
+    # a query finds them by any case, as in Snowflake, and SELECT * gives the stored names
+    result = con.execute(sf.translate("SELECT * FROM mytable WHERE c1 = 1").duckdb_sql)
+    assert [d[0] for d in result.description] == ["C1", "c2", "MIXEDCASE"]
+    # a column made by an expression with no alias keeps DuckDB's name, and says so
+    t = sf.translate("CREATE TABLE sums AS SELECT c1 + 1 FROM mytable")
+    assert [n.id for n in t.statements[0].notes] == ["SFD-001"]
+
+
+def _stored_columns(con, *tables):
+    marks = ", ".join("?" for _ in tables)
+    return con.execute("SELECT table_schema, table_name, string_agg(column_name, ',' ORDER BY ordinal_position) "
+                       f"FROM information_schema.columns WHERE table_name IN ({marks}) GROUP BY ALL ORDER BY 2",
+                       list(tables)).fetchall()
+
+
+def test_a_column_list_of_create_view_and_create_table_as_is_stored_in_upper_case():
+    # identifiers-syntax: an unquoted name is stored in upper case, a quoted one as entered; the column list of
+    # CREATE VIEW v (a, b) AS and CREATE TABLE t (a, b) AS names the columns, so it is stored that way too
+    con = duckdb.connect()
+    for code in ("CREATE TABLE base (x INT, y INT)", "INSERT INTO base VALUES (1, 2)",
+                 'CREATE VIEW v (a, "Bq") AS SELECT x, y FROM base', "CREATE TABLE t (c1, c2) AS SELECT x, y FROM base",
+                 "CREATE VIEW sums (total) AS SELECT x + y FROM base"):
+        t = sf.translate(code)
+        assert t.statements[0].verdict == "translated", (code, t.summary())  # named by the list: no SFD-001
+        con.execute(t.duckdb_sql)
+    assert _stored_columns(con, "V", "T", "SUMS") == [("main", "SUMS", "TOTAL"), ("main", "T", "C1,C2"),
+                                                       ("main", "V", "A,Bq")]
+    assert con.execute(sf.translate("SELECT a, total FROM v, sums").duckdb_sql).fetchall() == [(1, 3)]
+
+
+def test_an_alias_column_list_of_values_is_stored_in_upper_case():
+    # SELECT ... FROM VALUES (...) AS t(c1, c2): the alias list names the columns CREATE ... AS stores
+    con = duckdb.connect()
+    for code in ("CREATE TABLE t AS SELECT * FROM VALUES (1, 2) AS v(c1, c2)",
+                 'CREATE VIEW w AS SELECT * FROM (VALUES (1, 2)) AS v(c1, "Cq")'):
+        t = sf.translate(code)
+        assert t.statements[0].verdict == "translated", (code, t.summary())
+        con.execute(t.duckdb_sql)
+    assert _stored_columns(con, "T", "W") == [("main", "T", "C1,C2"), ("main", "W", "C1,Cq")]
+
+
+def test_the_schema_of_a_qualified_name_is_resolved_in_upper_case():
+    # CREATE TABLE mysch.tab: the schema is an unquoted name too, so it is written as MYSCH, the name
+    # CREATE SCHEMA mysch stored; a quoted schema keeps its case
+    con = duckdb.connect()
+    t = sf.translate("CREATE TABLE mysch.tab (a INT)")
+    assert t.duckdb_sql.startswith('CREATE TABLE "MYSCH"."TAB"'), t.duckdb_sql
+    assert sf.translate('CREATE TABLE "mysch".tab (a INT)').duckdb_sql.startswith('CREATE TABLE "mysch"."TAB"')
+    assert sf.translate("CREATE VIEW mysch.v AS SELECT 1 AS q").duckdb_sql.startswith('CREATE VIEW "MYSCH"."V"')
+    for code in ("CREATE SCHEMA mysch", "CREATE TABLE mysch.tab (a INT)", "CREATE VIEW MySch.v AS SELECT 1 AS q"):
+        con.execute(sf.translate(code).duckdb_sql)
+    assert _stored_columns(con, "TAB", "V") == [("MYSCH", "TAB", "A"), ("MYSCH", "V", "Q")]
+    assert con.execute("SELECT DISTINCT table_schema FROM information_schema.tables "
+                       "WHERE table_schema ILIKE 'mysch'").fetchall() == [("MYSCH",)]

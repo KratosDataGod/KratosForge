@@ -1,6 +1,6 @@
 // Monitor > Runs, the Forge Activity view (Preview, forge-activity.js, LX-05): today's counts in the
 // header, a lane for each of the three most recent running runs with only real progress, the band
-// on by default from Heroic, the outcome of a finished run once, and nothing animating in Professional.
+// on by default unless Professional, the outcome of a finished run once, and nothing animating in Professional.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
@@ -168,6 +168,20 @@ test("Professional keeps the text and the bar, without the wolf or any animation
   assert.strictEqual(moving, 0, "something in the band animates in Professional");
   level = 2;
   await page().evaluate(async () => { openNotebooks.delete("Quiet"); forgeActivity.on = null; await loadSettings(); applyMotion(); });
+});
+
+test("at Subtle, the default, the band and its banner are on, without the wolf", { skip }, async () => {
+  level = 1;
+  await page().evaluate(async () => { forgeActivity.on = null; await loadSettings(); applyMotion(); });
+  meta = [...RUNNING_META];
+  cloud = [];
+  await open();
+  assert.ok(await page().getByRole("checkbox", { name: "Forge view" }).isChecked());
+  await page().locator(".forge-band").waitFor();
+  assert.ok(await page().locator(".forge-band .forge-art").isVisible(), "no Monitor banner");
+  assert.strictEqual(await page().locator(".forge-band .forge-wolf:visible").count(), 0, "the wolf ran at Subtle");
+  level = 2;
+  await page().evaluate(async () => { await loadSettings(); applyMotion(); });
 });
 
 test("fifty running runs still draw three lanes; the rest are in the table only", { skip }, async () => {

@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | smoke-test ... | live-test-databricks ... | env-drift ... | databricks-discover ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | smoke-test ... | live-test-databricks ... | env-drift ... | databricks-discover ... | databricks-bundle validate ... | directlake-check ... | parity-check ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
 
 from __future__ import annotations
 
@@ -6,9 +6,11 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 import uuid
 from pathlib import Path
+from typing import Any
 
 from .server import main as serve
 from .service import Service
@@ -80,10 +82,12 @@ def main(argv: list[str] | None = None) -> None:
                       "create items and use capacity")
     live.add_argument("--check", action="append", default=[], metavar="ID",
                       choices=["delta.concurrent", "notebook.publish", "pipeline.definition", "pipeline.mailbox",
-                               "lease.onelake", "delta.merge_profile"],
+                               "lease.onelake", "delta.merge_profile", "model.bpa"],
                       help="also run this opt-in check (repeat for more)")
     live.add_argument("--run-in-fabric", action="store_true",
                       help="also run the published test notebook in Fabric; spends Spark capacity")
+    live.add_argument("--bpa-model", default="", metavar="NAME",
+                      help="model.bpa: the semantic model to check (needed when the workspace has more than one)")
     dbx = sub.add_parser("live-test-databricks", help="check sign-in, Unity Catalog, a SQL warehouse and Databricks "
                          "Connect against a test warehouse and cluster")
     dbx.add_argument("--profile", help="the Databricks CLI profile to sign in with (in ~/.databrickscfg)")
@@ -110,6 +114,9 @@ def main(argv: list[str] | None = None) -> None:
     smoke.add_argument("--platform-upgrade", action="store_true",
                        help="with --platform: start from the platform a previous build made in the test workspace; "
                             "its items are taken over and deleted at the end, unless --platform-keep")
+    smoke.add_argument("--warehouse",
+                       help="also run flow 17 (WR-218): the local T-SQL cases against this Warehouse item in the test "
+                            "workspace, in a scratch schema it drops at the end; uses the warehouse's capacity")
     smoke.add_argument("--platform-keep", action="store_true",
                        help="with --platform: leave the platform in place to look at; delete it by hand afterwards")
     drift = sub.add_parser("env-drift", help="compare a Fabric Environment item's published libraries and runtime "
@@ -124,6 +131,24 @@ def main(argv: list[str] | None = None) -> None:
     disc.add_argument("--host", help="or the workspace URL, signing in with the Databricks CLI (databricks auth login)")
     disc.add_argument("--no-catalogs", action="store_true", help="leave out the Unity Catalog catalogs")
     disc.add_argument("--json", action="store_true", help="print the result as JSON")
+    dab = sub.add_parser("databricks-bundle", help="Databricks Asset Bundles on this PC (no CLI, network or workspace)")
+    dab_sub = dab.add_subparsers(dest="databricks_bundle_command", required=True)
+    p = dab_sub.add_parser("validate", help="check databricks.yml and its includes, one line per finding as "
+                                            "file:line:column: severity: path: message; exit 1 if there are errors")
+    p.add_argument("folder", help="the folder that holds databricks.yml")
+    p.add_argument("--json", action="store_true", help="print the findings as JSON")
+    p = sub.add_parser("directlake-check", help="predict whether a semantic model will fall back to DirectQuery, from "
+                                                "its definition and local Delta tables (no network, OneLake or Fabric); "
+                                                "exit 0 within limits, 1 will or might fall back, 2 not checked or bad "
+                                                "input")
+    p.add_argument("--model", required=True, help="a TMDL folder (with definition/) or a model.bim file on this PC")
+    p.add_argument("--table", action="append", default=[], metavar="NAME=PATH",
+                   help="a local Delta table folder for a model table, by the table's name or the entity its Direct "
+                        "Lake partition reads; repeat for each table. A table with none is Not checked")
+    p.add_argument("--sku", default="F64", help="the capacity whose limits to check against (default F64; P1 to P5 "
+                                                "and FT1 are read as their F SKU)")
+    p.add_argument("--horizon-days", type=int, default=90, help="how far ahead the forecast looks (default 90)")
+    p.add_argument("--json", action="store_true", help="print the result as JSON")
     bundle = sub.add_parser("support-bundle", help="save a zip of versions, settings sources and recent logs, "
                                                    "with secrets and personal details taken out")
     bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
@@ -134,6 +159,7 @@ def main(argv: list[str] | None = None) -> None:
     trail.add_argument("--limit", type=int, default=50, help="how many of the newest lines to show (default 50)")
     trail.add_argument("--action", default="", help="only this action, such as meta_promote")
     trail.add_argument("--folder", help="the audit folder (default: this PC's, or an agent home's audit folder)")
+    trail.add_argument("--agent-home", help="an agent's FABRIC_DESKTOP_HOME: use its trail (<home>\\audit) instead")
     trail.add_argument("--export", metavar="FILE", help="copy the trail to FILE with a manifest IT can check on its own")
     trail.add_argument("--since", default="", help="with --export: from this date (YYYY-MM-DD) or time on")
     trail.add_argument("--replace", action="store_true", help="with --export: replace an earlier export of that name")
@@ -142,6 +168,12 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("mcp", help="serve the Model Context Protocol on stdin/stdout, for an external AI tool to start")
     p.add_argument("--client", default="", help="the client id Settings > Integrations gave this tool")
     sub.add_parser("capabilities", help="print every capability external tools can use, with schemas, as JSON")
+    p = sub.add_parser("parity-check", help="run the cross-platform verification cases on this PC (local evidence only; "
+                                            "no network)")
+    p.add_argument("--case", help="one case id (default: every case)")
+    p.add_argument("--dialect", help="one dialect: spark, databricks, snowflake, tsql or duckdb")
+    p.add_argument("--out", help="a folder to write the run records to as JSON (default: write nothing)")
+    p.add_argument("--json", action="store_true", help="print the records as JSON")
     integ = sub.add_parser("integrations", help="external AI tools: the local HTTP API")
     integ_sub = integ.add_subparsers(dest="integrations_command", required=True)
     p = integ_sub.add_parser("serve", help="run the local HTTP API on 127.0.0.1 (the app starts this when it's switched on)")
@@ -152,8 +184,8 @@ def main(argv: list[str] | None = None) -> None:
     for name, text in (("validate", "list problems with their JSON paths; exit 1 if there are errors"),
                        ("inspect", "print the activities, dependencies, expressions and diagnostics as JSON"),
                        ("export", "print the definition in another format"),
-                       ("compat", "what this version can do with each activity (classification, capacity, "
-                                  "properties); exit 1 if there are errors")):
+                       ("compat", ("what this version can do with each activity (classification, capacity, "
+                                  "properties); exit 1 if there are errors"))):
         p = pipe_sub.add_parser(name, help=text)
         p.add_argument("path", help="pipeline-content.json, a getDefinition result, or a <name>.DataPipeline folder")
         if name == "export":
@@ -232,6 +264,28 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("path", nargs="?", help="an .ipynb file in the notebooks folder or a notebooks repository")
     p.add_argument("--path-from-env", metavar="NAME", help="read the file's path from this environment variable")
     p.add_argument("--print", action="store_true", help="print the link instead of opening it")
+    tpl = sub.add_parser("templates", help="enterprise notebook templates: Silver, Gold dimensions and facts "
+                                           "(nothing runs and nothing reaches a platform)")
+    tpl_sub = tpl.add_subparsers(dest="templates_command", required=True)
+    tpl_sub.add_parser("list", help="list the templates for each platform")
+    p = tpl_sub.add_parser("new", help="copy a template to a new notebook file to fill in")
+    p.add_argument("platform", choices=["fabric", "databricks", "snowflake"])
+    p.add_argument("kind", choices=["silver", "gold_dim_type1", "gold_dim_type2", "gold_fact"])
+    p.add_argument("out", help="the new .ipynb file (it must not exist yet)")
+    p = tpl_sub.add_parser("check", help="say whether a notebook still conforms to its template, so the enterprise "
+                                         "can support it, and list each change; exit 1 if it doesn't conform")
+    p.add_argument("path", help="an .ipynb file made from a template")
+    p.add_argument("--json", action="store_true", help="print the whole result as JSON")
+    p = tpl_sub.add_parser("handover", help="ask the enterprise to take over a conforming notebook: marks the "
+                                            "notebook and writes the handover record next to it")
+    p.add_argument("path", help="an .ipynb file made from a template")
+    p.add_argument("--domain", required=True, help="the domain handing it over")
+    p.add_argument("--owner", required=True, help="who in the domain owns its parameters")
+    p = tpl_sub.add_parser("accept", help="the enterprise accepts a requested handover; refused unless the notebook's "
+                                          "code and parameter values match the handover record")
+    p.add_argument("path", help="an .ipynb file whose handover was requested")
+    p.add_argument("--by", required=True, help="who in the enterprise accepts it")
+    p.add_argument("--record", help="the handover record the enterprise reviewed (default: <notebook>.handover.json)")
     args = parser.parse_args(argv)
 
     if args.command in DATA_COMMANDS:
@@ -250,6 +304,8 @@ def main(argv: list[str] | None = None) -> None:
         from .integrations.registry import default_registry
         print(json.dumps({"capabilities": [c.describe() for c in default_registry().all()]}, indent=2))
         return
+    if args.command == "parity-check":
+        raise SystemExit(_parity_check(args))
     if args.command == "integrations":
         from .integrations.http_server import serve as serve_http
         raise SystemExit(serve_http(args.port, args.parent_pid))
@@ -257,6 +313,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(_pipeline(args))
     if args.command == "governance":
         raise SystemExit(_governance(args))
+    if args.command == "templates":
+        raise SystemExit(_templates(args))
     if args.command == "nb":
         raise SystemExit(_nb_open(args) if args.nb_command == "open" else _nb_validate(args))
     if args.command == "serve":
@@ -278,6 +336,10 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(_env_drift(args))
     if args.command == "databricks-discover":
         raise SystemExit(_databricks_discover(args))
+    if args.command == "databricks-bundle":
+        raise SystemExit(_databricks_bundle_validate(args))
+    if args.command == "directlake-check":
+        raise SystemExit(_directlake_check(args))
     if args.command == "live-test":
         raise SystemExit(_live_test(args))
     if args.command == "live-test-databricks":
@@ -368,7 +430,14 @@ def _agent(args: argparse.Namespace) -> int:
         return 0
     agent = Agent(config)
     if args.agent_command == "enqueue":
-        result: object = agent.enqueue(args.env, args.entities, args.backfill, args.cascade, source="cli")
+        from .jobqueue import QueueFull
+        try:
+            result: object = agent.enqueue(args.env, args.entities, args.backfill, args.cascade, source="cli")
+        except QueueFull as exc:
+            agent.audit.record("agent_enqueue", "error", 0.0, {"env": args.env, "entities": args.entities,
+                                                                "agent": config.name}, reason="refused", error=str(exc))
+            print(f"Not queued: {exc}. Wait for the agent to work through its queue, or raise agent.max_queued.")
+            return 1
         agent.audit.record(
             "agent_enqueue", "ok", 0.0, {"env": args.env, "entities": args.entities, "backfill": args.backfill,
                                          "cascade": args.cascade, "agent": config.name})
@@ -409,11 +478,56 @@ def _backup(args: argparse.Namespace) -> int:
         for item in result["cleaned"]:
             print(f"  {item['path']}: {item['removed']} left out")
         return 0
+    if not args.yes:  # only shows what it would do: nothing changes
+        try:
+            print(backup.describe(backup.restore(Path(args.backup), data_dir(), home)), end="")
+        except backup.BackupError as exc:
+            print(exc)
+            return 1
+        return 0
+    return _restore_audited(Path(args.backup), data_dir(), home)
+
+
+def _restore_audited(zip_path: Path, folder: Path, home: Path | None) -> int:
+    """restore --yes replaces this PC's data, so it always fails closed: a "started" line naming the backup
+    file is written to this PC's audit log (the app's, Service.audit) before any file changes, and nothing
+    is restored when it can't be; then how the restore ended, with how many audit entries the backup held that
+    weren't restored (restore leaves the audit trails as they are). The person is this PC's account, marked
+    (cli), as for the CLI's other audited commands."""
+    import time
+
+    from . import audit, backup
+
+    log = audit.AuditLog(folder / "audit")
+    who = f"{log.os_user or 'unknown'} (cli)"
+    call = {"backup": str(zip_path), "agent_home": str(home) if home else ""}
+    began = time.monotonic()
     try:
-        print(backup.describe(backup.restore(Path(args.backup), data_dir(), home, apply=args.yes)), end="")
+        log.record("backup_restore", "started", 0.0, call, who=who)
+    except Exception as exc:  # noqa: BLE001 - any failure to write refuses the restore
+        print("error: " + audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {exc}"))
+        return 2
+
+    def note(outcome: str, error: str = "", reason: str = "", **more: int) -> None:
+        """How the restore ended: never changes what it did, as for the app's own calls."""
+        try:
+            log.record("backup_restore", outcome, time.monotonic() - began, dict(call, **more), who=who,
+                       error=error, reason=reason)
+        except Exception as exc:  # noqa: BLE001 - stderr says the line is missing
+            print(f"audit: could not record backup_restore: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+    try:
+        result = backup.restore(zip_path, folder, home, apply=True)
     except backup.BackupError as exc:
+        note("error", error=str(exc), reason="refused")
         print(exc)
         return 1
+    except BaseException as exc:
+        note("error", error=f"{type(exc).__name__}: {exc}", reason="failed")
+        raise
+    left = result.get("audit_entries_not_restored", 0)
+    note("ok", **({"audit_entries_not_restored": left} if left else {}))
+    print(backup.describe(result), end="")
     return 0
 
 
@@ -429,8 +543,9 @@ def _smoke_test(args: argparse.Namespace) -> int:
     if args.dry_run:
         print("The smoke test will:")
         dry_platform = (lambda out: None) if args.platform else None
+        dry_warehouse = (lambda out: None) if args.warehouse else None
         dry = smoketest.SmokeTest(args.workspace, None, None, Path(args.out), run_in_fabric=args.run_in_fabric,
-                                  platform_test=dry_platform)
+                                  platform_test=dry_platform, warehouse_check=dry_warehouse)
         for step in dry.plan():
             print(f"  - {step}")
         if args.platform:
@@ -439,6 +554,15 @@ def _smoke_test(args: argparse.Namespace) -> int:
                                                   client=lambda ws, fid: None, run_id=dry.run_id,
                                                   upgrade=args.platform_upgrade, keep=args.platform_keep).plan():
                 print(f"  - {step}")
+        if args.warehouse:
+            from . import warehouse_livecheck
+            check = warehouse_livecheck.WarehouseCheck(args.workspace, args.warehouse, None, None,
+                                                       dry.dir / "warehouse", run_id=dry.run_id)
+            print("The warehouse check will:")
+            for step in check.plan():
+                print(f"  - {step}")
+            for problem in warehouse_livecheck.problems(check.cases, check.scratch):
+                print(f"  ! Refused before connecting: {problem}")
         print("The live test it runs will:")
         for step in livetest.LiveTest(args.workspace, None, None, None, Path(args.out), bad_token_files=object(),
                                       extra=set(livetest.ALL_CHECKS), run_in_fabric=args.run_in_fabric).plan():
@@ -465,9 +589,20 @@ def _smoke_test(args: argparse.Namespace) -> int:
                                          keep=args.platform_keep,
                                          pause=None if args.yes else lambda text: input(f"{text}\n"))
 
+    def warehouse(out: Path) -> object:
+        from . import warehouse as wh
+        from . import warehouse_livecheck
+
+        def connect() -> object:
+            end = wh.resolve(fabric, {"workspace_id": args.workspace, "item_id": args.warehouse, "kind": "warehouse"})
+            return wh.open_connection(end.server, end.database, credential.warehouse_token)
+        return warehouse_livecheck.WarehouseCheck(args.workspace, args.warehouse, fabric, connect, out,
+                                                  protected_ids=livetest.policy_workspace_ids())
+
     test = smoketest.SmokeTest(args.workspace, credential, fabric, Path(args.out), live_test=live,
                                run_in_fabric=args.run_in_fabric, client_id=client_id,
-                               platform_test=platform if args.platform else None)
+                               platform_test=platform if args.platform else None,
+                               warehouse_check=warehouse if args.warehouse else None)
     print("The smoke test will:")
     for step in test.plan():
         print(f"  - {step}")
@@ -480,12 +615,245 @@ def _smoke_test(args: argparse.Namespace) -> int:
     return 1 if result["outcome"] == "failed" else 0
 
 
+def _parity_check(args: argparse.Namespace) -> int:
+    """Runs the parity cases on this PC. Exit 2 for a case file or argument that isn't valid, else 0: a
+    difference is a finding the records report, not a failure of the run."""
+    from . import parity_harness
+    try:
+        records = parity_harness.run(case_id=args.case, dialect=args.dialect)
+    except parity_harness.CaseError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    if args.out:
+        print(f"Records written to {parity_harness.write(records, Path(args.out))}", file=sys.stderr)
+    if args.json:
+        print(json.dumps(records, indent=2))
+        return 0
+    for r in records:
+        print(f"{r['case']:<20} {r['engine']['dialect']:<11} {r['outcome']}")
+    print("Evidence level: local. These runs can't mark a platform Verified.")
+    return 0
+
+
 def _env_drift(args: argparse.Namespace) -> int:
     """0 no drift, 1 drift, 2 the item couldn't be read."""
     from . import fabric_environment
     result = Service().environment_fabric_drift(args.workspace, args.environment, args.notebook)
     print(json.dumps(result, indent=2) if args.json else fabric_environment.summary(result))
     return 2 if result["status"] != "read" else 1 if result["drifted"] else 0
+
+
+def _databricks_bundle_validate(args: argparse.Namespace) -> int:
+    """databricks-bundle validate: the local checks (engines/databricks_bundle_check.py). 0 no errors,
+    1 errors, 2 the folder isn't there."""
+    from pathlib import Path
+
+    from .engines.databricks_bundle_check import validate as check_bundle
+
+    folder = Path(args.folder).resolve()
+    if not folder.is_dir():
+        print(f"{folder} isn't a folder.")
+        return 2
+    findings = check_bundle(folder)
+    errors = sum(f.severity == "error" for f in findings)
+    if args.json:
+        print(json.dumps({"folder": str(folder), "findings": [f.to_dict() for f in findings]}, indent=2))
+    else:
+        for f in findings:
+            where = folder / f.file
+            print(f"{where}:{f.line or 1}:{f.column or 1}: {f.severity}: {f.path or '(file)'}: {f.message}")
+        warnings = len(findings) - errors
+        print(f"{errors} error{'' if errors == 1 else 's'}, {warnings} warning{'' if warnings == 1 else 's'} "
+              "(checked on this PC; not databricks bundle validate)")
+    return 1 if errors else 0
+
+
+DL_NAME_CHARS = 120  # a table name or path from the model or the command line is printed cut to this
+DL_MAX_HORIZON = 3650
+_DL_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+_DL_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]+:")  # abfss:, https:, file:...; one letter is a Windows drive
+_DL_EXIT = {"within": 0, "will": 1, "might": 1, "not_checked": 2}
+
+
+def _dl_cap(text: str) -> str:
+    """Model or command-line text as one printable line of at most DL_NAME_CHARS."""
+    text = _DL_CONTROL.sub("?", text)
+    return text if len(text) <= DL_NAME_CHARS else text[:DL_NAME_CHARS - 1] + "…"
+
+
+def _dl_local(raw: str, what: str) -> Path:
+    """A path on this PC, or ValueError for a URI or a network share: this command reads no network."""
+    if _DL_SCHEME.match(raw) or raw[:2] in ("//", "\\\\"):
+        raise ValueError(f"{what} {_dl_cap(raw)} isn't a path on this PC. directlake-check reads only local files, "
+                         "so copy the table or model to this PC first.")
+    return Path(raw).expanduser().resolve()
+
+
+def _dl_model(raw: str) -> dict[str, Any]:
+    """The model at a TMDL folder (or its definition/ folder) or a model.bim file, as a parsed model.bim."""
+    from . import tmdl
+    from .model_ossie_service import _folder_bim
+
+    path = _dl_local(raw, "The model")
+    shown = _dl_cap(str(path))
+    if path.is_dir():
+        folder = path.parent if path.name == "definition" and not (path / "definition").is_dir() else path
+        bim, _ = _folder_bim(folder, folder.name.removesuffix(".SemanticModel"), shown)
+    elif path.is_file():
+        if path.stat().st_size > tmdl.MAX_CHARS * 4:
+            raise ValueError(f"{shown} is too large to read on this PC. Check that it's a semantic model's model.bim.")
+        try:
+            bim = json.loads(path.read_text(encoding="utf-8-sig"))
+        except RecursionError:
+            raise ValueError(f"{shown} is nested too deeply to be a semantic model. "
+                             "Check that it's a semantic model's model.bim.") from None
+        except UnicodeDecodeError:
+            raise ValueError(f"{shown} isn't UTF-8 text, so the model can't be read.") from None
+        except ValueError as exc:  # narrow: json's own error says where the JSON breaks
+            raise ValueError(f"{shown} isn't valid JSON ({exc}), so the model can't be read.") from None
+    else:
+        raise ValueError(f"{shown} isn't a folder or file on this PC.")
+    if not isinstance(bim, dict) or not isinstance(bim.get("model"), dict) or tmdl.too_deep(bim):
+        raise ValueError(f"{shown} isn't a semantic model.")
+    return bim
+
+
+def _dl_tables(specs: list[str], tables: list[Any]) -> dict[str, Path]:
+    """Each --table NAME=PATH as model table name -> local folder. NAME is the table's name, or the entity
+    (schema.entity) its Direct Lake partition reads; a name with "=" in it splits at the "=" that names a table."""
+    given: dict[str, Path] = {}
+    for spec in specs:
+        cuts = [i for i, ch in enumerate(spec) if ch == "="]
+        if not cuts:
+            raise ValueError(f"--table {_dl_cap(spec)} should be NAME=PATH.")
+        name, raw, hits = spec[:cuts[0]], spec[cuts[0] + 1:], []
+        for i in cuts:
+            found = ([t for t in tables if t.name == spec[:i]]
+                     or [t for t in tables if spec[:i] in (t.entity, f"{t.schema}.{t.entity}")])
+            if found:
+                name, raw, hits = spec[:i], spec[i + 1:], found
+                break
+        if not hits:
+            raise ValueError(f"The model has no Direct Lake table named {_dl_cap(name)}.")
+        path = _dl_local(raw, f"The table {_dl_cap(name)}")
+        if not path.is_dir():
+            raise ValueError(f"{_dl_cap(str(path))} (for {_dl_cap(name)}) isn't a folder on this PC.")
+        for t in hits:
+            given[t.name] = path
+    return given
+
+
+def _directlake_check(args: argparse.Namespace) -> int:
+    """directlake-check: the Direct Lake fallback prediction for a model on this PC, from its definition and local
+    Delta tables (model_directlake, through the same readers as the Semantic model tab's card). Reads no network,
+    OneLake or Fabric. 0 within limits, 1 will or might fall back, 2 not checked or bad input."""
+    from . import model_directlake as dl
+    from . import model_directlake_service as mds
+    from .redact import describe
+
+    lim = dl.limits(args.sku)
+    if lim is None:
+        print(f"{_dl_cap(args.sku)} isn't a capacity SKU this check knows. Pick one of {', '.join(dl.SKUS)}.")
+        return 2
+    if not 1 <= args.horizon_days <= DL_MAX_HORIZON:
+        print(f"--horizon-days takes a number of days from 1 to {DL_MAX_HORIZON}. Pick one in that range.")
+        return 2
+    try:
+        bim = _dl_model(args.model)
+        tables = dl.direct_lake_tables(bim)
+        given = _dl_tables(args.table, tables)
+    except (ValueError, OSError) as exc:  # narrow: a path, model or --table that can't be used; nothing was read
+        print(_DL_CONTROL.sub("?", str(exc)))
+        return 2
+    if not tables:
+        print("Not checked: the model has no Direct Lake tables. Point --model at a Direct Lake model.")
+        return 2
+    stats: dict[str, dl.TableStats | None] = {}
+    where: dict[str, str] = {}
+    unread: list[dict[str, str]] = []
+    for t in tables:
+        if t.name not in given:
+            unread.append({"table": t.name, "reason": "No --table was given for it."})
+            continue
+        try:
+            stats[t.name] = mds.table_stats(str(given[t.name]), None)
+            where[t.name] = str(given[t.name])
+        except Exception as exc:  # noqa: BLE001 - one table that can't be read doesn't stop the others
+            unread.append({"table": t.name, "reason": describe(exc)})
+    commits: dict[str, list[dl.Commit]] = {}
+    per_table = min(mds.HISTORY_COMMITS, max(mds.MIN_HISTORY, mds.HISTORY_BUDGET // max(1, len(where))))
+    for name, uri in where.items():
+        if not stats.get(name):
+            continue
+        try:
+            found = mds.history(uri, None, per_table)
+        except Exception as exc:  # noqa: BLE001 - a table without history still gets today's verdict
+            logging.getLogger(__name__).info("Delta history not read for the Direct Lake forecast: %s", describe(exc))
+            continue
+        if found is not None:
+            commits[name] = found
+    out = dl.check(bim, stats, lim)
+    prediction = mds.predict_every_sku(bim, stats, commits, lim["sku"], horizon_days=args.horizon_days)
+    model = prediction["model"]
+    code = _DL_EXIT[model["verdict"]]
+    if args.json:
+        print(json.dumps({"model": str(Path(args.model).expanduser().resolve()), "sku": lim["sku"],
+                          "horizon_days": args.horizon_days, "verdict": model["verdict"], "label": model["label"],
+                          "exit_code": code, "unread": unread, "findings": out["findings"], "counts": out["counts"],
+                          "prediction": prediction}, indent=2, default=str))
+        return code
+    for line in _dl_lines(prediction, out["counts"], unread):
+        print(line)
+    return code
+
+
+def _dl_lines(prediction: dict[str, Any], counts: dict[str, int], unread: list[dict[str, str]]) -> list[str]:
+    """The prediction as text: the verdict, the deciding table, a line a table, the capacity that fits, and what
+    the prediction can't see. Every name in the engine's wording is cut to DL_NAME_CHARS."""
+    from . import model_directlake as dl
+
+    names = {s for r in prediction["tables"] for s in (r["table"], r["delta_table"]) if len(s) > DL_NAME_CHARS}
+
+    def say(text: str) -> str:
+        for n in sorted(names, key=len, reverse=True):
+            text = text.replace(n, _dl_cap(n))
+        return _DL_CONTROL.sub("?", text)
+
+    def label(verdict: str) -> str:
+        return prediction["will_label"] if verdict == "will" else dl.LABELS[verdict]
+
+    model = prediction["model"]
+    lines = [say(f"{model['label']}: {model['message']}")]
+    if prediction["caveat"]:
+        lines.append(prediction["caveat"])
+    if model["table"]:
+        lines.append(f"Deciding table: {_dl_cap(model['table'])}")
+    why = {u["table"]: u["reason"] for u in unread}
+    lines.append(f"Tables ({prediction['sku']}, forecast over {prediction['horizon_days']} days):")
+    for r in prediction["tables"]:
+        parts = [f"{label(r['status'])}."]
+        if r["status"] == "not_checked":
+            parts.append(r["reason"] + (f" {why[r['table']]}" if r["table"] in why else ""))
+        fix = next((c["fix_text"] for c in r["checks"] if c["level"] in ("over", "near") and c.get("fix_text")), None)
+        if r["forecast"]:
+            parts.append(f"Forecast: {r['forecast']['message']}")
+        if fix:
+            parts.append(f"Fix: {fix}")
+        lines.append(say(f"  {_dl_cap(r['table'])} ({_dl_cap(r['delta_table'])}): {' '.join(parts)}"))
+    skus = prediction["skus"]
+    none = "not known" if any(not r["read"] for r in prediction["tables"]) else "none"
+    lines.append(f"Smallest capacity that fits: {skus['smallest_today'] or none} today, "
+                 f"{skus['smallest_horizon'] or none} in {skus['horizon_days']} days.")
+    if skus["every_sku"]:
+        lines.append(say("On every capacity (a view, a missing table or endpoint security doesn't depend on it): "
+                         + ", ".join(_dl_cap(t) for t in skus["every_sku"]) + "."))
+    lines.append(dl.PREDICTED)
+    lines.append("What this can't see from this PC:")
+    lines += [say(f"  - {n}") for n in prediction["not_checked"]]
+    if counts["fail"] or counts["warn"]:
+        lines.append(f"Other checks: {counts['fail']} would fail, {counts['warn']} fall back or slow down "
+                     "(--json lists them).")
+    return lines
 
 
 def _databricks_discover(args: argparse.Namespace) -> int:
@@ -524,7 +892,7 @@ def _live_test(args: argparse.Namespace) -> int:
     if args.dry_run:
         print("The live test will:")
         for step in livetest.LiveTest(args.workspace, None, None, None, Path(args.out), bad_token_files=object(),
-                                      extra=extra, run_in_fabric=args.run_in_fabric).plan():
+                                      extra=extra, run_in_fabric=args.run_in_fabric, bpa_model=args.bpa_model).plan():
             print(f"  - {step}")
         print("Dry run: nothing was signed in to, created or written.")
         return 0
@@ -542,7 +910,7 @@ def _live_test(args: argparse.Namespace) -> int:
         return 1 if result["left_behind"] else 0
     test = livetest.LiveTest(args.workspace, fabric, FileStore(credential.storage_token), credential, Path(args.out),
                              protected_ids=livetest.policy_workspace_ids(), extra=extra,
-                             run_in_fabric=args.run_in_fabric)
+                             run_in_fabric=args.run_in_fabric, bpa_model=args.bpa_model)
     print("The live test will:")
     for step in test.plan():
         print(f"  - {step}")
@@ -636,6 +1004,75 @@ def _nb_open(args: argparse.Namespace) -> int:
         print(link)
         return 0
     os.startfile(link)  # type: ignore[attr-defined]  # Windows only
+    return 0
+
+
+def _templates(args: argparse.Namespace) -> int:
+    """Enterprise notebook templates (notebook_templates): list, copy, check and hand over."""
+    from pathlib import Path
+
+    from . import notebook_templates as nt
+    from .jsonfile import write_text
+
+    if args.templates_command == "list":
+        for t in nt.catalog():
+            print(f"{t['platform']:<11} {t['kind']:<15} {t['title']}: {t['description']} (v{t['version']})")
+        return 0
+    if args.templates_command == "new":
+        out = Path(args.out)
+        if out.suffix != ".ipynb":
+            print("The new notebook's name must end in .ipynb")
+            return 2
+        if out.exists():
+            print(f"{out} already exists; pick a new name")
+            return 2
+        write_text(out, nt.path(args.platform, args.kind).read_text(encoding="utf-8"), newline="\n")
+        print(f"Created {out}. Fill in its Parameters cell; leave the cells marked kratosforge:standard as they are.")
+        return 0
+    path = Path(args.path)
+    try:
+        nb = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(nb, dict) or not isinstance(nb.get("cells"), list):
+            raise ValueError("it isn't a Jupyter notebook (.ipynb) file")
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        print(f"Can't read {path}: {exc}")
+        return 2
+    if args.templates_command == "check":
+        result = nt.check(nb)
+        if args.json:
+            print(json.dumps(result, indent=2, default=str))
+        elif result["status"] == "not-a-template":
+            print(f"{path}: not made from a template, so it is domain-owned")
+        else:
+            label = {"conforms": "conforms: the enterprise can support it",
+                     "domain-owned": "domain-owned: the domain supports it"}[result["status"]]
+            print(f"{path}: {result['template']} {result['version']} for {result['platform']}, {label}")
+            for change in result["changes"]:
+                print(f"  - {change}")
+            if result.get("warning"):
+                print(f"  ! {result['warning']}")
+            if result["upgrade_available"]:
+                print(f"  Version {result['latest_version']} of the template is out; copy it and carry your parameters over.")
+        return 0 if result["status"] == "conforms" else 1
+    try:
+        if args.templates_command == "handover":
+            updated, record = nt.handover(nb, args.domain, args.owner, name=path.stem)
+            record_path = path.with_name(f"{path.stem}.handover.json")
+            write_text(record_path, json.dumps(record, indent=2) + "\n", newline="\n")
+            print(f"Handover requested. Send {record_path.name} with the notebook to the enterprise.")
+        else:
+            record_path = Path(args.record) if args.record else path.with_name(f"{path.stem}.handover.json")
+            try:
+                record = json.loads(record_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, ValueError) as exc:
+                print(f"Can't read the handover record {record_path}: {exc}")
+                return 2
+            updated = nt.accept(nb, args.by, record)
+            print(f"{path.name} is now enterprise-managed.")
+    except ValueError as exc:
+        print(str(exc))
+        return 1
+    write_text(path, json.dumps(updated, indent=1, ensure_ascii=False) + "\n", newline="\n")
     return 0
 
 
@@ -846,12 +1283,46 @@ def _print_fabric_differences(found: list[dict]) -> None:
 
 
 def _pipeline_run(args: argparse.Namespace) -> int:
-    from pathlib import Path
+    """A local pipeline run in this process. Its audit lines are the app's for pipeline_run_start
+    (server.handle): a "started" line first when the call fails closed (--allow-uncontained), and the
+    run refused when that line can't be written; then how the start ended, then pipeline_run_finished.
+    The person is this PC's account, marked (cli), as for the agent's own commands."""
+    import time
 
+    from . import audit
     from .orchestration import load
     from .orchestration.definition import DefinitionError
     from .orchestration.runner import PipelineRun, RunRefused
 
+    params = dict(item.partition("=")[::2] for item in args.param)
+    call = {"path": args.path, "parameters": params, "mocks": args.mocks,
+            "children": dict(item.partition("=")[::2] for item in args.child),
+            "max_parallel": args.max_parallel, "wait_scale": args.wait_scale, "timeout_seconds": args.timeout,
+            "notebooks": dict(item.partition("=")[::2] for item in args.notebook),
+            "allow_uncontained": args.allow_uncontained, "keep_outputs": args.keep_outputs,
+            "read_lakehouses": args.read_lakehouse, "workspace_id": args.workspace,
+            "sql_projects": dict(item.partition("=")[::2] for item in args.sql_project)}
+    svc = Service()
+    log = getattr(svc, "audit", None)
+    who = f"{getattr(log, 'os_user', '') or 'unknown'} (cli)"
+    began = time.monotonic()
+
+    def note(action: str, outcome: str, details: dict, error: str = "", reason: str = "") -> None:
+        """A line after the work has started or ended: never stops it, as for the app's own calls."""
+        try:
+            if log is not None:
+                log.record(action, outcome, time.monotonic() - began, details, who=who, error=error, reason=reason)
+        except Exception as exc:  # noqa: BLE001 - stderr says the line is missing
+            print(f"audit: could not record {action}: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+    if audit.fails_closed("pipeline_run_start", call):
+        try:
+            if log is None:
+                raise RuntimeError("no audit log")
+            log.record("pipeline_run_start", "started", 0.0, call, who=who)
+        except Exception as exc:  # noqa: BLE001 - any failure to write refuses the run
+            print("error: " + audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {exc}"))
+            return 2
     try:
         imp = load(args.path)
         children = {}
@@ -860,46 +1331,61 @@ def _pipeline_run(args: argparse.Namespace) -> int:
             children[key] = load(path)
         mocks = json.loads(Path(args.mocks).read_text(encoding="utf-8")) if args.mocks else None
     except (DefinitionError, OSError, ValueError) as exc:
+        note("pipeline_run_start", "error", call, error=str(exc))
         print(f"error: {exc}")
         return 2
-    params = dict(item.partition("=")[::2] for item in args.param)
     run_id, notebooks, data = str(uuid.uuid4()), None, None
-    if args.notebook or args.read_lakehouse or args.sql_project:
-        svc = Service()
     if args.notebook:
         from .pipeline_notebooks import LocalNotebooks
-        notebooks = LocalNotebooks(svc, run_id, dict(item.partition("=")[::2] for item in args.notebook),
-                                   args.allow_uncontained, args.keep_outputs)
+        notebooks = LocalNotebooks(svc, run_id, call["notebooks"], args.allow_uncontained, args.keep_outputs)
     if args.read_lakehouse or args.sql_project:
         from .pipeline_data import LocalData
         data = LocalData(svc, run_id, notebooks, args.workspace, lakehouse_reads=args.read_lakehouse,
-                         sql_projects=dict(item.partition("=")[::2] for item in args.sql_project))
+                         sql_projects=call["sql_projects"])
     run = PipelineRun(imp, parameters=params, mocks=mocks, children=children, max_parallel=args.max_parallel,
                       wait_scale=args.wait_scale, timeout_seconds=args.timeout, run_id=run_id, notebooks=notebooks,
                       data=data)
     if not args.json:
         from .orchestration.gotchas import check as fabric_differences
         _print_fabric_differences(fabric_differences(imp))
+    started = False
     try:
         problems = run.check()
+        if problems:
+            raise RunRefused(problems)
         acts = imp.pipeline.all_activities()
-        if not problems and ((notebooks is not None and notebooks.lakehouses(acts))
-                             or (data is not None and data.lakehouses(acts))):
+        if (notebooks is not None and notebooks.lakehouses(acts)) or (data is not None and data.lakehouses(acts)):
             svc.auth.storage_token()  # sign in before anything runs
+        note("pipeline_run_start", "ok", call)
+        started = True
         run.run()
     except RunRefused as exc:
+        if not started:
+            outcome, why = audit.outcome({"ok": False, "problems": exc.problems})
+            note("pipeline_run_start", outcome, call, reason=why)
         for p in exc.problems:
             print(f"refused: {p['code']}" + (f" [{p['activity']}]" if p.get("activity") else "") + f": {p['message']}")
         return 2
     except KeyboardInterrupt:
         run.cancel()
+        if not started:
+            note("pipeline_run_start", "error", call, reason="cancelled")
         if notebooks is not None:
             notebooks.stop()
         print("cancelled")
         return 1
+    except Exception as exc:
+        if not started:
+            note("pipeline_run_start", "error", call, error=f"{type(exc).__name__}: {exc}")
+        raise
     finally:
         if notebooks is not None:
             notebooks.finish()
+        if started:  # how the run ended, as the app's background run records it
+            reason = "cancelled" if run.cancelled and run.state != "failed" else (
+                {"succeeded": "", "cancelled": "cancelled"}.get(run.state, "failed"))
+            note("pipeline_run_finished", "error" if reason else "ok",
+                 {"run_id": run.id, "pipeline": run.pipeline.name, "state": run.state}, reason=reason)
     record = run.to_json()
     if args.json:
         print(json.dumps(record, indent=2, default=str))
@@ -919,9 +1405,13 @@ def _audit(args: argparse.Namespace) -> int:
     from .audit import AuditLog
     from .service import data_dir
     from . import audit_chain
-    folder = Path(args.folder) if args.folder else data_dir() / "audit"
+    if args.folder and args.agent_home:
+        print("Give --folder or --agent-home, not both", file=sys.stderr)
+        return 2
+    named = Path(args.agent_home) / "audit" if args.agent_home else Path(args.folder) if args.folder else None
+    folder = named or data_dir() / "audit"
     if args.verify_export:
-        result = audit_chain.verify_export(Path(args.verify_export), folder if args.folder else None)
+        result = audit_chain.verify_export(Path(args.verify_export), named)
         print(json.dumps(result, indent=2))
         return 0 if result["ok"] else 1
     if args.export:

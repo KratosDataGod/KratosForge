@@ -1,0 +1,98 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "version": 1,
+  "status": "draft",
+  "class": "local_verified",
+  "adapter": "python_lab",
+  "lesson": "lesson.md",
+  "datasets": [],
+  "parity": null,
+  "starter": "test_transforms.py",
+  "files": [
+    "transforms.py",
+    "transforms_v41.py",
+    "transforms_v42.py",
+    "transforms_v43.py"
+  ],
+  "reset": "Reset removes the out folder and puts the starter test file back.",
+  "id": "E49",
+  "title": "Unit tests for transformation functions, run before deploy",
+  "objectives": [
+    "5.4"
+  ],
+  "mode": "challenge",
+  "minutes": 25,
+  "prerequisites": [],
+  "objective_text": "Use the Databricks CLI in a CI workflow to validate and deploy bundles, with tests before deploy.",
+  "scenario": "The orders bundle's CI workflow runs the unit tests before databricks bundle deploy -t prod, but there is only one test, so three releases broke prod and had to be rolled back: release 41 turned blank amounts into 0, release 42 stopped trimming region codes, and release 43 kept the first row for each order instead of the latest. The team kept each bad release's transforms file. Write the tests that would have stopped all three, and that today's code passes, so CI can deploy it.",
+  "engine_label": "Python on this PC",
+  "verifies": [
+    "Your tests ran on this PC against today's transforms and the three rolled-back releases: every test passes on today's code, so CI would deploy it, and each bad release fails at least one test, so CI would have stopped it."
+  ],
+  "does_not_verify": [
+    "That the tests run in a CI system, or that a failing test stops a real databricks bundle deploy: no CI system, CLI or workspace is used here (exercise E48 models the workflow).",
+    "That your tests catch a regression other than these three releases, or run with pytest: a small runner at the end of the file stands in for pytest."
+  ],
+  "expected": {
+    "description": "out/test_report.json shows no failures on transforms.py and at least one failed test on each of v41, v42 and v43."
+  },
+  "validation": [
+    {
+      "kind": "notebook_ran",
+      "pass": "Your tests ran to the end.",
+      "fail": "The test file stopped with an error; read its output."
+    },
+    {
+      "kind": "config_matches",
+      "path": "out/test_report.json",
+      "pass": "Every test passes on today's transforms, so CI would deploy them.",
+      "fail": "A test fails on today's code, so CI would block a good deploy.",
+      "rules": [
+        {
+          "path": "tests",
+          "min": 1
+        },
+        {
+          "path": "current.failed",
+          "equals": 0,
+          "why": "A test that fails on correct code blocks every deploy, and people learn to skip it. Check what today's transforms.py returns."
+        }
+      ]
+    },
+    {
+      "kind": "config_matches",
+      "path": "out/test_report.json",
+      "pass": "Each release that broke prod fails at least one of your tests, so CI would have stopped it.",
+      "fail": "A release that broke prod still passes all your tests, so CI would have deployed it again.",
+      "rules": [
+        {
+          "path": "releases.v41.failed",
+          "min": 1,
+          "why": "Release 41 turned a blank amount into 0. Test what a blank amount becomes."
+        },
+        {
+          "path": "releases.v42.failed",
+          "min": 1,
+          "why": "Release 42 stopped trimming region codes. Test a region with spaces around it."
+        },
+        {
+          "path": "releases.v43.failed",
+          "min": 1,
+          "why": "Release 43 kept the first row for an order, not the latest. Counting rows doesn't catch that; check which row is kept."
+        }
+      ]
+    }
+  ],
+  "explanation": "A unit test pins down what a function must return for one input, including the awkward ones: a blank amount, a padded region, two versions of one order. Each production incident is a test that was missing, so the fix for an incident includes a test that fails on the bad release and passes on the fix. In CI, the test step runs before databricks bundle deploy, and a failing test ends the workflow before anything is deployed. A test also has to pass on correct code, or it blocks every deploy and gets switched off.",
+  "remediation": [
+    "https://docs.databricks.com/aws/en/dev-tools/ci-cd/",
+    "https://docs.databricks.com/aws/en/notebooks/testing",
+    "https://docs.databricks.com/aws/en/dev-tools/bundles/"
+  ],
+  "hints": [
+    "Read each rolled-back release next to transforms.py: each differs in one function.",
+    "clean_amount(\"\") should be None, not 0.0: a missing amount isn't zero.",
+    "region_code(\"  uk \") should be \"UK\". A test with \"uk\" alone doesn't catch release 42.",
+    "Give latest_per_order two rows for one order_id, the later one second, and assert which one comes back. Checking only the count passes release 43 too."
+  ]
+}

@@ -19,8 +19,6 @@ WAITS = ("wait", "communicate")
 
 # file:function -> why the call has no timeout
 NO_TIMEOUT = {
-    "notebook_batch_service.py:one": "a batch's notebook runs in the batch's own background process "
-                                     "(cli run-notebooks), not in an engine call, and can rightly run for hours",
     "git/ops.py:_run": "waits once git's output has closed, under a timer that ends git when it runs too long",
     "kernel_proc.py:_read": "the kernel's reader thread, not an engine call, waits once the kernel's output has "
                             "closed; Stop and Restart end the kernel",

@@ -173,7 +173,7 @@ def problems(eid: str, grading: Path, ex: dict[str, Any], root: Path) -> list[st
         if not isinstance(q, dict):
             out.append(f"{eid}: question {n} isn't an object")
             continue
-        m = _QID.match(str(q.get("id") or ""))
+        m = _QID.fullmatch(str(q.get("id") or ""))
         if not m or q["id"] in seen:
             out.append(f"{eid}: question {n}'s id is q1, q2 and so on, each once")
         seen.add(q.get("id"))
@@ -181,6 +181,8 @@ def problems(eid: str, grading: Path, ex: dict[str, Any], root: Path) -> list[st
         as_bank = {**q, "id": f"{objective}-q{m.group(1) if m else n}", "version": 1, "status": "draft"}
         out += [f"{eid}: {p.replace(as_bank['id'], str(q.get('id')))}"
                 for p in exam._question_problems(objective, as_bank, {}, hosts, docs)]
+        if q.get("type") in exam.PART_TYPES:
+            out.append(f"{eid}: question {q.get('id')}: a quiz question is {', '.join(exam.CHOICE_TYPES)}")
         if q.get("case") is not None:
             out.append(f"{eid}: question {q.get('id')}: a quiz's scenario is the exercise's own; it takes no case")
     return out

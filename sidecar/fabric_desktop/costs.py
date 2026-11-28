@@ -29,6 +29,7 @@ from typing import Any, cast
 
 from . import calibration
 from . import measurement as ms
+from .timeutil import parse_time as _parse
 
 DEFAULTS: dict[str, Any] = {"price_per_cu_hour": 0.18, "currency": "USD", "python_cu": 1.0, "spark_cu": 8.0}
 # F SKUs: F2 has 2 CUs, F64 has 64.
@@ -48,14 +49,6 @@ def sku_cu(sku: str | None) -> int | None:
     return _SKU_CU.get(str(sku or "").upper())
 
 
-def _parse(at: Any) -> dt.datetime | None:
-    if not at:
-        return None
-    try:
-        t = dt.datetime.fromisoformat(str(at).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
 
 
 def _seconds(started: Any, finished: Any) -> float | None:
@@ -63,13 +56,13 @@ def _seconds(started: Any, finished: Any) -> float | None:
     return max((b - a).total_seconds(), 0.0) if a and b else None
 
 
-_PRICE_NOTE = ("Priced at {price} {cur} per CU hour (Monitor > Cost > Prices). This is a price applied to CU use, not "
+_PRICE_NOTE = ("Priced at {price} {cur} per CU hour (Optimize > Cost and savings > Prices). This is a price applied to CU use, not "
                "a charge: on a reserved or already-running capacity the invoice doesn't change with each run.")
 
 
 def _cu_assumptions(engine: str, cu: float, timing: str) -> list[str]:
     what = {"python": "a Python notebook", "spark": "a Spark job"}.get(engine, "an item whose engine wasn't recorded, counted as Spark")
-    return [timing, f"{cu:g} CU while it ran, the configured CUs of {what} (Monitor > Cost > Prices).",
+    return [timing, f"{cu:g} CU while it ran, the configured CUs of {what} (Optimize > Cost and savings > Prices).",
             "Fabric's billed CU for the job isn't read; the Capacity Metrics app has it."]
 
 

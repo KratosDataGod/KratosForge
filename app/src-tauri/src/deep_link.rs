@@ -443,8 +443,16 @@ fn decode_as(s: &str, plus_is_space: bool) -> Result<String, String> {
     if text.chars().any(|c| c.is_control()) {
         return Err("The link has control characters.".into());
     }
+    if text.chars().any(|c| DIRECTION_MARKS.contains(&c)) {
+        return Err("The link has text-direction marks, so it would show differently from what it names.".into());
+    }
     Ok(text)
 }
+
+/// Marks that change the direction text is shown in, as the engine refuses in a paired folder's path
+/// (editor_service.py `_DIRECTION_MARKS`): a link with one would show as something it doesn't name.
+const DIRECTION_MARKS: [char; 12] = ['\u{061c}', '\u{200e}', '\u{200f}', '\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}',
+                                     '\u{202e}', '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}'];
 
 fn json_string(s: &str) -> String {
     let mut out = String::from("\"");
@@ -659,7 +667,8 @@ mod tests {
             match parse(&url) {
                 Ok(Link::NotebookPath(p)) => assert!(local_path(&p) && p.to_ascii_lowercase().ends_with(".ipynb")
                                                      && !p.chars().any(char::is_control), "{url:?} -> {p:?}"),
-                Ok(Link::NotebookName(n)) => assert!(!n.is_empty() && n.len() <= 300 && !n.chars().any(char::is_control), "{url:?}"),
+                Ok(Link::NotebookName(n)) => assert!(!n.is_empty() && n.len() <= 300 && !n.chars().any(char::is_control)
+                                                     && !n.chars().any(|c| DIRECTION_MARKS.contains(&c)), "{url:?}"),
                 Ok(Link::Page(p)) => assert!(p.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'), "{url:?}"),
                 Ok(_) | Err(_) => {}
             }
@@ -674,6 +683,56 @@ mod tests {
         assert!(parse(&format!("kratosforge://notebook?path=C:/{}.ipynb", "a".repeat(MAX_LINK))).is_err(), "too long");
         // Encoded ".." still names a full local path; which folder it lands in is the engine's to check.
         assert_eq!(parse("kratosforge://notebook?path=C%3A%5Cn%5C%2e%2e%5Cx.ipynb").unwrap(), Link::NotebookPath(r"C:\n\..\x.ipynb".into()));
+    }
+
+    #[test]
+    fn hostile_links_are_refused_and_never_name_a_remote_or_relative_path() {
+        // Traversal, network and device paths, odd encodings, lookalikes, direction marks and other schemes or hosts.
+        for bad in [
+            // other schemes, hosts and shapes
+            "kratosforge:notebook?path=C%3A%5Cx.ipynb", "kratosforge:/notebook?path=C%3A%5Cx.ipynb",
+            "kratosforge:///notebook?path=C%3A%5Cx.ipynb", "kratosforge://evil.example/notebook?path=C%3A%5Cx.ipynb",
+            "kratosforge://user@notebook?path=C%3A%5Cx.ipynb", "kratosforge://notebook:80?path=C%3A%5Cx.ipynb",
+            "kratosforg3://notebook?path=C%3A%5Cx.ipynb", "file:///C:/x.ipynb", "javascript:alert(1)", r"kratosforge\://notebook",
+            "kratosforge%3A%2F%2Fnotebook?path=C%3A%5Cx.ipynb", "\u{0}kratosforge://page/monitor", "kratosforge://page/monitor/x",
+            "kratosforge://page/", "kratosforge://page/%2e%2e%2f%2e%2e", "kratosforge://page/..%5c..", "kratosforge://page/a%00",
+            "kratosforge://page/\u{ff4d}onitor", "kratosforge://page/m%D0%BEnitor", // fullwidth m, Cyrillic o
+            // traversal and paths that aren't a full path on this PC
+            "kratosforge://notebook?path=..%5C..%5Cx.ipynb", "kratosforge://notebook?path=%2e%2e%2f%2e%2e%2fx.ipynb",
+            "kratosforge://notebook?path=%252e%252e%252fx.ipynb", "kratosforge://notebook?path=%5Cx.ipynb",
+            "kratosforge://notebook?path=%2Fetc%2Fx.ipynb", "kratosforge://notebook?path=C%3Ax.ipynb",
+            "kratosforge://notebook?path=C%EF%BC%9A%5Cx.ipynb", "kratosforge://notebook?path=C%3A%EF%BC%BCx.ipynb", // fullwidth colon and backslash
+            "kratosforge://notebook?path=%5C%5Cserver%5Cshare%5Cx.ipynb", "kratosforge://notebook?path=%5C%5C%3F%5CUNC%5Cs%5Cx%5Cy.ipynb",
+            "kratosforge://notebook?path=%5C%5C%3F%5CGLOBALROOT%5CDevice%5CMup%5Cs%5Cx.ipynb",
+            "kratosforge://notebook?path=%5C%3F%3F%5CUNC%5Cs%5Cx%5Cy.ipynb", "kratosforge://notebook?path=%255C%255Cs%255Cx%255Cy.ipynb",
+            // not an .ipynb, or cut short by a NUL, a newline or a stream name
+            "kratosforge://notebook?path=C%3A%5Cx.ipynb%00.exe", "kratosforge://notebook?path=C%3A%5Cx.exe%00.ipynb",
+            "kratosforge://notebook?path=C%3A%5Cx.ipynb%0A", "kratosforge://notebook?path=C%3A%5Cx.ipynb%3A%24DATA",
+            "kratosforge://notebook?path=C%3A%5Cx.ipynb.", "kratosforge://notebook?path=C%3A%5Cx.ipynb%20",
+            // invalid or overlong UTF-8, broken % codes
+            "kratosforge://notebook?path=C%3A%5C%C0%AE%C0%AE%5Cx.ipynb", "kratosforge://notebook?path=C%3A%5C%E0%80%AEx.ipynb",
+            "kratosforge://notebook?path=C%3A%5C%ED%A0%80.ipynb", "kratosforge://notebook?path=C%3A%5C%FF.ipynb",
+            "kratosforge://notebook?name=%C0%AF", "kratosforge://notebook?name=%", "kratosforge://notebook?name=%G0",
+            "kratosforge://notebook?path=C%3A%5Cx%2.ipynb",
+            // direction marks and other control characters
+            "kratosforge://notebook?name=Daily%E2%80%AEbnpi.exe", "kratosforge://notebook?path=C%3A%5C%E2%80%AEbnpi.exe.ipynb",
+            "kratosforge://notebook?path=C%3A%5Ca%E2%81%A6b.ipynb", "kratosforge://notebook?name=a%E2%80%8Fb",
+            "kratosforge://notebook?name=a%D8%9Cb", "kratosforge://notebook?name=a%C2%85b", "kratosforge://notebook?name=a%1Bb",
+            "kratosforge://notebook?name=a%7Fb", "kratosforge://notebook?path=C%3A%5Ca%09b.ipynb",
+        ] {
+            match parse(bad) {
+                Err(_) | Ok(Link::Refused(_)) => {}
+                Ok(other) => panic!("{bad:?} read as {other:?}"),
+            }
+        }
+        // Very long links, whatever they say.
+        for long in [format!("kratosforge://notebook?path=C:%5C{}.ipynb", "%41".repeat(MAX_LINK)),
+                     format!("kratosforge://notebook?name={}", "a".repeat(301)),
+                     format!("kratosforge://page/{}", "a".repeat(41)), format!("kratosforge://{}", "/".repeat(MAX_LINK + 1))] {
+            assert!(parse(&long).is_err(), "{}", &long[..40]);
+        }
+        // An odd but harmless value still reads as text, never decoded twice.
+        assert_eq!(parse("kratosforge://notebook?name=a%2520b").unwrap(), Link::NotebookName("a%20b".into()));
     }
 
     #[test]

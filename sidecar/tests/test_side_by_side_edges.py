@@ -489,6 +489,12 @@ def test_onelake_versions_skip_folders_that_arent_delta_tables(monkeypatch):
         def history(self, limit):
             return [{"version": 3, "limit": limit}]
 
+        def protocol(self):  # plain Delta: read by the pyarrow reader
+            return SimpleNamespace(reader_features=None, writer_features=None)
+
+        def metadata(self):
+            return SimpleNamespace(configuration={})
+
         def to_pyarrow_dataset(self):
             return "dataset"
 

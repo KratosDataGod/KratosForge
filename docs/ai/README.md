@@ -6,6 +6,7 @@ KratosForge is **AI-ready, not AI-dependent**. It has no AI of its own: no chat,
 | --- | --- |
 | This page | Connecting a tool, step by step, with the setup for each one |
 | [Workflows](workflows.md) | Step-by-step workflows your tool can follow (also served as MCP prompts) |
+| [Tools](tools.md) | Every tool a connected AI tool can use: its permission, whether it asks you, and where it reads or changes things |
 | [Instructions for your AI tool](agent-instructions.md) | Text to paste into `AGENTS.md`, `CLAUDE.md`, `.cursorrules` or `.github/copilot-instructions.md` |
 | [Use with Microsoft's Fabric skills](microsoft-fabric-skills.md) | The KratosForge skill for Claude Code and GitHub Copilot CLI, and how it works beside Microsoft's Fabric skills |
 | [Architecture](../architecture/ai-integration.md), [security](../product/ai-integration-security.md), [compatibility](../product/ai-integration-compatibility.md) | Developers and IT |
@@ -17,8 +18,8 @@ Only the MCP Python SDK client and an HTTP client are tested, automatically on e
 ## Connect a tool
 
 1. Open **Settings > Integrations** and turn on **Let AI tools connect**. It's off until you do, and your organization's policy can keep it off.
-2. **Add a tool**: pick which one, give it a name, and choose what it may do. **Read metadata** (names, structure, schemas, checks; no rows) is always included. **Read data** reads rows from tables, a few at a time. **Run code on this PC** runs SQL, Python and notebooks, and asks you every time.
-3. **Copy setup** and paste it into your tool as shown below. Your setup has your tool's own id in place of `YOUR-CLIENT-ID` and your own path in place of `C:\Users\you\...`. The command's path stays the same when KratosForge updates.
+2. **Add a tool**: pick which one, give it a name, and choose what it may do. **Read metadata** (names, structure, schemas and checks, but no rows) is always included. **Read data** reads rows from tables, a few at a time, and runs read-only SQL. It asks you each time unless you tick **Don't ask me before it reads data**. **Run code on this PC** runs Python, notebooks and local pipeline runs, and asks you every time. **Write notebooks** is offered too, but no tool uses it yet.
+3. Select **Next**, copy the setup it shows, and paste it into your tool as shown below. **Edit > Copy setup** shows it again later. Your setup has your tool's own id in place of `YOUR-CLIENT-ID` and your own path in place of `C:\Users\you\...`. The command's path stays the same when KratosForge updates.
 4. **Test connection**, then ask your tool something like "What lakehouses can you see in KratosForge?".
 
 KratosForge has to be open while you use it: requests that need your approval appear there, over whatever page you're on. **Allow once** lets that one request through; **Deny** refuses it. Your tool can't approve anything itself.
@@ -137,13 +138,24 @@ Use `127.0.0.1` in the address, not `localhost`: on Windows, `localhost` tries t
 | --- | --- |
 | List workspaces, lakehouses, tables, notebooks and projects, and read schemas and checks | Get your sign-in tokens or passwords |
 | Read rows, a few at a time (**Read data**) | Write tables through KratosForge, or change Fabric items |
-| Run read-only SQL, and Python and notebooks on this PC, each after you approve it (**Run code on this PC**) | Use Git, or change settings and policies |
-| Read Prove results and receipts, and with your approval compare tables or export a receipt | Read local files through SQL, or run anything without your approval |
+| Run read-only SQL (**Read data**; it asks you unless you turned that off) | Use Git, or change settings and policies |
+| Run Python and notebooks on this PC, each after you approve it (**Run code on this PC**) | Read local files through SQL, or run Python or a notebook without your approval |
+| Read Prove results and receipts, and compare tables or export a receipt (**Read data**; it asks you unless you turned that off) | |
+| Trace a column's lineage in the metadata project, and read its runs and their data quality results (counts only; Test and Prod run logs are read from OneLake with your sign-in) | |
+| List the local data projects on this PC, their tables and columns, and a local Delta table's history (read from each project's saved catalog; its database is never opened, so KratosForge can keep it open) | |
 | List an environment's semantic models, export one as Apache Ossie YAML, and preview what an Ossie import would change (Preview; importing stays in KratosForge, behind its confirm) | |
 
 Code a tool runs gets its own process that's ended afterwards; it can read the attached lakehouse but table writes through KratosForge are refused. Approved Python runs as you and could still write files with the storage access it has, so read it before you allow it: the approval shows it in full. A SQL query a tool runs uses the memory share and threads set for the SQL page (**Settings › Advanced › SQL queries**), and is stopped when its time limit (`timeout_seconds`, 2 minutes unless the tool asks otherwise) runs out or the tool cancels it; the tool gets a timeout error and its next query can start straight away. One tool query runs at a time; another waits for it, and the wait counts towards its time limit. Text the tool reads from notebooks, tables and files is treated as data: it can't approve anything. Every request is recorded under **Recent activity**, and in an audit trail your IT team can collect (`%LOCALAPPDATA%\FabricDesktop\integrations\audit`).
 
 These limits apply to what your tool does through KratosForge. A tool that can already run commands on your PC (as most coding agents can) can do anything you can, with or without this connection; see [security](../product/ai-integration-security.md#what-it-does-not-protect-against).
+
+## What stays on this PC
+
+The tools are about what is on this PC: your notebooks, the metadata project and its lineage and run log, local data projects, proofs and receipts, and runs on this PC. They work the same whether your target is Fabric, Databricks or Snowflake.
+
+They don't create, change or delete Fabric items, and they don't cover what Microsoft's Fabric MCP servers and [Fabric skills](microsoft-fabric-skills.md) already do. KratosForge reads Fabric only where a tool needs it (workspaces, lakehouse tables and schemas, an environment's run log or semantic models), always with your own sign-in, so your tool sees no more than you can. For other Fabric work, connect Microsoft's servers beside this one.
+
+Nothing a tool asks for leaves your PC through KratosForge, except the Fabric and OneLake calls above, which go to your own tenant, and anything code you approve does, since it runs as you. No tool request makes KratosForge call an AI model. (App Studio's model connections are separate: they use your own model and key, and only after you agree.)
 
 ## If it doesn't work
 

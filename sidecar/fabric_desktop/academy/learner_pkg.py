@@ -28,17 +28,30 @@ SOURCES: dict[str, Path] = {
     "duckdb_rows.py": _ENGINE / "duckdb_rows.py",
     "spark_builtins_sql.py": _ENGINE / "spark_builtins_sql.py",
     "sql_dialects.py": _ENGINE / "sql_dialects.py",
+    "spark_sql_names.py": _ENGINE / "spark_sql_names.py",
     "spark_decimals.py": _ENGINE / "spark_decimals.py",
+    "spark_text_compare.py": _ENGINE / "spark_text_compare.py",
     "spark_hash.py": _ENGINE / "spark_hash.py",
+    "databricks_bytes.py": _ENGINE / "databricks_bytes.py",  # url_decode, which spark_hash.register adds
     "spark_number_format.py": _ENGINE / "spark_number_format.py",
     "spark_struct_fields.py": _ENGINE / "spark_struct_fields.py",
+    "spark_aggregates.py": _ENGINE / "spark_aggregates.py",
+    "spark_strings.py": _ENGINE / "spark_strings.py",
+    "spark_complex.py": _ENGINE / "spark_complex.py",
+    "spark_json.py": _ENGINE / "spark_json.py",
+    "spark_datetime.py": _ENGINE / "spark_datetime.py",
+    "spark_time_zone.py": _ENGINE / "spark_time_zone.py",
+    "spark_windows.py": _ENGINE / "spark_windows.py",
+    "spark_branch_types.py": _ENGINE / "spark_branch_types.py",
+    "spark_replace_where.py": _ENGINE / "spark_replace_where.py",
     "notebook_dag.py": _ENGINE / "notebook_dag.py",
     "pyspark_shim.py": _HERE / "pyspark_shim.py",
     "pyspark_stream.py": _HERE / "pyspark_stream.py",
     "pyspark_delta.py": _HERE / "pyspark_delta.py",
     "notebookutils_lab.py": _HERE / "notebookutils_lab.py",
+    "duckdb_nul.py": _ENGINE / "duckdb_nul.py",  # DuckDB 1.x stops reading SQL at a NUL; __init__ installs it
 }
-REWRITES = {"pyspark_shim.py": (("from .. import spark_compat", "from . import spark_compat"),
+REWRITES = {"pyspark_shim.py": (("from .. import spark_compat, spark_replace_where", "from . import spark_compat, spark_replace_where"),
                                 ("from ..duckdb_rows import", "from .duckdb_rows import")),
             "notebookutils_lab.py": (("from .. import notebook_dag", "from . import notebook_dag"),)}
 # Top-level packages the copied files may import, besides the standard library and each other.
@@ -62,7 +75,8 @@ def build(dest: Path) -> Path:
     Files are written whole and renamed into place, so a half-written package is never imported."""
     pkg = Path(dest) / PACKAGE
     pkg.mkdir(parents=True, exist_ok=True)
-    files = {"__init__.py": '"""KratosForge code a learner exercise may import (generated; see academy/learner_pkg.py)."""\n',
+    files = {"__init__.py": '"""KratosForge code a learner exercise may import (generated; see academy/learner_pkg.py)."""\n'
+                            "from . import duckdb_nul\nduckdb_nul.install()\n",
              **{name: text(name) for name in SOURCES}}
     for name, body in files.items():
         jsonfile.write_text(pkg / name, body)

@@ -53,10 +53,14 @@ async function historyDialog(name) {
 
 function restoreDialog(name, env, v, hist) {
   const reason = h("input", { placeholder: "Bad export from CRM on Monday" });
+  // A Prod workspace (WR-250), or another project's Prod on this PC (WR-251): the restore waits for its name typed.
+  const needs = hist.confirm_name || "";
+  const typed = needs ? h("input", { autocomplete: "off", spellcheck: "false", oninput: () => { go.disabled = typed.value.trim() !== needs; } }) : null;
   const restore = async () => {
+    if (typed && typed.value.trim() !== needs) return;
     closeDialog();
     toast(`Restoring ${name} to version ${v.version}...`);
-    const res = await metaCall("meta_restore", { name, env, version: v.version, reason: reason.value.trim() }, "Not restored");
+    const res = await metaCall("meta_restore", { name, env, version: v.version, reason: reason.value.trim(), ...(needs ? { confirm_name: needs } : {}) }, "Not restored");
     if (!res) return;
     toast(`${name} in ${ENV_LABEL[env]} is back to version ${v.version}`, false, { log: true });
     const downstream = res.downstream || [];
@@ -69,13 +73,17 @@ function restoreDialog(name, env, v, hist) {
     [btn("Close", null, () => { closeDialog(); render(); }, "tool outline"),
       downstream.length ? btn("Run downstream", "play", () => { closeDialog(); runEntities(downstream); }, "tool primary") : null].filter(Boolean));
   };
+  const go = btn("Restore", "history", restore, "tool primary");
+  go.disabled = !!typed;
   showDialog(`Restore ${name} to version ${v.version}?`, h("div", { class: "scroll" },
     h("p", { class: "text" }, `${name} in ${ENV_LABEL[env]} goes back to how it was ${dateTimeText(v.at, { empty: `at version ${v.version}` })}. `,
       "Later versions stay in its history, so you can restore one of them again."),
     hist.incremental ? h("p", { class: "text" }, "It loads incrementally, so its watermark moves back too and the next run picks up what came after.") : null,
     hist.downstream.length ? h("p", { class: "muted-text" }, `Tables that read it aren't changed: ${hist.downstream.join(", ")}.`) : null,
-    h("label", { class: "field" }, "Why (kept with the restore)", reason)),
-  [btn("Cancel", null, () => historyDialog(name), "tool outline"), btn("Restore", "history", restore, "tool primary")]);
+    h("label", { class: "field" }, "Why (kept with the restore)", reason),
+    typed ? [h("p", { class: "text" }, `${needs} is a Prod workspace, so this restore runs only after you type its name exactly to confirm.`),
+      h("label", { class: "field" }, `Type ${needs} to confirm`, typed)] : null),
+  [btn("Cancel", null, () => historyDialog(name), "tool outline"), go]);
 }
 
 // The entity lineage's file source, when the files come through a OneLake shortcut.
@@ -102,9 +110,11 @@ async function renderTestsTab(body) {
   const run = async () => {
     body.querySelector(".tests-summary")?.replaceChildren(h("span", { class: "muted-text" }, "Running the tests..."));
     const res = await metaCall("meta_tests", { run: true }, "Tests didn't run");
-    if (res) draw(res);
+    draw(res || shown);  // a refused run shows the last results again, not "Running the tests..." for good
   };
+  let shown = t;
   const draw = (r) => {
+    shown = r;
     const failed = r.tests.filter((x) => x.status !== "passed");
     fill(body,
       h("div", { class: "row tests-summary" },
@@ -229,8 +239,11 @@ function measureFigure(title, m, cur) {
     measureValue(m, cur), " ", measureBadge(m));
 }
 
-function measureDialog(title, m, cur) {
-  const [label, , why] = MEASURE_KIND[m?.classification] || MEASURE_KIND.unknown;
+// `extra` (Compare platforms, platform-compare.js): the figure as shown, why it has its badge, its own
+// unit, runs counted, how runs were matched, the money at a scenario and the closing note.
+function measureDialog(title, m, cur, extra = {}) {
+  const [label, , kindWhy] = MEASURE_KIND[m?.classification] || MEASURE_KIND.unknown;
+  const why = extra.why || kindWhy;
   const list = (items) => items && items.length ? h("ul", { class: "text" }, items.map((x) => h("li", {}, x))) : null;
   const methods = m.methods || (m.method ? [m.method] : []);
   const sources = m.sources || (m.source ? [m.source] : []);
@@ -238,17 +251,19 @@ function measureDialog(title, m, cur) {
   const period = m.period && (m.period.start || m.period.end)
     ? `${dateTimeText(m.period.start, { empty: "?" })} to ${dateTimeText(m.period.end, { empty: "now" })}` : "";
   showDialog(title, h("div", { class: "scroll" },
-    h("p", { class: "text" }, h("b", {}, measureValue(m, cur)), " ", measureBadge(m), " ", why),
+    h("p", { class: "text" }, h("b", {}, extra.value || measureValue(m, cur)), " ", measureBadge(m), " ", why),
     h("table", { class: "list compact" }, h("tbody", {},
       row("Classification", label),
-      row("Unit", { cu_hours: "CU hours (capacity use)", cu_seconds: "CU-seconds (capacity use)", percent: "Percent of a capacity over the period", currency: m.metric === "billed_cost" ? `Money (${m.currency}), as billed` : `Money (${m.currency || cur}), a price applied to CU use` }[m.unit]),
+      row("Unit", extra.unit || { cu_hours: "CU hours (capacity use)", cu_seconds: "CU-seconds (capacity use)", percent: "Percent of a capacity over the period", currency: m.metric === "billed_cost" ? `Money (${m.currency}), as billed` : `Money (${m.currency || cur}), a price applied to CU use` }[m.unit]),
       row("Worked out as", methods.join("; ")),
-      row("Source", sources.join(", ")),
+      row("Source", extra.source || sources.join(", ")),
       row("Period", period),
-      row("Runs counted", m.parts !== undefined ? `${m.parts - (m.unknown_parts || 0)} of ${m.parts}` : ""),
+      row("Runs counted", extra.runs || (m.parts !== undefined ? `${m.parts - (m.unknown_parts || 0)} of ${m.parts}` : "")),
+      row("Matched by", extra.matched || ""),
       row("Not known", m.reason || ""))),
     m.assumptions?.length ? [h("p", { class: "text" }, h("b", {}, "Assumptions")), list(m.assumptions)] : null,
-    h("p", { class: "muted-text small" }, String(m.metric || "").startsWith("billed_")
+    extra.money || null,
+    extra.note ? h("p", { class: "muted-text small" }, extra.note) : h("p", { class: "muted-text small" }, String(m.metric || "").startsWith("billed_")
       ? "Azure Cost Management bills a capacity per meter and day, for the whole capacity: it can't be split into single runs."
       : "Fabric's Capacity Metrics app has the CU your capacity recorded. A price is not a charge: on a reserved or already-running capacity the invoice doesn't change with each run.")),
   [btn("Close", null, closeDialog, "tool outline")]);
@@ -671,7 +686,7 @@ async function drawLakehouseAccess(slot) {
 
 function lakehouseAccessBody(a, lh, redraw) {
   const names = Object.fromEntries(a.people.map((p) => [p.id, p.name]));
-  const pathLabel = (p) => (p === "*" ? "Everything" : p.replace(/^\/Tables\//, "").replace(/\//g, ".").replace(/^\/Files/, "Files"));
+  const pathLabel = (p) => (p === "*" ? "Everything" : p.replace(/^\/Tables\//, "").replace(/^\/Files/, "Files").replace(/\//g, "."));
   const who = h("div", {});
   const tableSel = h("select", { "aria-label": "Table" }, h("option", { value: "" }, "Pick a table"), a.tables.map((t) => h("option", { value: t }, pathLabel(t))));
   tableSel.addEventListener("change", async () => {

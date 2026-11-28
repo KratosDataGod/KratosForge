@@ -104,7 +104,7 @@ def parse(text: str) -> dict[str, str | None]:
             out[current] = "\n".join(body).strip("\n") + "\n"
 
     for n, line in enumerate(raw.lstrip("﻿").replace("\r\n", "\n").split("\n"), 1):
-        m = _MARKER.match(line)
+        m = _MARKER.fullmatch(line)
         if not m:
             if current is None and line.strip() and not line.strip().startswith("--"):
                 raise Refused(f"Line {n}: start each file with a line like -- file: dbo/Tables/DimCustomer.sql.")

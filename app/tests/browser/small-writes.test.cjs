@@ -6,7 +6,7 @@
 //   the domain with the ticked environments, the subdomains choice and, for Save, the picked script.
 // - Validate notebook > Save report (validate.js): notebook_validate_save with that clean run's id,
 //   against the real engine, which writes the report to its Downloads folder.
-// - Home > Recent notebooks > Run several > Don't start the rest (home-notebooks.js): notebook_batch_stop
+// - Home > Recent notebooks > Run several > Stop (home-notebooks.js): notebook_batch_stop
 //   with that batch's id, against the real engine, which leaves its stop file.
 // Engine refusals read as a sentence, without the exception's name; opening each place sends no write;
 // axe finds nothing serious on each dialog and panel.
@@ -35,11 +35,18 @@ const failing = (method, fn) => (p) => { if (fail[method]) throw new Error(fail[
 // (lakehouse.py WriteResult.__repr__).
 let tables;
 const freshTables = () => new Set(["sales", "sales_summary"]);
-const saveSql = failing("save_sql", ({ table, mode = "new" }) => {
+// In a workspace marked Prod (WR-249) every write waits for the workspace's typed name: "new" answers
+// {table, exists, prod} and writes nothing, and any other mode without the name is refused.
+let prodWorkspace = "";
+const saveSql = failing("save_sql", ({ table, mode = "new", confirm_name = "" }) => {
   // lakehouse.py table_ref: the name is checked before anything is read or written.
   if (!table || /[/\\]/.test(table)) {
     throw new Error(`ValueError: '${table}' isn't a table name: a schema or table name can't be empty or hold / or \\.`);
   }
+  if (prodWorkspace && mode === "new" && (tables.has(table) || confirm_name !== prodWorkspace)) {
+    return { table, exists: tables.has(table), prod: prodWorkspace };
+  }
+  if (prodWorkspace && confirm_name !== prodWorkspace) throw new Error(`PermissionError: ${prodWorkspace} is a Prod workspace`);
   if (mode === "new" && tables.has(table)) return { table, exists: true };
   const version = tables.has(table) ? 3 : 0;
   tables.add(table);
@@ -209,7 +216,51 @@ test("overwriting a table asks first in a danger confirm that wants the name typ
   await confirm.waitFor({ state: "detached" });
   assert.match(await toastSays(/^Wrote 42 rows to sales_summary/), /\(Delta version 3\)$/);
   assert.deepStrictEqual(writes(from), [firstSave("sales_summary"),
-    { method: "save_sql", params: { query: PICKED, lakehouse_ref: LH, table: "sales_summary", mode: "overwrite", dialect: "spark" } }]);
+    { method: "save_sql", params: { query: PICKED, lakehouse_ref: LH, table: "sales_summary", mode: "overwrite", dialect: "spark", confirm_name: "sales_summary" } }]);
+});
+
+test("in a Prod workspace a new table waits for the workspace's typed name", { skip }, async () => {
+  const from = app.calls.length;
+  prodWorkspace = "Sales Prod";
+  try {
+    await saveAs("prod_totals");
+    const confirm = page().getByRole("dialog", { name: "Write to Prod?" });
+    await confirm.waitFor();
+    assert.match(await confirm.innerText(), /Sales Prod is a Prod workspace\. Saving writes the table prod_totals to Sales there\./);
+    assert.deepStrictEqual(writes(from), [firstSave("prod_totals")], "nothing is written before the answer");
+    const save = confirm.getByRole("button", { name: "Save" });
+    assert.match(await save.getAttribute("class"), /\bdanger-solid\b/);
+    await confirm.getByRole("textbox", { name: "Type Sales Prod to confirm" }).fill("prod_totals");
+    assert.ok(await save.isDisabled(), "the table's name isn't the workspace's");
+    await confirm.getByRole("textbox", { name: "Type Sales Prod to confirm" }).fill("Sales Prod");
+    await save.click();
+    await confirm.waitFor({ state: "detached" });
+    await toastSays(/^Wrote 42 rows to prod_totals/);
+    assert.deepStrictEqual(writes(from), [firstSave("prod_totals"),
+      { method: "save_sql", params: { query: PICKED, lakehouse_ref: LH, table: "prod_totals", mode: "new", dialect: "spark", confirm_name: "Sales Prod" } }]);
+  } finally {
+    prodWorkspace = "";
+  }
+});
+
+test("in a Prod workspace a replace asks once, for the workspace's name", { skip }, async () => {
+  const from = app.calls.length;
+  prodWorkspace = "Sales Prod";
+  try {
+    await saveAs("sales_summary");
+    const confirm = page().getByRole("dialog", { name: "Replace the table in Prod?" });
+    await confirm.waitFor();
+    assert.match(await confirm.innerText(), /Sales Prod is a Prod workspace, and Sales already has a table called sales_summary\. Saving replaces all of its rows/);
+    await confirm.getByRole("textbox", { name: "Type Sales Prod to confirm" }).fill("Sales Prod");
+    await confirm.getByRole("button", { name: "Replace" }).click();
+    await confirm.waitFor({ state: "detached" });
+    await toastSays(/^Wrote 42 rows to sales_summary/);
+    assert.deepStrictEqual(writes(from), [firstSave("sales_summary"),
+      { method: "save_sql", params: { query: PICKED, lakehouse_ref: LH, table: "sales_summary", mode: "overwrite", dialect: "spark", confirm_name: "Sales Prod" } }]);
+    assert.strictEqual(await page().getByRole("dialog").count(), 0, "no second confirm for the table's name");
+  } finally {
+    prodWorkspace = "";
+  }
 });
 
 test("Cancel on the Replace confirm sends no overwrite", { skip }, async () => {
@@ -368,7 +419,7 @@ test("Save report that the engine can't write reads as a sentence", { skip }, as
   }
 });
 
-// ---------- Run several > Don't start the rest (real engine for the batch) ----------
+// ---------- Run several > Stop (real engine for the batch) ----------
 
 async function home() {
   await page().evaluate(() => { homeRun.picked.clear(); go("home"); });
@@ -398,27 +449,27 @@ async function endBatch(id) {
   await page().waitForFunction(() => ["done", "lost"].includes(homeRun.batch?.state), null, { timeout: 10000 });
 }
 
-test("Don't start the rest sends that batch's id, and the engine leaves its stop file", { skip }, async () => {
+test("Stop sends that batch's id, and the engine leaves its stop file", { skip }, async () => {
   const from = app.calls.length;
   const id = await runBatch(["Daily sales", "Stock levels"]);
   assert.deepStrictEqual(writes(from), [{ method: "notebook_batch_start", params: { names: ["Daily sales", "Stock levels"], parallel: 2 } }]);
   assert.match(id, /^[0-9a-f]{12}$/);
   const at = app.calls.length;
-  await page().locator(".home-run-bar").getByRole("button", { name: "Don't start the rest" }).click();
-  await page().locator(".home-run-bar", { hasText: "The rest won't start" }).waitFor();
+  await page().locator(".home-run-bar").getByRole("button", { name: "Stop", exact: true }).click();
+  await page().locator(".home-run-bar", { hasText: "Stopping" }).waitFor();
   assert.deepStrictEqual(writes(at), [{ method: "notebook_batch_stop", params: { id } }]);
   assert.ok(fs.existsSync(path.join(batchDir(), `${id}.stop`)), "the engine wrote the stop file");
-  assert.strictEqual(await page().locator(".home-run-bar").getByRole("button", { name: "Don't start the rest" }).count(), 0);
+  assert.strictEqual(await page().locator(".home-run-bar").getByRole("button", { name: "Stop", exact: true }).count(), 0);
   await endBatch(id);
 });
 
-test("Don't start the rest on a batch the engine no longer has reads as a sentence", { skip }, async () => {
+test("Stop on a batch the engine no longer has reads as a sentence", { skip }, async () => {
   const id = await runBatch(["Weekly returns", "Stock levels"]);
   fs.rmSync(path.join(batchDir(), `${id}.json`));  // gone from this PC, as after a cleanup
   const from = app.calls.length;
-  await page().locator(".home-run-bar").getByRole("button", { name: "Don't start the rest" }).click();
-  const said = await toastSays(/^Could not stop the rest/);
-  assert.strictEqual(said, "Could not stop the rest: That run of several notebooks isn't on this PC");
+  await page().locator(".home-run-bar").getByRole("button", { name: "Stop", exact: true }).click();
+  const said = await toastSays(/^Could not stop the run/);
+  assert.strictEqual(said, "Could not stop the run: That run of several notebooks isn't on this PC");
   assert.doesNotMatch(said, /LookupError/);
   assert.deepStrictEqual(writes(from), [{ method: "notebook_batch_stop", params: { id } }]);
   assert.ok(!fs.existsSync(path.join(batchDir(), `${id}.stop`)), "no stray stop file");

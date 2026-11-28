@@ -227,7 +227,8 @@ async function renderAgent() {
     AG_IDENTITY[a.identity] ? `Signs in as ${AG_IDENTITY[a.identity]}` : "", `Version ${a.version || "unknown"}${a.version_compare === "older" ? ` (this app is ${out.app_version})` : ""}`,
     a.started_at ? `Started ${relTime(a.started_at)}` : "", `Last heartbeat ${relTime(a.heartbeat_at)}`,
     a.status_seconds ? `Reports every ${a.status_seconds} s` : ""].filter(Boolean);
-  setView(h("div", { class: "page wl-page" },
+  // A live agent's page has no control of its own, so the page itself is the Tab stop that scrolls it (axe scrollable-region-focusable).
+  setView(h("div", { class: "page wl-page", tabindex: "0", role: "region", "aria-label": `Agent ${a.agent}` },
     h("div", { class: "row wrap wl-head" },
       h("div", { class: "grow" },
         h("h1", {}, a.agent, " ", agStatePill(a), preview("agents", h("span", {}))),

@@ -107,19 +107,62 @@ function loadQueryTabs(ref) {
     const saved = JSON.parse(localStorage.getItem(queryTabsKey(ref)));
     if (Array.isArray(saved) && saved.length) {
       const tabs = saved.map((t) => ({ name: String(t.name), sql: String(t.sql), dialect: sqlDialect(t.dialect),
+        ...(t.params && typeof t.params === "object" ? { params: sqlKeptParams(t.params) } : {}),
         ...(t.file && typeof t.file.name === "string" ? { file: t.file } : {}),
-        ...(t.proj && typeof t.proj.path === "string" ? { proj: t.proj } : {}) }));
+        ...(t.proj && typeof t.proj.path === "string" ? { proj: t.proj } : {}),
+        ...(t.disk && typeof t.disk.path === "string" ? { disk: t.disk } : {}) }));
       return wh ? tabs.map((t) => ({ ...t, dialect: ref.kind })) : tabs;
     }
   } catch { /* no saved tabs */ }
   return [wh ? { name: "Query 1", sql: WAREHOUSE_HINT, dialect: ref.kind } : { name: "Query 1", sql: QUERY_HINT, dialect: "spark" }];
 }
 
+// S17: a tab's kept parameter values, as read back from this PC's storage: {name: {type, value}}.
+function sqlKeptParams(raw) {
+  const out = {};
+  for (const [name, v] of Object.entries(raw || {})) {
+    if (/^[A-Za-z_]\w*$/.test(name) && v && SQL_PARAM_TYPES[v.type] && typeof v.value === "string") out[name] = { type: v.type, value: v.value };
+  }
+  return out;
+}
+
+// "region = West, start_date = 2026-10-01": the values a run used, for the band and the history.
+function sqlParamsText(list) {
+  return list.map((x) => `${x.name} = ${x.value.length > 40 ? `${x.value.slice(0, 40)}…` : x.value}`).join(", ");
+}
+
+// S38: a tab's parameter values (those its SQL uses) go into its .sql file as one comment line at the top, and come back out
+// when the file opens, so the values travel with the file and the SQL itself stays as written.
+const SQL_FILE_PARAMS = "-- KratosForge parameters: ";
+
+function sqlFileText(sql, params) {
+  const used = new Set(sqlParamNames(sql).map((x) => x.name));  // only the values this SQL asks for
+  const kept = Object.fromEntries(Object.entries(sqlKeptParams(params)).filter(([name]) => used.has(name)));
+  return Object.keys(kept).length ? `${SQL_FILE_PARAMS}${JSON.stringify(kept)}\n${sql}` : sql;
+}
+
+function sqlFileSplit(text) {
+  if (!text.startsWith(SQL_FILE_PARAMS)) return { sql: text, params: null };
+  const end = text.indexOf("\n");
+  const line = end < 0 ? text : text.slice(0, end);
+  try {
+    const params = sqlKeptParams(JSON.parse(line.slice(SQL_FILE_PARAMS.length)));
+    return { sql: end < 0 ? "" : text.slice(end + 1), params: Object.keys(params).length ? params : null };
+  } catch { return { sql: text, params: null }; /* not our line after all: the SQL keeps it */ }
+}
+
+// A tab opened from (or saved as) a .sql file has changes the file doesn't, when its text with its
+// parameter line differs from what was last read or written. Unknown (null) counts as changed.
+function sqlDiskDirty(t) {
+  return !!t.disk && (t.disk.saved == null || sqlFileText(t.sql, t.params) !== t.disk.saved);
+}
+
 function saveQueryTabs() {
   try {
     localStorage.setItem(queryTabsKey(sqlPage.ref),
       JSON.stringify(sqlPage.tabs.map((t) => ({ name: t.name, sql: t.sql, dialect: t.dialect || "spark", ...(t.file ? { file: t.file } : {}),
-        ...(t.proj ? { proj: t.proj } : {}) }))));
+        ...(t.params && Object.keys(t.params).length ? { params: t.params } : {}),
+        ...(t.proj ? { proj: t.proj } : {}), ...(t.disk ? { disk: t.disk } : {}) }))));
     return true;
   } catch { return false; /* storage unavailable: tabs last for this session */ }
 }
@@ -155,7 +198,7 @@ async function warehouseRunOk(ref) {
   if (sqlWarehouseOk.has(sqlRefKey(ref))) return true;
   const ok = await confirmDialog(`Run this query in Fabric on ${ref.name}?`,
     `It runs on the ${ref.kind === "endpoint" ? "SQL analytics endpoint" : "warehouse"} in ${ref.workspace_name || "its workspace"}, ` +
-    "as you, and uses capacity. Only a query that reads is sent; anything that would change the warehouse is refused before Fabric is asked. " +
+    "as you, and uses capacity. Until you tick Allow changes, only a query that reads is sent; anything that would change the warehouse is refused before Fabric is asked. " +
     "This asks once per warehouse each time the app starts.", "Run in Fabric");
   if (ok) sqlWarehouseOk.add(sqlRefKey(ref));
   return ok;
@@ -173,17 +216,25 @@ function sqlMessages(ex, tab, target) {
     ` · ${(ex.columns?.length || 0).toLocaleString()} column${ex.columns?.length === 1 ? "" : "s"}` : ""}`);
   if (ex.change) lines.push(`Change: ${(ex.affected || 0).toLocaleString()} row${ex.affected === 1 ? "" : "s"} affected · ${ex.committed ? "committed" : "nothing kept"}`);
   if (ex.refused) lines.push(`Refused before it ran: statement ${ex.refused.statement} ${ex.refused.label}`);
+  if (tab.multi) {  // S14: what each statement did
+    for (const u of tab.multi.units) {
+      const at = tab.multi.units.indexOf(u) + 1;
+      const x = ex.parts?.find((p) => p.statement === at);
+      lines.push(`Statement ${u.n}${u.known ? ` (line ${u.line})` : ""}: ${sqlPartLabel(u, ex, tab.multi).text.replace(/^\d+ /, "")}` +
+        `${x?.seconds != null ? ` · ${x.seconds} s` : ""}`);
+    }
+  }
   if (ex.error) lines.push(`Message: ${ex.error}`);
   if (ex.time_limit_minutes) lines.push(`Time limit: ${ex.time_limit_minutes} minutes`);
   return h("pre", { class: "sql-messages" }, lines.join("\n"));
 }
 
 // The rows the Chart view draws: the run's snapshot, a page at a time, up to SQL_CHART_ROWS.
-async function sqlChartRows(execution) {
+async function sqlChartRows(execution, part) {
   const rows = [];
   let columns = [], total = 0;
   for (let offset = 0; rows.length < SQL_CHART_ROWS;) {
-    const page = await rpc("sql_page", { execution, offset });
+    const page = await rpc("sql_page", { execution, offset, ...sqlPartArg(part) });
     if (page.rerun_needed) throw new Error(page.message);
     ({ columns, total } = page);
     rows.push(...page.rows);
@@ -194,6 +245,8 @@ async function sqlChartRows(execution) {
 }
 
 // A managed run's state on the Results band: [pill class, label].
+// An export's format as it is said and shown: Parquet is a name, not an acronym to spell out.
+const EXPORT_NAME = { csv: "CSV", json: "JSON", parquet: "Parquet", xlsx: "Excel" };
 const SQL_STATE = { queued: ["busy", "Queued"], running: ["busy", "Running"], cancelling: ["busy", "Stopping"],
   completed: ["ok", "Succeeded"], failed: ["bad", "Failed"], cancelled: ["", "Stopped"], timed_out: ["bad", "Timed out"] };
 
@@ -212,15 +265,66 @@ async function followRun(tab, status) {
   return status;
 }
 
+// Editor parity S14: the part (statement) of a run with several whose result is shown, as sql_page's argument.
+const sqlPartArg = (part) => (part ? { part } : {});
+
 async function loadPage(tab, offset) {
   try {
-    const page = await rpc("sql_page", { execution: tab.exec.id, offset });
+    // The grid's sort and filters (sqlgrid.js) apply to every row of the run's snapshot, or of the
+    // statement's (S14) when the run had several, on this PC.
+    const page = await rpc("sql_page", { execution: tab.exec.id, offset, ...sqlGridQuery(tab.grid), ...sqlPartArg(tab.multi?.part) });
     if (page.rerun_needed) { tab.result = null; tab.error = page.message; tab.errorRetry = null; return; }
+    if (page.filter_error) { sqlGridState(tab).filterError = page.filter_error; return; }  // the rows on screen stay
+    if (tab.grid) {  // another page: the selection and an open value were on the page before
+      Object.assign(tab.grid, { filterError: null, sel: null });
+      if (tab.grid.side?.kind === "value") tab.grid.side = null;
+    }
     Object.assign(tab, { result: page, error: null, errorRetry: null });
   } catch (err) {
     tab.error = String(err);
     tab.errorRetry = () => loadPage(tab, offset).then(() => sqlPage.redraw?.());  // reads the same page again
   }
+}
+
+// S14: the statement whose result a finished run with several shows first: the one that failed, else the
+// last that returned rows, else the last that ran.
+function sqlPickPart(status) {
+  if (status.failed_statement) return status.failed_statement;
+  const parts = status.parts || [];
+  return ([...parts].reverse().find((x) => x.columns?.length && !sqlPartIsCount(x)) || parts.at(-1))?.statement ?? null;
+}
+
+// DuckDB answers a statement that makes or changes something with one Count column; that isn't rows to show.
+const sqlPartIsCount = (x) => x.columns?.length === 1 && x.columns[0].name === "Count" && x.rows <= 1;
+
+// A statement's first word (SELECT, UPDATE, CREATE), comments and strings aside.
+function sqlVerb(text) {
+  return (sqlMask(text).text.trim().match(/^[A-Za-z]+/)?.[0] || "").toUpperCase();
+}
+
+// The label of a statement's result tab: its number, what it is and what it gave, as "2 SELECT · 5 rows".
+function sqlPartLabel(u, ex, multi) {
+  const n = (k) => k.toLocaleString();
+  const at = multi.units.indexOf(u) + 1;
+  const x = ex?.parts?.find((p) => p.statement === at);
+  const verb = sqlVerb(u.text);
+  if (x) {
+    const kept = !multi.change || ex.committed || !["failed", "cancelled", "timed_out"].includes(ex.state);
+    const what = x.affected != null ? `${n(x.affected)} row${x.affected === 1 ? "" : "s"} ${kept ? "changed" : "rolled back"}`
+      : x.columns?.length && !sqlPartIsCount(x) ? `${n(x.rows)} row${x.rows === 1 ? "" : "s"}` : "Done";
+    return { state: "done", text: `${u.n} ${verb} · ${what}` };
+  }
+  if (ex?.failed_statement === at) return { state: "bad", text: `${u.n} Error` };
+  if (ex && ["queued", "running", "cancelling"].includes(ex.state) && (ex.statement || 1) === at) return { state: "busy", text: `${u.n} ${verb} · Running` };
+  return { state: "skip", text: `${u.n} Not run` };
+}
+
+// S27: each tab's last runs that left a result, newest first, and the ones pinned. Kept in memory, so on this
+// PC until the tab or the app closes; a pinned result's snapshot is kept by the engine until it's unpinned.
+const SQL_RESULT_HISTORY_MAX = 20;
+function sqlResultHistoryAdd(tab, entry) {
+  let unpinned = 0;
+  tab.history = [entry, ...(tab.history || [])].filter((e) => e.pinned || ++unpinned <= SQL_RESULT_HISTORY_MAX);
 }
 
 function cellText(v) {
@@ -241,7 +345,9 @@ function renderQuery() {
   const runsHere = () => wh || SQL_DIALECTS[tab.dialect].runsHere;
   const where = wh ? "in Fabric" : "on this PC";
 
-  const setSql = (text) => { tab.sql = text; saveQueryTabs(); };
+  const setSql = (text) => { tab.sql = text; saveQueryTabs(); drawParamChip(); drawDirty(); };
+  // S38: the dot on a tab opened from a .sql file while it has changes the file doesn't.
+  const drawDirty = () => { for (const [t, dot] of p.dirtyDots || []) dot.hidden = !sqlDiskDirty(t); };
   p.editor?.destroy();
   const provider = wh ? warehouseSqlProvider(ref) : lakehouseSqlProvider(p, ref, () => { if (here()) editor.refresh(); });
   const editor = p.editor = createSqlEditor({
@@ -251,7 +357,15 @@ function renderQuery() {
     on: {
       change: setSql,
       run: () => run(),
+      runStatement: () => {
+        const stmt = editor.statement();
+        if (stmt.trim()) run(stmt, [], { single: true });
+      },
+      togglePane: () => togglePane(),
+      definition: () => goToDefinition(),
+      peek: () => peekDefinition(),
       save: () => {
+        if (tab.disk) { saveDisk(false); return; }
         if (tab.proj) { whProjectSave(tab).then((ok) => { if (ok) { saveQueryTabs(); p.whProjectView?.refresh(); } }); return; }
         const ok = saveQueryTabs();
         toast(ok ? `Saved ${tab.name}` : "Could not save the query: this PC's app storage is unavailable", !ok);
@@ -306,19 +420,35 @@ function renderQuery() {
   // of its own, with Stop and the time limit in Settings > Advanced > SQL queries. Results come a page at a time from
   // the run's snapshot, so a large result is never loaded whole. On the Warehouse page (WH-01) the
   // same managed run sends one query that reads to the warehouse (sql_start target "warehouse").
-  async function run(query = editor.chosen(), allow = []) {
+  //
+  // S14 (Preview): a script of several statements runs them one after the other in one session, each with a
+  // result tab of its own, and stops at the first that fails. `opts.units` runs these statements (Run from
+  // statement n); `opts.single` runs `query` as one statement whatever it holds (Ctrl+Shift+Enter).
+  async function run(query = editor.chosen(), allow = [], opts = {}) {
     if (!query.trim() || tab.running) return;
+    if (p.pane === "hidden") p.pane = null;  // a run shows its results, as in SSMS
     if (!runsHere()) {
       toast(`${SQL_DIALECTS[tab.dialect].label} can't run on this PC. Pick Spark SQL or DuckDB to run here.`, true);
       return;
     }
+    // S17 (Preview): the query's parameters. Run asks for their values once; the tab keeps them.
+    const names = previewShown() && PREVIEW_FEATURES.sqlParams ? sqlParamNames(query) : [];
+    if (names.length && (opts.ask || names.some((x) => !tab.params?.[x.name]))) {
+      askParams(names, () => run(query, allow, { ...opts, ask: false }));
+      return;
+    }
+    const used = names.map((x) => ({ name: x.name, type: tab.params[x.name].type, value: tab.params[x.name].value }));
+    const withParams = used.length ? { params: used } : {};
+    const units = opts.units || (previewShown() && PREVIEW_FEATURES.sqlStatements && !opts.single ? splitScript(query) : []);
+    const multi = units.length > 1;
+    const each = multi ? { statements: units.map((u) => u.text) } : {};
     // WH-10b: with Allow changes ticked, ask the engine what the script does first; a change has its own confirm.
     const whRef = wh ? { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind } : null;
     let change = false;
     if (wh && whChangesTicked(ref)) {
       let plan;
       try {
-        plan = await rpc("sql_start", { query, target: "warehouse", dialect: "tsql", warehouse_ref: whRef, allow: ["warehouse_write"], dry_run: true });
+        plan = await rpc("sql_start", { query, target: "warehouse", dialect: "tsql", warehouse_ref: whRef, allow: ["warehouse_write"], dry_run: true, ...each, ...withParams });
       } catch (err) {
         Object.assign(tab, { error: String(err), errorRetry: () => run(query), result: null, exec: null });
         sqlPage.redraw?.();
@@ -339,32 +469,39 @@ function renderQuery() {
     if (wh && !sqlPage.catalog) loadCatalog();
     tab.running = true;
     const startedAt = Date.now();
-    Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "", chart: null });
+    Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "", chart: null, grid: sqlGridCarry(tab.grid),
+      multi: multi ? { units, part: null, change, grids: {} } : null, old: null, ranParams: used });
     drawResults();
+    announce("Query running");  // the pill is redrawn, not a live region: say the start and the end
     let status;
     try {
       status = await rpc("sql_start", wh
-        ? { query, target: "warehouse", dialect: "tsql", warehouse_ref: whRef,
+        ? { query, target: "warehouse", dialect: "tsql", warehouse_ref: whRef, ...each, ...withParams,
           ...(change ? { allow: ["warehouse_write"], confirm: true, confirm_name: ref.name } : {}) }
-        : { query, lakehouse_ref: ref, dialect: tab.dialect, allow });
+        : { query, lakehouse_ref: ref, dialect: tab.dialect, allow, ...each, ...withParams });
       Object.assign(tab, { exec: status, ranSql: query, ranDialect: tab.dialect });
       status = await followRun(tab, status);
     } catch (err) {
       tab.error = String(err);
-      tab.errorRetry = () => run(query);  // runs it again through the same checks, including any confirmation
+      tab.errorRetry = () => run(query, allow, opts);  // runs it again through the same checks, including any confirmation
     }
-    if (status?.state === "completed") await loadPage(tab, 0);
+    if (tab.multi && status) {
+      tab.multi.part = sqlPickPart(status);
+      if (status.parts?.some((x) => x.statement === tab.multi.part)) await loadPage(tab, 0);
+    } else if (status?.state === "completed") await loadPage(tab, 0);
     tab.running = false;
     if (status?.refused?.permission === "local_mutation" && !allow.length) {
       sqlPage.redraw?.();
       const ok = await confirmDialog("Let this query change its own session?",
         `Statement ${status.refused.statement} ${status.refused.label}: a temp view, a table made in the query, a cache. ` +
         "Only this run's own DuckDB session on this PC changes; no lakehouse table, file or Fabric item does. Nothing has run yet.", "Run");
-      if (ok) return run(query, ["local_mutation"]);
+      if (ok) return run(query, ["local_mutation"], opts);
     }
     if (status?.state === "completed") {
-      tab.ranNotice = wh ? "" : localNotice(query);
-      if (tab.exportAfter) { const fmt = tab.exportAfter; delete tab.exportAfter; exportResult(fmt); }
+      // Local T-SQL: where this PC's answer can differ from a warehouse's (a decimal done in floating point, say).
+      tab.ranNotice = wh ? "" : [localNotice(query), ...(status.notes || [])].filter(Boolean).join(" ");
+      tab.resultQuery = query;  // for Copy › INSERT statements, which names the query's table
+      if (tab.exportAfter) { const [fmt, raw] = tab.exportAfter; delete tab.exportAfter; exportResult(fmt, raw); }
     } else if (status && !tab.errorRetry) {  // a failed engine call keeps its own message and Retry
       tab.error = status.error || `The query ${SQL_STATE[status.state]?.[1].toLowerCase() || status.state}.`;
       if (wh && !change && status.refused && whChangesAllowed()) tab.error += " To change the warehouse, tick Allow changes at the top of the page.";
@@ -373,29 +510,189 @@ function renderQuery() {
       toast(`Changed ${ref.name}: ${(status.affected || 0).toLocaleString()} row${status.affected === 1 ? "" : "s"} affected, committed.`);
       if (sqlPage.catalog) loadCatalog();  // tables, views or procedures may have changed
     }
+    // S27: a run that left a result goes into this tab's result history.
+    if (status && (status.state === "completed" || status.parts?.length)) {
+      sqlResultHistoryAdd(tab, { id: status.id, at: startedAt, sql: query, rows: status.rows ?? 0, seconds: status.seconds ?? null,
+        multi: tab.multi ? { units: tab.multi.units, change: tab.multi.change } : null, params: used, pinned: false });
+    }
     // WH-07: each run that reached the engine goes into this PC's history for the warehouse.
     if (wh && status?.state) {
       sqlHistoryAdd(ref, { at: startedAt, sql: query, state: status.state, seconds: status.seconds ?? null, rows: status.rows ?? null,
         change: change || undefined, affected: change ? status.affected ?? null : undefined,
-        error: status.state === "completed" ? undefined : sqlHistoryError(status.error) });
+        error: status.state === "completed" ? undefined : sqlHistoryError(status.error),
+        batch: status.failed_batch || undefined });  // WR-207: the error's own numbers are masked in history
       if (p.whAside === "history") p.whRedraw?.();
     }
     sqlPage.redraw?.();
     if (here()) {
       editor.recheck();
       runFx(status, allow);
+      announce(status?.state === "completed" && !tab.error
+        ? `Query succeeded: ${(status.rows ?? 0).toLocaleString()} row${status.rows === 1 ? "" : "s"}`
+        : `Query ${(SQL_STATE[status?.state]?.[1] || "failed").toLowerCase()}`);
     }
   }
 
   // KF-MO-005: a spark on the Results pill when a query that took a while succeeds, the ember when one
   // fails; a stop, a quick query or a confirmation the person declined plays nothing. Uses the
-  // engine's own seconds, and runs after the redraw, which replaces the pill. The pill already
-  // says the outcome to a screen reader, so nothing extra is announced.
+  // engine's own seconds, and runs after the redraw, which replaces the pill. run() announces the outcome.
   function runFx(status, allow) {
     const pill = band.querySelector(".sql-pill");
     if (status?.state === "completed" && !tab.error && status.seconds > SQL_SPARK_SECONDS) forgeEvent("sql.succeeded", pill);
     else if (["failed", "timed_out"].includes(status?.state)
       && !(status.refused?.permission === "local_mutation" && !allow.length)) forgeEvent("sql.failed", pill);
+  }
+
+  // S14: the script's statements, with where each starts in the editor (when the run's text is there).
+  function splitScript(query) {
+    const text = editor.text();
+    const sel = editor.selection();
+    const at = sel.to > sel.from && text.slice(sel.from, sel.to) === query ? sel.from : text.indexOf(query);
+    const firstLine = at >= 0 ? text.slice(0, at).split("\n").length : 1;
+    return sqlSplitStatements(query, { tsql: wh, dialect: tab.dialect, base: Math.max(at, 0), firstLine })
+      .map((u, i) => ({ ...u, n: i + 1, known: at >= 0 }));
+  }
+  function selectPart(n) {
+    const m = tab.multi;
+    if (!m || m.part === n) return;
+    // Each statement's result keeps its own sort, filters and selection (the grid, sqlgrid.js).
+    (m.grids ||= {})[m.part] = tab.grid;
+    m.part = n;
+    Object.assign(tab, { result: null, chart: null, grid: m.grids[n] || sqlGridCarry(tab.grid) });
+    drawResults();
+    if (tab.exec?.parts?.some((x) => x.statement === n)) loadPage(tab, 0).then(() => sqlPage.redraw?.());
+  }
+  // Go to line n: selects the statement in the editor, when the editor still holds it where it ran from.
+  function goToStatement(u) {
+    if (!u.known || editor.text().slice(u.from, u.to) !== u.text) {
+      toast("The SQL changed since this run, so the statement's place isn't known. Run it again to find it.");
+      return;
+    }
+    editor.reveal(u.from, u.to);
+  }
+  // Run from statement n: that statement and the ones after it, as a new run.
+  function runFrom(u) {
+    const m = tab.multi;
+    const rest = m.units.slice(m.units.indexOf(u));
+    run(rest.map((x) => x.text).join(";\n"), [], { units: rest });
+  }
+
+  // S17: the parameters panel above the results: a type and a value for each, then Run with these values.
+  const paramsBox = h("section", { class: "sql-params", "aria-labelledby": "sql-params-h", hidden: true });
+  function askParams(names, go) {
+    const kept = tab.params || {};
+    const rows = names.map((x) => {
+      const k = kept[x.name] || { type: /date/i.test(x.name) ? "date" : "text", value: "" };
+      const type = h("select", { "aria-label": `Type of ${x.name}` },
+        Object.entries(SQL_PARAM_TYPES).map(([id, label]) => h("option", { value: id, selected: id === k.type }, label)));
+      const value = h("input", { value: k.value, "aria-label": `Value of ${x.name}`, spellcheck: "false", autocomplete: "off" });
+      const why = h("small", { class: "error-text", role: "alert" });
+      const hint = h("small", { class: "muted-text" }, `Used on line ${x.line}`);
+      return { x, type, value, why, hint, el: h("label", {}, h("span", { class: "sql-param-name" }, x.name), h("span", { class: "f" }, type, value), why, hint) };
+    });
+    const runIt = () => {
+      let bad = null;
+      for (const r of rows) {
+        const problem = sqlParamProblem(r.type.value, r.value.value);
+        r.why.textContent = problem;
+        r.hint.hidden = !!problem;
+        r.value.setAttribute("aria-invalid", String(!!problem));
+        bad ||= problem ? r : null;
+      }
+      if (bad) { bad.value.focus(); return; }
+      tab.params = { ...(tab.params || {}), ...Object.fromEntries(rows.map((r) => [r.x.name, { type: r.type.value, value: r.value.value }])) };
+      saveQueryTabs();
+      paramsBox.hidden = true;
+      drawParamChip();
+      go();
+    };
+    for (const r of rows) r.value.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); runIt(); } });
+    paramsBox.replaceChildren(h("h3", { id: "sql-params-h" }, `This query has ${names.length} parameter${names.length === 1 ? "" : "s"}`, previewTag()),
+      h("div", { class: "sql-param-fields" }, rows.map((r) => r.el)),
+      h("div", { class: "row" }, btn("Run with these values", "play", runIt, "tool primary"),
+        btn("Cancel", null, () => { paramsBox.hidden = true; editor.focus(); }, "tool outline"),
+        h("span", { class: "muted-text small" }, "They're kept with this tab, and saved with it as a comment at the top of the .sql file. " +
+          "They're sent as typed values, never pasted into the SQL.")));
+    paramsBox.hidden = false;
+    rows[0]?.value.focus();
+  }
+  // The chip in the actions bar: the values the tab keeps for the query's parameters, with Change.
+  const paramChip = h("span", { class: "sql-param-chip", hidden: true });
+  function drawParamChip() {
+    const text = editor.text();
+    const names = previewShown() && PREVIEW_FEATURES.sqlParams && text.length <= SQL_AUTO_CHECK_LIMIT ? sqlParamNames(text) : [];
+    const kept = names.filter((x) => tab.params?.[x.name]);
+    paramChip.hidden = !kept.length;
+    if (!kept.length) { paramChip.replaceChildren(); return; }
+    paramChip.replaceChildren(`${names.length} parameter${names.length === 1 ? "" : "s"}: `,
+      sqlParamsText(kept.map((x) => ({ name: x.name, value: tab.params[x.name].value }))),
+      h("button", { class: "link-btn", onclick: () => askParams(sqlParamNames(editor.text()), () => run(undefined, [], {})) }, "Change"));
+  }
+
+  // S27: an earlier run's result, read again from its snapshot on this PC. Nothing runs.
+  async function openOld(entry) {
+    if (tab.running) return;
+    let st;
+    try {
+      st = await rpc("sql_status", { execution: entry.id });
+    } catch {
+      toast("That result is no longer on this PC: the engine was restarted, or it was cleaned up. Run the query again.", true);
+      return;
+    }
+    if (!tab.old) tab.old = { latest: { exec: tab.exec, result: tab.result, multi: tab.multi, error: tab.error, errorRetry: tab.errorRetry,
+      ranNotice: tab.ranNotice, chart: tab.chart, ranParams: tab.ranParams, grid: tab.grid } };
+    tab.old.entry = entry;
+    Object.assign(tab, { exec: st, result: null, chart: null, error: null, errorRetry: null, ranNotice: "", view: "results", ranParams: entry.params || [],
+      grid: sqlGridCarry(tab.grid), multi: entry.multi ? { ...entry.multi, part: sqlPickPart(st), grids: {} } : null });
+    if (tab.multi ? st.parts?.some((x) => x.statement === tab.multi.part) : st.state === "completed") await loadPage(tab, 0);
+    else tab.error = st.error || "That run has no result.";
+    sqlPage.redraw?.();
+  }
+  function backToLatest() {
+    if (!tab.old) return;
+    Object.assign(tab, tab.old.latest, { old: null });
+    drawResults();
+  }
+  async function pinEntry(e, on) {
+    const out = await attempt(() => rpc("sql_pin", { execution: e.id, pinned: on }), on ? "Could not pin the result" : "Could not unpin the result");
+    if (!out) return;
+    e.pinned = on;
+    drawResults();
+  }
+  async function compareWithLatest(e) {
+    const latest = tab.old?.latest.exec;
+    const out = latest && await attempt(() => rpc("learn_fix_compare", { before: e.id, after: latest.id }), "Could not compare the results");
+    if (!out) return;
+    const n = (k) => `${k.toLocaleString()} row${k === 1 ? "" : "s"}`;
+    toast(out.result === "match" ? `Same rows as the latest run (${n(out.rows.after)}). Nothing ran.`
+      : `Different from the latest run: ${n(out.rows.before)} then, ${n(out.rows.after)} in the latest. Nothing ran.`);
+  }
+  // The History view: this tab's runs, newest first, each opened again from its snapshot or pinned.
+  function historyView() {
+    const list = tab.history || [];
+    if (!list.length) {
+      return h("p", { class: "muted-text", style: "padding:12px 16px" },
+        "No results yet. Each run's result is kept here, on this PC, until you close this tab.");
+    }
+    const latestId = (tab.old?.latest.exec || tab.exec)?.id;
+    const first = (sql) => { const line = sql.trim().split("\n")[0]; return line.length > 80 ? `${line.slice(0, 80)}…` : line + (sql.trim().includes("\n") ? "…" : ""); };
+    return h("div", { class: "sql-history" },
+      h("table", { class: "sql-history-list" },
+        h("thead", {}, h("tr", {}, h("th", {}, "Ran"), h("th", {}, "Query"), h("th", {}, "Rows"), h("th", {}, "Time"),
+          h("th", {}, h("span", { class: "sr-only" }, "Pin")))),
+        h("tbody", {}, list.map((e) => h("tr", { class: tab.old?.entry === e ? "on" : null },
+          h("td", {}, timeText(e.at)),
+          h("td", {}, h("button", { class: "link-btn", title: "Open this result again. Nothing runs.", onclick: () => openOld(e) }, h("code", {}, first(e.sql))),
+            e.id === latestId ? h("span", { class: "sql-chip" }, "Latest") : null,
+            e.multi ? h("span", { class: "muted-text" }, ` ${e.multi.units.length} statements`) : null,
+            e.params?.length ? h("span", { class: "sql-chip" }, sqlParamsText(e.params)) : null),
+          h("td", { class: "n" }, e.rows.toLocaleString()),
+          h("td", { class: "n" }, e.seconds != null ? `${e.seconds} s` : ""),
+          h("td", { class: "sql-pin-cell" }, e.pinned
+            ? [h("span", { class: "sql-pin" }, "● Pinned"), btn("Unpin", null, () => pinEntry(e, false), "tool outline small sql-pinned", { title: "Kept until you unpin it" })]
+            : btn("Pin", null, () => pinEntry(e, true), "tool outline small", { title: "Keep this result until you unpin it" })))))),
+      h("p", { class: "muted-text sql-compat-note", style: "padding:8px 12px" },
+        `The ${SQL_RESULT_HISTORY_MAX} most recent runs of this tab, kept on this PC until you close the tab or the app. Pinned results stay until you unpin them (up to 10).`));
   }
 
   async function stop() {
@@ -412,19 +709,116 @@ function renderQuery() {
     sqlPage.redraw?.();
   }
 
-  // Export ▾ CSV or Parquet: streamed from the run's snapshot to a new file in Downloads.
-  async function exportResult(format) {
+  // The result grid (sqlgrid.js): sort and filter read the first page again, over every row of the snapshot.
+  function gridSort(column) {
+    const g = sqlGridState(tab);
+    g.sort = sqlGridNextSort(g.sort, column);
+    goPageAgain();
+  }
+  function gridFilter(column, text) {
+    const g = sqlGridState(tab);
+    if (!g.filterOn || (g.filters[column] || "") === text) return;  // Filter turned off, or a new run, since it was typed
+    g.filters[column] = text;
+    goPageAgain();
+  }
+  function toggleFilter() {
+    const g = sqlGridState(tab);
+    g.filterOn = !g.filterOn;
+    const had = Object.values(g.filters).some((t) => String(t).trim());
+    if (!g.filterOn) {
+      for (const t of Object.values(g.filterTimers || {})) clearTimeout(t);
+      Object.assign(g, { filters: {}, filterError: null, filterTimers: {} });
+    }
+    if (!g.filterOn && had) goPageAgain();
+    else drawResults();
+    if (g.filterOn) grid.querySelector(".sql-filter")?.focus();
+  }
+  async function goPageAgain() {
+    if (!tab.result) return;
+    if (tab.paging) { tab.pageAgain = true; return; }  // the latest sort and filters are read when this page arrives
+    tab.paging = true;
+    do { tab.pageAgain = false; await loadPage(tab, 0); } while (tab.pageAgain);
+    tab.paging = false;
+    sqlPage.redraw?.();
+  }
+
+  // The grid's selection (sqlgrid.js): the band says how many cells, and Copy as copies them.
+  function noteSelection() {
+    const span = band.querySelector(".sql-run-msg");
+    if (span && tab.result && !tab.error) span.textContent = resultMsg(tab.result);
+  }
+  async function copySelection(format) {
+    const r = tab.result;
+    if (!r || !r.rows.length) return;
+    const g = sqlGridState(tab);
+    const text = sqlGridCopyText(format, r, g.sel,
+      { dialect: tab.dialect, table: format === "insert" ? sqlInsertTable(tab.resultQuery, tab.dialect) : undefined, vis: g.vis });
+    const copied = await attempt(() => navigator.clipboard.writeText(text).then(() => true), "Could not copy");
+    if (!copied) return;
+    toast(sqlGridCopiedNote(format, sqlGridBlock(r, g.sel, g.vis)));
+  }
+  // Right-click or Shift+F10 on a cell: the mockup's Copy as menu.
+  function cellMenu(td) {
+    const g = sqlGridState(tab);
+    if (!td || !g.sel) return;
+    const at = { r: g.sel.f.r, c: g.vis?.[g.sel.f.c] ?? g.sel.f.c };  // the result's column, not its place on screen
+    sqlGridMenu(td, grid.querySelector("table"), { copy: copySelection, open: () => openValue(at), stats: () => columnStats(at.c) });
+  }
+  // Columns...: show, hide and reorder the grid's columns; the dialog's list follows each change.
+  function columnsDialog() {
+    if (tab.result?.columns.length) sqlColumnsDialog(tab.result.columns, () => sqlGridState(tab), drawResults);
+  }
+  function openValue(at) {
+    sqlGridState(tab).side = { kind: "value", at };
+    drawSide(true);
+  }
+  async function columnStats(column) {
+    const g = sqlGridState(tab);
+    const side = { kind: "stats", column, data: { busy: true } };
+    g.side = side;
+    drawSide(true);
+    try {
+      side.data = await rpc("sql_column_stats", { execution: tab.exec.id, column, ...sqlPartArg(tab.multi?.part) });
+    } catch (err) {
+      side.data = { error: String(err).replace(/^Error: /, "") };
+    }
+    if (g.side === side && tab === sqlPage.tabs[sqlPage.active] && here()) drawSide(true);
+  }
+  function closeSide() {
+    const g = tab.grid;
+    if (!g?.side) return false;
+    g.side = null;
+    drawSide(true);
+    return true;
+  }
+  function drawSide(shown) {
+    const r = tab.result;
+    const s = shown && r ? tab.grid?.side : null;
+    const close = () => { closeSide(); grid.querySelector("table")?.focus(); };
+    const panel = !s ? null : s.kind === "value" ? (r.rows[s.at.r] ? sqlValuePanel(r, s.at, { close,
+      copy: (text) => attempt(() => navigator.clipboard.writeText(text).then(() => toast("Copied the value")), "Could not copy") }) : null)
+      : sqlStatsPanel(r.columns[s.column], s.data, { close });
+    sideBox.hidden = !panel;
+    sideBox.replaceChildren(...(panel ? [panel] : []));
+  }
+
+  // Export ▾ CSV, Parquet, Excel or JSON: streamed from the run's snapshot to a new file in Downloads. A CSV puts an
+  // apostrophe in front of a text cell a spreadsheet would run as a formula, unless raw (Keep raw values, WR-228).
+  async function exportResult(format, raw = false) {
     if (!tab.exec || tab.exporting) return;
-    const out = await attempt(() => rpc("sql_export", { execution: tab.exec.id, format, name: tab.name }), "Could not export");
+    const out = await attempt(() => rpc("sql_export", { execution: tab.exec.id, format, name: tab.name, ...sqlPartArg(tab.multi?.part),
+      ...(raw ? { raw: true } : {}) }),
+      "Could not export");
     if (!out) return;
     if (out.rerun_needed) {
       const again = await confirmDialog("Run the query again?",
         `${out.message} Running it again reads the tables as they are now, so the rows can differ.`, "Run again");
-      if (again && tab.ranSql) { tab.exportAfter = format; run(tab.ranSql); }
+      if (again && tab.ranSql) { tab.exportAfter = [format, raw]; run(tab.ranSql); }
       return;
     }
     tab.exporting = out;
     sqlPage.redraw?.();
+    announce(`Exporting ${EXPORT_NAME[format] || format}`);  // the progress line is redrawn, so it isn't read
     let st = out;
     while (st.state === "running") {
       await new Promise((r) => setTimeout(r, 300));
@@ -434,7 +828,9 @@ function renderQuery() {
     }
     tab.exporting = null;
     sqlPage.redraw?.();
-    if (st.state === "completed") toast(`Saved ${st.rows.toLocaleString()} rows to ${st.path}`);
+    // What the file couldn't keep exactly (a 19-digit ID in Excel, say) is said with it, never left silent.
+    const notes = st.notes?.length ? `. ${st.notes.join(" ")}` : "";
+    if (st.state === "completed") toast(`Saved ${st.rows.toLocaleString()} rows to ${st.path}${notes}`);
     else if (st.state === "cancelled") toast("Export stopped. No file was left behind.");
     else toast(`Could not export: ${st.error}`, true);
   }
@@ -471,10 +867,22 @@ function renderQuery() {
     if (!name) return;
     toast(`Writing ${name}...`);
     let out = await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, dialect: tab.dialect }), "Could not save the table");
-    if (out?.exists) {
+    if (out?.prod) {  // a workspace marked Prod: every write waits for the workspace's typed name (WR-249)
+      const ws = out.prod, exists = out.exists;
+      const go = await confirmDialog(exists ? "Replace the table in Prod?" : "Write to Prod?", exists
+        ? `${ws} is a Prod workspace, and ${ref.name} already has a table called ${name}. Saving replaces all of its rows with this query's result.`
+        : `${ws} is a Prod workspace. Saving writes the table ${name} to ${ref.name} there.`,
+        exists ? "Replace" : "Save", { danger: true, typeToConfirm: ws });
+      out = go && await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, mode: exists ? "overwrite" : "new", dialect: tab.dialect, confirm_name: ws }),
+        "Could not save the table");
+      if (out?.exists) {
+        toast(`${ref.name} got a table called ${name} while you confirmed, so nothing was written. Save again to replace it.`, true);
+        out = null;
+      }
+    } else if (out?.exists) {
       const replace = await confirmDialog("Replace the table?",
         `${ref.name} already has a table called ${name}. Saving replaces all of its rows with this query's result.`, "Replace", { danger: true, typeToConfirm: name });
-      out = replace && await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, mode: "overwrite", dialect: tab.dialect }),
+      out = replace && await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, mode: "overwrite", dialect: tab.dialect, confirm_name: name }),
         "Could not save the table");
     }
     if (out) {
@@ -495,12 +903,15 @@ function renderQuery() {
     renderNotebook();
   }
 
-  async function copyRows() {
+  // S23: the rows on this page as tab-separated text (with headers), CSV, JSON or INSERT statements.
+  const COPY_AS = { tsv: "", csv: " as CSV", json: " as JSON", insert: " as INSERT statements" };
+  async function copyRows(format = "tsv") {
     const r = tab.result;
     if (!r) return;
-    const lines = [r.columns.map((c) => c.name), ...r.rows.map((row) => row.map((v) => (v === null ? "" : String(v))))];
-    const copied = await attempt(() => navigator.clipboard.writeText(lines.map((l) => l.join("\t")).join("\n")).then(() => true), "Could not copy");
-    if (copied) toast(`Copied the ${r.rows.length.toLocaleString()} rows on this page`);
+    const text = sqlRowsAs(format, r.columns, r.rows,
+      { dialect: tab.dialect, table: format === "insert" ? sqlInsertTable(tab.resultQuery, tab.dialect) : undefined });
+    const copied = await attempt(() => navigator.clipboard.writeText(text).then(() => true), "Could not copy");
+    if (copied) toast(sqlCopiedPageNote(r, COPY_AS[format]));
   }
 
   // Explorer: click a table to query it, a column to type its name.
@@ -517,6 +928,14 @@ function renderQuery() {
       renderQuery();
     }
   }
+  // S34 (Preview): Compare data, A and B each a table of this lakehouse or a query (sqlcompare.js).
+  function openCompare(a) {
+    if (!runsHere()) { toast(`${SQL_DIALECTS[tab.dialect].label} can't run on this PC. Pick Spark SQL or DuckDB to compare data.`, true); return; }
+    const tables = Object.entries(p.tables || {}).flatMap(([schema, names]) => names.map((n) => sqlTableName(schema, n, tab.dialect)));
+    const provider = lakehouseSqlProvider(p, ref, () => {});
+    const byName = new Map(Object.entries(p.tables || {}).flatMap(([schema, names]) => names.map((n) => [sqlTableName(schema, n, tab.dialect), { schema, name: n }])));
+    sqlCompareDialog({ ref, dialect: tab.dialect, tables, a, columns: (name) => byName.has(name) ? provider.columns(byName.get(name)) : Promise.resolve([]) });
+  }
   async function toggleColumns(t, name) {
     p.open[name] = !p.open[name];
     if (p.open[name] && !p.cols[name]) {
@@ -525,6 +944,105 @@ function renderQuery() {
       if (!cols.length && !p.cols[name]?.length) { p.open[name] = false; delete p.cols[name]; delete p.pending[name]; }
     }
     if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) editor.refresh(); }
+  }
+  // S08: F12 shows the object under the cursor in the Explorer: on a lakehouse its table's row with its
+  // columns open; on a warehouse its table, view, procedure or function in the tree, opened down to it.
+  // Alt+F12 shows its definition in a panel under the cursor instead.
+  const NOT_AN_OBJECT = wh ? "Put the cursor on the name of a table, view, procedure or function, or on an alias or one of its columns."
+    : "Put the cursor on the name of a table or view, or on an alias or one of its columns.";
+  // What the cursor names: { table } on a lakehouse, { object } (from the catalog) on a warehouse, or { message }.
+  async function definitionTarget() {
+    const text = editor.text();
+    const at = editor.selection().head;
+    const target = sqlHoverTarget(text, at, tab.dialect, provider.tables(), (t) => provider.cachedColumns(t));
+    const table = await sqlTargetTable(target, provider);
+    if (wh) {
+      const cat = p.catalog?.key === sqlRefKey(ref) && p.catalog.state === "done" ? p.catalog : null;
+      if (!cat) return { message: "List the warehouse's objects first: Explorer › List objects." };
+      const object = table ? cat.objects.find((o) => o.schema === table.schema && o.name === table.name)
+        : sqlCatalogObject(sqlNameAt(text, at), cat.objects);
+      if (object) return { object };
+    } else if (table) return { table };
+    return { message: target?.kind === "function" ? `${target.name} is built in: hover it to see its forms.` : NOT_AN_OBJECT };
+  }
+  async function goToDefinition() {
+    const found = await definitionTarget();
+    if (found.message) { toast(found.message); return; }
+    await showInExplorer(found.object || found.table);
+  }
+  async function peekDefinition() {
+    const at = editor.selection().head;
+    const found = await definitionTarget();
+    if (found.message) { toast(found.message); return; }
+    const o = found.object || found.table;
+    const title = sqlTableLabel(o);
+    const kind = { U: "table", V: "view", P: "procedure", FN: "function" }[o.type] || "table";
+    const peek = sqlPeek(editor.view, at);
+    const actions = (text) => [
+      { label: "Open in a new tab", run: () => openTab(`${o.name} (definition)`, wh ? `${whScriptHeader(ref, "CREATE")}${text}` : text) },
+      { label: "Show in Explorer", run: () => showInExplorer(o) },
+    ];
+    peek.show({ title, kind, text: wh && o.type !== "U" ? `Reading the definition of ${title}...` : "" });
+    try {
+      const text = !wh ? sqlLakehouseCreate(o, await provider.columns(o))
+        : o.type === "U" ? whCreateTable(o, p.catalog.cols[`${o.schema}.${o.name}`] || [])
+          : `${await whDefinition(ref, o)}\n`;
+      peek.show({ title, kind, text, actions: actions(text) });
+    } catch (err) {
+      peek.show({ title, kind, error: `Couldn't read the definition of ${title}: ${String(err?.message || err).replace(/^Error: /, "")}`,
+        actions: [{ label: "Show in Explorer", run: () => showInExplorer(o) }] });
+    }
+  }
+  async function showInExplorer(table) {
+    const row = wh ? await revealWarehouseObject(table) : await revealLakehouseTable(table);
+    if (!row) return;
+    row.scrollIntoView({ block: "nearest" });
+    row.focus();
+    row.classList.add("sql-revealed");
+    setTimeout(() => row.classList.remove("sql-revealed"), 1600);
+  }
+  async function revealLakehouseTable(t) {
+    if (!sqlPage.explorerOpen && !document.querySelector(".sql-explorer:not([hidden])")) setSqlExplorerOpen(true);
+    const name = sqlTableName(t.schema, t.name);
+    p.open[name] = true;
+    drawTables();
+    await provider.columns(t).catch(() => []);
+    if (!(state.view === "query" && p.ref === ref)) return null;
+    drawTables();
+    return [...tablesBox.querySelectorAll(".sql-table-row .tree-row:not(.chev)")].find((b) => b.title === `Query ${name}`) || null;
+  }
+  async function revealWarehouseObject(t) {
+    const cat = p.catalog?.key === sqlRefKey(ref) && p.catalog.state === "done" ? p.catalog : null;
+    const o = cat?.objects.find((x) => x.schema === t.schema && x.name === t.name);
+    if (!o) { toast("List the warehouse's objects first: Explorer › List objects."); return null; }
+    const open = p.whOpen ||= new Set();
+    open.delete(`s:${o.schema}`);  // schemas and the Tables group start open: in the set means closed
+    if (o.type === "U") open.delete(`g:${o.schema}.U`); else open.add(`g:${o.schema}.${o.type}`);
+    open.add(`o:${o.schema}.${o.name}`);
+    p.whFilter = "";
+    p.whFocus = `o:${o.schema}.${o.name}`;
+    if (p.whAside && p.whAside !== "explorer") { p.whAside = "explorer"; renderQuery(); } else whTree.draw();
+    return document.querySelector(`.wh-tree [data-tid="${CSS.escape(p.whFocus)}"]`);
+  }
+  // Parity item 15: the Explorer's Diagram, read only. A warehouse's lines come from its keys (one more
+  // catalog query in Fabric) and from names; a lakehouse's from names only, with each table's columns
+  // asked for as the Explorer asks.
+  function openDiagram() {
+    if (wh) {
+      const cat = p.catalog;
+      const tables = (cat?.objects || []).filter((o) => o.type === "U");
+      openSqlDiagram({ kind: "warehouse", name: ref.name, schemas: [...new Set(tables.map((o) => o.schema))],
+        tables: async (schema) => tables.filter((o) => o.schema === schema)
+          .map((o) => ({ schema: o.schema, name: o.name, columns: cat.cols[`${o.schema}.${o.name}`] || [] })),
+        keys: async () => diagramKeys((await whCatalogQuery(ref, WH_KEYS_SQL)).rows),
+        reveal: showInExplorer });
+      return;
+    }
+    openSqlDiagram({ kind: "lakehouse", name: ref.name, schemas: Object.keys(p.tables || {}),
+      tables: (schema) => Promise.all((p.tables[schema] || []).slice(0, DIAGRAM_MAX_TABLES)
+        .map(async (name) => ({ schema, name, columns: await provider.columns({ schema, name }) })))
+        .then((list) => list.concat((p.tables[schema] || []).slice(DIAGRAM_MAX_TABLES).map((name) => ({ schema, name, columns: [] })))),
+      reveal: showInExplorer });
   }
   function loadTables() {
     drawTables();
@@ -540,6 +1058,12 @@ function renderQuery() {
       return;
     }
     const rows = [];
+    if (previewShown() && Object.values(p.tables).some((names) => names.length)) {
+      rows.push(h("div", { class: "sql-explorer-actions" }, btn("Diagram", "flowchart", openDiagram, "tool outline small",
+        { title: "The tables of a schema and how their columns link, guessed from names. Read only." }),
+      PREVIEW_FEATURES.sqlCompare ? btn("Compare data", "branchCompare", () => openCompare(), "tool outline small",
+        { title: "Compare the rows of two tables or queries on this PC. Read only." }) : null));
+    }
     for (const [schema, names] of Object.entries(p.tables)) {
       const qualify = Object.keys(p.tables).length > 1 || schema !== "dbo";
       if (qualify) rows.push(h("div", { class: "tree-row muted", style: "padding-left:6px" }, schema));
@@ -550,7 +1074,12 @@ function renderQuery() {
         rows.push(h("div", { class: "sql-table-row" },
           h("button", { class: "tree-row chev", "aria-label": open ? `Hide columns of ${t}` : `Show columns of ${t}`,
             style: `padding-left:${qualify ? 22 : 6}px`, onclick: () => toggleColumns({ schema, name: t }, name) }, chevron(open)),
-          h("button", { class: "tree-row", title: `Query ${name}`, onclick: () => queryTable(sqlTableName(schema, t, tab.dialect)) },
+          h("button", { class: "tree-row", title: `Query ${name}`, onclick: () => queryTable(sqlTableName(schema, t, tab.dialect)),
+            // S34: the table's menu (right-click, or the menu key or Shift+F10) has Compare with.
+            oncontextmenu: previewShown() && PREVIEW_FEATURES.sqlCompare ? (e) => {
+              e.preventDefault();
+              showMenu(e.currentTarget, [{ label: "Compare with…", icon: "branchCompare", action: () => openCompare(sqlTableName(schema, t, tab.dialect)) }]);
+            } : null },
             icon("table", 15), h("span", { class: "label" }, t))));
         if (open) {
           if (!p.cols[name]) rows.push(h("div", { class: "tree-row muted", style: "padding-left:52px" }, "Loading..."));
@@ -566,11 +1095,78 @@ function renderQuery() {
   }
 
   const band = h("div", { class: "sql-band" });
+  // S14: a tab for each statement of a run with several, and why the run stopped when one failed.
+  const rtabs = h("div", { class: "sql-rtabs-row" });
+  function drawPartTabs() {
+    const m = tab.multi;
+    const ex = tab.exec;
+    const old = tab.old?.entry;
+    rtabs.hidden = !m && !old;
+    const oldNote = old ? h("div", { class: "sql-old-note", role: "status" },
+      h("span", {}, h("b", {}, `Result from ${timeText(old.at)}, not the latest run.`), " Read from the snapshot on this PC; nothing ran."),
+      h("div", { class: "row" }, btn("Back to the latest", null, backToLatest, "tool outline small"),
+        old.pinned ? btn("Unpin it", null, () => pinEntry(old, false), "tool outline small") : btn("Pin it", null, () => pinEntry(old, true), "tool outline small"),
+        tab.old.latest.exec?.state === "completed" ? btn("Compare with latest", null, () => compareWithLatest(old), "tool outline small",
+          { title: "Compare this result's rows with the latest run's, on this PC. Nothing runs." }) : null)) : null;
+    if (!m) { rtabs.replaceChildren(...[oldNote].filter(Boolean)); return; }
+    const parts = m.units.map((u, i) => ({ u, at: i + 1, label: sqlPartLabel(u, ex, m) }));
+    const list = h("div", { class: "sql-rtabs", role: "tablist", "aria-label": "Statement results",
+      onkeydown: (e) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+        e.preventDefault();
+        const i = parts.findIndex((x) => x.at === m.part);
+        const next = e.key === "Home" ? 0 : e.key === "End" ? parts.length - 1
+          : (i + (e.key === "ArrowRight" ? 1 : -1) + parts.length) % parts.length;
+        selectPart(parts[next].at);
+        rtabs.querySelector(".sql-rtab[aria-selected=true]")?.focus();
+      } },
+    parts.map(({ u, at, label }) => h("button", { role: "tab", class: `sql-rtab ${label.state}${m.part === at ? " on" : ""}`,
+      "aria-selected": String(m.part === at), tabindex: m.part === at ? "0" : "-1",
+      title: `Line ${u.line}: ${u.text.split("\n")[0].slice(0, 120)}`, onclick: () => selectPart(at) }, label.text)));
+    const failed = ex?.failed_statement ? m.units[ex.failed_statement - 1] : null;
+    let note = null;
+    if (failed && ex.state === "failed") {
+      const later = m.units.length - ex.failed_statement;
+      const done = ex.parts?.length || 0;
+      const first = m.units[0].n;
+      const before = !done || /rolled back/.test(ex.error || "") ? "" : m.change
+        ? ` ${done === 1 ? "The statement before it" : `The ${done} statements before it`} ran, then the whole change was rolled back, so nothing was kept.`
+        : done === 1 ? ` Statement ${first} finished; its result is in its tab.`
+          : ` Statements ${first} ${done === 2 ? "and" : "to"} ${m.units[done - 1].n} finished; their results are in their tabs.`;
+      // The error's first line here; all of it on the statement's own tab.
+      const why = String(ex.error || "").replace(/^Error: /, "").trim().split("\n")[0].replace(/[.!]$/, "");
+      note = h("div", { class: "note warn sql-stop-note", role: "alert" },
+        h("span", {}, h("b", {}, `Statement ${failed.n} failed${later ? `, so ${later === 1 ? `statement ${failed.n + 1} didn't` : `the ${later} after it didn't`} run` : ""}.`),
+          ` ${why}${failed.known ? ` (line ${failed.line})` : ""}.${before}`),
+        h("div", { class: "row" },
+          failed.known ? btn(`Go to line ${failed.line}`, null, () => goToStatement(failed), "tool outline small") : null,
+          btn(`Run from statement ${failed.n}`, null, () => runFrom(failed), "tool outline small",
+            { title: "Run this statement and the ones after it again, as a new run. The ones before it don't run again." })));
+    }
+    rtabs.replaceChildren(...[oldNote, h("div", { class: "sql-rtabs-head" }, list, wh ? null : previewTag()), note].filter(Boolean));
+  }
   const grid = h("div", { class: "sql-grid" });
+  // The value viewer or a column's statistics, beside the grid (sqlgrid.js).
+  const sideBox = h("div", { class: "sql-side-box", hidden: true,
+    onkeydown: (e) => { if (e.key === "Escape" && closeSide()) { e.preventDefault(); e.stopPropagation(); grid.querySelector("table")?.focus(); } } });
+  const gridRow = h("div", { class: "sql-grid-row" }, grid, sideBox);
+  // The band's message for a result: its rows, sort, time and where it ran, the page, and a selection.
+  function resultMsg(r) {
+    const last = r.offset + r.rows.length;
+    let msg = `${sqlGridCount(r, r.columns)} · ${tab.exec.seconds} s ${where}`;
+    if (r.total > r.rows.length) msg += ` · rows ${(r.offset + 1).toLocaleString()} to ${last.toLocaleString()}`;
+    if (tab.ranParams?.length) msg += ` · with ${sqlParamsText(tab.ranParams)}`;
+    const note = sqlGridSelectionNote(tab.grid?.sel);
+    return note ? `${msg} · ${note}` : msg;
+  }
   function drawResults() {
+    drawPartTabs();
     const r = tab.result;
     const ex = tab.exec;
     const busy = tab.running;
+    // S14: the chosen statement's own result, or none when it failed or didn't run.
+    const m = tab.multi;
+    const partDone = !!(m?.part && ex?.parts?.some((x) => x.statement === m.part));
     const st = busy && !ex ? "queued" : ex?.state;
     const pill = st ? SQL_STATE[st] : ["", "Not run"];
     let msg = "Press Run to see results";
@@ -579,22 +1175,35 @@ function renderQuery() {
     else if (st === "queued") msg = "Waiting for another query to finish (Settings > Advanced > SQL queries sets how many run at once)";
     else if (st === "completed" && !r && busy) msg = "Reading the first page...";
     else if (st === "running" || st === "cancelling") {
-      msg = `${ex.seconds} s ${where}${ex.rows ? ` · ${ex.rows.toLocaleString()} rows so far` : ""}`;
+      msg = `${ex.seconds} s ${where}${m && ex.statement ? ` · statement ${ex.statement} of ${m.units.length}` : ""}` +
+        `${ex.rows ? ` · ${ex.rows.toLocaleString()} rows so far` : ""}`;
     } else if (r) {
-      const last = r.offset + r.rows.length;
-      msg = `${r.total.toLocaleString()} row${r.total === 1 ? "" : "s"} · ${ex.seconds} s ${where}`;
-      if (r.total > r.rows.length) msg += ` · rows ${(r.offset + 1).toLocaleString()} to ${last.toLocaleString()}`;
+      msg = resultMsg(r);
     }
+    const copyItem = (format, label) => h("button", { role: "menuitem",
+      onclick: (e) => { e.target.closest("details").open = false; copyRows(format); } }, label);
+    const copyMenu = h("details", { class: "sql-copy" },
+      h("summary", { class: `tool small${!r ? " disabled" : ""}`, "aria-disabled": String(!r), title: "Copy the rows on this page",
+        onclick: (e) => { if (!r) e.preventDefault(); } }, "Copy ▾"),
+      h("div", { class: "sql-export-menu", role: "menu" },
+        copyItem("tsv", "Rows with headers"), copyItem("csv", "CSV"), copyItem("json", "JSON"), copyItem("insert", "INSERT statements")));
     const x = tab.exporting;
     const exportMenu = h("details", { class: "sql-export" },
       h("summary", { class: `tool small${!r || x ? " disabled" : ""}`, "aria-disabled": String(!r || !!x),
         onclick: (e) => { if (!r || x) e.preventDefault(); } }, "Export ▾"),
       h("div", { class: "sql-export-menu", role: "menu" },
         h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("csv"); } }, "CSV"),
-        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("parquet"); } }, "Parquet")));
+        h("button", { role: "menuitem", title: "Each value exactly as it is. A spreadsheet runs a cell that starts with =, +, - or @ as a formula.",
+          onclick: (e) => { e.target.closest("details").open = false; exportResult("csv", true); } }, "CSV, Keep raw values"),
+        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("parquet"); } }, "Parquet"),
+        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("xlsx"); } }, "Excel"),
+        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("json"); } }, "JSON")));
     // Messages and Chart are Preview: on the Warehouse page the whole page already is, so they carry no
     // tag of their own there; elsewhere they carry one and go when preview features are hidden.
-    const extra = [...(wh || previewShown() ? ["messages", "chart"] : []), ...(wh ? ["plan"] : [])];
+    // On a lakehouse, Plan and Profile are DuckDB's (S39, S40), Preview like Messages and Chart.
+    const localExplainOn = !wh && previewShown() && runsHere();
+    const extra = [...(wh || previewShown() ? ["messages", "chart"] : []), ...(wh || localExplainOn ? ["plan"] : []),
+      ...(localExplainOn ? ["profile"] : []), ...(previewShown() && PREVIEW_FEATURES.sqlHistory ? ["history"] : [])];
     const view = extra.includes(tab.view) ? tab.view : "results";
     const viewTab = (id, label) => {
       const b = h("button", { role: "tab", class: `sql-view${view === id ? " on" : ""}`, "aria-selected": String(view === id),
@@ -603,40 +1212,72 @@ function renderQuery() {
     };
     band.replaceChildren(...[h("div", { class: "sql-views", role: "tablist", "aria-label": "Result views" },
       viewTab("results", "Results"), extra.length ? viewTab("messages", "Messages") : null, extra.length ? viewTab("chart", "Chart") : null,
-      wh ? viewTab("plan", "Plan") : null),
+      extra.includes("plan") ? viewTab("plan", "Plan") : null, extra.includes("profile") ? viewTab("profile", "Profile") : null,
+      extra.includes("history") ? viewTab("history", "History") : null),
       h("span", { class: `sql-pill ${pill[0]}` }, pill[1]), h("span", { class: "muted-text sql-run-msg" }, tab.error ? "" : msg),
       ex && (st === "running" || st === "queued") ? btn("Stop", "stop", stop, "tool small", { title: "Stop this query. Only its own process ends." }) : null,
       tab.ranNotice && r && !busy ? h("span", { class: "sql-local-note", role: "note" }, tab.ranNotice) : null,
       h("span", { class: "spacer" }),
       x ? h("span", { class: "muted-text sql-export-progress", role: "status" },
-        `Exporting ${x.format.toUpperCase()}: ${x.rows.toLocaleString()} of ${x.total.toLocaleString()} rows`) : null,
+        `Exporting ${EXPORT_NAME[x.format] || x.format}: ${x.rows.toLocaleString()} of ${x.total.toLocaleString()} rows`) : null,
       x ? btn("Cancel", null, () => rpc("sql_export_cancel", { export: x.id }).catch(() => {}), "tool small") : null,
       r && (r.has_previous || r.has_next) ? btn("‹ Previous", null, () => goPage(r.offset - r.limit), "tool small",
         { disabled: !r.has_previous || tab.paging, "aria-label": "Previous page" }) : null,
       r && (r.has_previous || r.has_next) ? btn("Next ›", null, () => goPage(r.offset + r.limit), "tool small",
         { disabled: !r.has_next || tab.paging, "aria-label": "Next page" }) : null,
-      btn("Copy", null, copyRows, "tool small", { disabled: !r, title: "Copy the rows on this page" }),
-      exportMenu].filter(Boolean));
-    if (view === "plan") {
+      r && r.columns.length ? btn("Filter", null, toggleFilter, `tool small${tab.grid?.filterOn ? " toggled" : ""}`,
+        { "aria-pressed": String(!!tab.grid?.filterOn),
+          title: "A filter box under each column. Filters and sort apply to every row of the result on this PC; nothing runs again." }) : null,
+      r && r.columns.length ? btn("Columns...", null, columnsDialog, "tool small",
+        { title: "Show, hide and reorder the grid's columns" }) : null,
+      copyMenu,
+      exportMenu,
+      h("span", { class: "sql-sep", "aria-hidden": "true" }),
+      btn(p.pane === "max" ? "Restore" : "Maximize", null, () => setPane(p.pane === "max" ? null : "max"), "tool small sql-pane-max",
+        { title: p.pane === "max" ? "Show the editor again" : "Give the results the whole page, hiding the editor" }),
+      btn(p.pane === "hidden" ? "Show results" : "Hide results", null, togglePane, "tool small sql-pane-hide",
+        { "aria-keyshortcuts": "Control+R",
+          title: p.pane === "hidden" ? "Show the results pane (Ctrl+R)" : "Hide the results pane and give the editor the room (Ctrl+R)" })].filter(Boolean));
+    applyPane();
+    drawSide(view === "results" && !tab.error && !!r?.columns.length);
+    if (view === "history") {
+      grid.replaceChildren(historyView());
+    } else if (view === "plan" && !wh) {
+      grid.replaceChildren(sqlLocalPlanView(tab.localPlan, { busy: tab.planning, ask: () => localExplain("plan") }));
+    } else if (view === "profile") {
+      grid.replaceChildren(renderQueryProfile({ qprofile: tab.localProfile ||= { data: null, busy: false, error: null, gone: false },
+        fetch: () => localExplain("profile") }));
+    } else if (view === "plan") {
       grid.replaceChildren(tab.planning ? h("p", { class: "muted-text", style: "padding:12px 16px" }, "Asking Fabric for the estimated plan...")
         : sqlPlanView(tab.plan));
     } else if (view === "messages") {
       grid.replaceChildren(sqlMessages(ex, tab, wh ? `${ref.name}${ref.workspace_name ? ` (${ref.workspace_name})` : ""} · in Fabric` : `${ref.name} · on this PC`));
     } else if (view === "chart") {
-      grid.replaceChildren(r && r.columns.length && ex?.state === "completed"
-        ? sqlChartView(tab.chart ||= {}, () => sqlChartRows(ex.id))
+      grid.replaceChildren(r && r.columns.length && (ex?.state === "completed" || partDone)
+        ? sqlChartView(tab.chart ||= {}, () => sqlChartRows(ex.id, m?.part))
         : h("p", { class: "muted-text", style: "padding:12px 16px" }, "Run a query to chart its result. The chart reads the rows already on this PC; nothing runs again."));
+    } else if (m && m.part && !partDone && !busy && ex?.failed_statement === m.part && view === "results") {
+      grid.replaceChildren(h("div", { class: "output error" }, h("pre", {}, String(ex.error || "").replace(/^Error: /, ""))));
+    } else if (m && m.part && !partDone && !busy && ex) {
+      // A statement with no result: one that never ran.
+      grid.replaceChildren(h("p", { class: "muted-text", style: "padding:12px 16px" },
+        ex.failed_statement ? `This statement didn't run, because statement ${m.units[ex.failed_statement - 1].n} failed first.`
+          : ex.state === "completed" ? "This statement ran and returned no rows." : `This statement didn't run: the run ${SQL_STATE[ex.state]?.[1].toLowerCase() || ex.state}.`));
     } else if (tab.error && tab.errorRetry) {
       // The engine call itself failed (UX-011): a sentence, Retry and the raw text under Details.
       grid.replaceChildren(h("div", { class: "output error" }, errorPanel(tab.error, { retry: tab.errorRetry })));
-    } else if (tab.error) {
+    } else if (tab.error && !partDone) {
       // The query's own error ("Binder Error: ..."), or why it stopped, is what the person needs to read.
       grid.replaceChildren(h("div", { class: "output error" }, h("pre", {}, tab.error.replace(/^Error: /, ""))));
     } else if (r && r.columns.length) {
-      grid.replaceChildren(h("table", {},
-        h("thead", {}, h("tr", {}, h("th", { class: "i" }), r.columns.map((c) => h("th", { title: c.type }, c.name)))),
-        h("tbody", {}, r.rows.map((row, i) => h("tr", {}, h("td", { class: "i" }, String(r.offset + i + 1)),
-          row.map((v) => h("td", { class: `${typeof v === "number" ? "n" : ""}${v === null ? " null" : ""}` }, cellText(v))))))));
+      // A redraw replaces the filter boxes: the one being typed in keeps its text (typed while a page was
+      // loading, and not applied yet: its filter is still waiting, sqlgrid.js), focus and caret.
+      const typing = document.activeElement?.matches?.(".sql-grid .sql-filter") ? document.activeElement : null;
+      const at = typing && { column: typing.dataset.column, value: typing.value, start: typing.selectionStart, end: typing.selectionEnd };
+      grid.replaceChildren(...sqlResultGrid(r, sqlGridState(tab), { sort: gridSort, filter: gridFilter,
+        select: noteSelection, copy: copySelection, open: openValue, menu: cellMenu, close: closeSide }));
+      const box = at && grid.querySelector(`.sql-filter[data-column="${at.column}"]`);
+      if (box) { box.value = at.value; box.focus(); box.setSelectionRange(at.start, at.end); }
     } else {
       grid.replaceChildren(h("p", { class: "muted-text", style: "padding:12px 16px" },
         r ? "The query ran and returned no columns."
@@ -645,13 +1286,33 @@ function renderQuery() {
     }
   }
   sqlPage.redraw = () => { if (here()) drawResults(); };
+  // The results pane: as it is, maximized (the editor hidden) or hidden (the editor gets the room), as
+  // SSMS's Ctrl+R. Kept for the page's tabs until the page is left; a run shows hidden results again.
+  function applyPane() {
+    const card = grid.closest(".sql-card");
+    card?.classList.toggle("sql-pane-max", p.pane === "max");
+    card?.classList.toggle("sql-pane-hidden", p.pane === "hidden");
+  }
+  function setPane(pane) {
+    p.pane = pane || null;
+    drawResults();
+    if (p.pane !== "max") editor.focus();
+  }
+  const togglePane = () => setPane(p.pane === "hidden" ? null : "hidden");
+  p.togglePane = () => { if (here()) togglePane(); };
 
   const nextTabName = () => {
     let n = p.tabs.length + 1;
     while (p.tabs.some((t) => t.name === `Query ${n}`)) n++;
     return `Query ${n}`;
   };
-  const closeTab = (i) => { p.tabs.splice(i, 1); p.active = Math.min(p.active, p.tabs.length - 1); saveQueryTabs(); renderQuery(); };
+  const closeTab = (i) => {
+    for (const e of p.tabs[i].history || []) if (e.pinned) rpc("sql_pin", { execution: e.id, pinned: false }).catch(() => {});  // its results can go now
+    p.tabs.splice(i, 1);
+    p.active = Math.min(p.active, p.tabs.length - 1);
+    saveQueryTabs();
+    renderQuery();
+  };
   const addTab = () => { p.whCompareShown = p.whMonitorShown = false; p.tabs.push({ name: nextTabName(), sql: wh ? WAREHOUSE_HINT : QUERY_HINT, dialect: tab.dialect }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); };
   // WH-12: the compare view, when one was made for this warehouse, has a tab of its own.
   const compare = wh && p.whCompare?.key === sqlRefKey(ref) ? p.whCompare : null;
@@ -662,7 +1323,7 @@ function renderQuery() {
   // A tablist holds only tabs (#905): each wrapper is presentational, and its × is for the mouse; with the
   // keyboard, Delete on the tab closes it. New query sits beside the list, not in it.
   // Delete and × ask first when the query has SQL of its own (keyClose); after Delete, focus goes to the tab now selected.
-  const sqlTab = (cls, on, label, iconName, select, close, extra = {}, keyClose = close) => h("div", { class: `sql-tab${cls}${on ? " on" : ""}`, role: "none" },
+  const sqlTab = (cls, on, label, iconName, select, close, extra = {}, keyClose = close, mark = null) => h("div", { class: `sql-tab${cls}${on ? " on" : ""}`, role: "none" },
     h("button", { class: "name", role: "tab", "aria-selected": String(on), onclick: select,
       ...(close ? { "aria-keyshortcuts": "Delete", onkeydown: async (e) => {
         if (e.key !== "Delete") return;
@@ -670,8 +1331,10 @@ function renderQuery() {
         if (await keyClose() === false) return;
         document.querySelector(".sql-tabs [aria-selected=true]")?.focus();
       } } : {}),
-      ...extra }, icon(iconName, 14), label),
+      ...extra }, icon(iconName, 14), label, mark),
     close ? h("button", { class: "close", "aria-hidden": "true", tabindex: "-1", title: `Close ${label} (Delete)`, onclick: () => keyClose() }, "×") : null);
+  p.dirtyDots = p.tabs.filter((t) => t.disk).map((t) => [t, h("span", { class: "sql-dirty", title: "Not saved to the file", "aria-label": "not saved", hidden: !sqlDiskDirty(t) })]);
+  const dotFor = (t) => p.dirtyDots.find(([x]) => x === t)?.[1] || null;
   const tabs = h("div", { class: "sql-tabbar" },
     h("div", { class: "sql-tabs", role: "tablist", "aria-label": "Queries" },
       p.tabs.map((t, i) => sqlTab("", i === p.active && !compareOn && !monitorOn, t.name, "code",
@@ -682,11 +1345,16 @@ function renderQuery() {
           if (name) { t.name = name; saveQueryTabs(); renderQuery(); }
         } },
         async () => {
+          if (t.disk) {
+            if (sqlDiskDirty(t) && !(await askSaveDisk(i))) return false;
+            closeTab(i);
+            return;
+          }
           const sql = (t.sql || "").trim();
           if (sql && sql !== QUERY_HINT.trim() && sql !== WAREHOUSE_HINT.trim()
             && !(await confirmDialog(`Close ${t.name}?`, "Its SQL is discarded. It isn't saved anywhere else.", "Close query", { danger: true }))) return false;
           closeTab(i);
-        })),
+        }, dotFor(t))),
       compare ? sqlTab(" wh-cmp-tab", compareOn, "Compare", "branchCompare",
         () => { p.whCompareShown = true; p.whMonitorShown = false; renderQuery(); },
         () => { p.whCompare = null; p.whCompareShown = false; renderQuery(); }) : null,
@@ -819,6 +1487,30 @@ function renderQuery() {
   }
   // WH-09: Fabric's estimated plan for the query (or the selection), without running it. It has a
   // run of its own, so the tab's results stay as they were.
+  // S39, S40: DuckDB's plan for the query (or the selection) on this PC, without running it, or its profile,
+  // which runs it again under the profiler. One query that reads; its JSON answer comes back as one row.
+  async function localExplain(mode, query = editor.chosen()) {
+    if (!query.trim()) throw new Error("Write a query first, or select one.");
+    if (mode === "plan") { tab.planning = true; drawResults(); }
+    try {
+      let status = await rpc("sql_start", { query, lakehouse_ref: ref, dialect: tab.dialect, [mode === "plan" ? "estimated_plan" : "profile"]: true });
+      for (let wait = 150; ["queued", "running", "cancelling"].includes(status.state); wait = Math.min(1000, wait * 1.5)) {
+        await new Promise((r) => setTimeout(r, wait));
+        status = await rpc("sql_status", { execution: status.id });
+      }
+      if (status.state !== "completed") throw new Error(status.error || `The ${mode} ${status.state.replace("_", " ")}.`);
+      const page = await rpc("sql_page", { execution: status.id, offset: 0 });
+      const data = JSON.parse(String(page.rows?.[0]?.[0] ?? "{}"));
+      if (mode === "plan") tab.localPlan = { ...data, at: new Date() };
+      return data;
+    } catch (err) {
+      if (mode !== "plan") throw err;
+      tab.localPlan = { error: String(err).replace(/^Error: /, "") };
+      return null;
+    } finally {
+      if (mode === "plan") { tab.planning = false; sqlPage.redraw?.(); }
+    }
+  }
   async function estimatedPlan(query = editor.chosen()) {
     if (!query.trim() || tab.planning) return;
     if (!(await warehouseRunOk(ref))) return;
@@ -847,29 +1539,30 @@ function renderQuery() {
   }
   function drawActions() {
     if (wh) {
-      actions.replaceChildren(btn("Run", "play", () => run(), "tool primary", { title: "Run the selected text, or the whole query when nothing is selected (F5 or Ctrl+Enter)", "aria-keyshortcuts": "F5 Control+Enter" }),
+      actions.replaceChildren(btn("Run", "play", () => run(), "tool primary", { title: "Run the selected text, or the whole query when nothing is selected (F5 or Ctrl+Enter). Ctrl+Shift+Enter runs only the statement at the cursor.", "aria-keyshortcuts": "F5 Control+Enter Control+Shift+Enter" }),
         btn("Estimated plan", "flowchart", () => estimatedPlan(), "tool outline",
           { title: "How Fabric would run the query (or the selection), without running it. Uses a little capacity." }),
         h("span", { class: "muted-text" }, "F5 or Ctrl+Enter runs it, or select text to run just that"),
         h("span", { class: "sql-sep", "aria-hidden": "true" }),
         h("span", { class: "sql-target-note" }, SQL_DIALECTS[tab.dialect].label),
         btn("Format SQL", null, formatSql, "tool outline", { title: "Format the selection, or the whole query (Shift+Alt+F)" }),
-        compatChip, practicesChip);
+        compatChip, practicesChip, paramChip);
       return;
     }
     const local = runsHere();
-    actions.replaceChildren(btn("Run", "play", () => run(), "tool primary", { disabled: !local, title: "Run the selected text, or the whole query when nothing is selected (F5 or Ctrl+Enter)", "aria-keyshortcuts": "F5 Control+Enter" }),
+    actions.replaceChildren(btn("Run", "play", () => run(), "tool primary", { disabled: !local, title: "Run the selected text, or the whole query when nothing is selected (F5 or Ctrl+Enter). Ctrl+Shift+Enter runs only the statement at the cursor.", "aria-keyshortcuts": "F5 Control+Enter Control+Shift+Enter" }),
       h("span", { class: "muted-text" }, local ? "F5 or Ctrl+Enter runs it, or select text to run just that"
         : `${SQL_DIALECTS[tab.dialect].short} is formatted here, not run`),
       h("span", { class: "sql-sep", "aria-hidden": "true" }),
       dialectPick,
       btn("Format SQL", null, formatSql, "tool outline", { title: "Format the selection, or the whole query (Shift+Alt+F)" }),
-      compatChip, practicesChip,
+      compatChip, practicesChip, paramChip,
       h("span", { class: "spacer" }),
       btn("Save as table", "save", saveAsTable, "tool outline", { disabled: !local }),
       btn("Open in notebook", "notebook", openInNotebook, "tool outline", { disabled: tab.dialect !== "spark" }));
   }
   drawActions();
+  drawParamChip();
 
   // The Compatibility panel beside the editor: the last check's outcome and findings, newest SQL first.
   const compat = h("aside", { class: "sql-compat", id: "sql-compat", "aria-label": "Compatibility" });
@@ -994,6 +1687,7 @@ function renderQuery() {
     query: (name) => queryTable(name),
     insert: (text) => insertAtCursor(text),
     open: (name, text) => openTab(name, text),
+    diagram: () => openDiagram(),
   }) : null;
   // WH-06: saved and shared queries, on the explorer's Queries tab. A saved query opens in its own
   // tab, or in the tab that already holds it.
@@ -1025,6 +1719,98 @@ function renderQuery() {
     await sqlLoadQueries();
     if (p.ref === ref && state.view === "query") renderQuery();
   };
+  // S38 (Preview): .sql files on this PC. Open .sql... and Save as .sql... use the Windows file dialog;
+  // the engine reads and writes the file (sql_files.py), keeping its encoding and line endings. A tab
+  // opened from a file saves back to it, and a file another program changed is never written over
+  // without asking.
+  const filesOn = previewShown() && !!PREVIEW_FEATURES.sqlFiles;
+  const diskOf = (f, text) => ({ path: f.path, name: f.name, version: f.version, encoding: f.encoding, newline: f.newline, saved: text });
+  const openDisk = async () => {
+    const path = await attempt(() => invoke("pick_sql_file", { start: tab.disk?.path || null, saveName: null }), "Could not show the Open dialog");
+    if (!path) return;
+    const at = p.tabs.findIndex((t) => t.disk?.path?.toLowerCase() === path.toLowerCase());
+    if (at < 0) {
+      const f = await attempt(() => rpc("sql_file_read", { path }), "Could not open the file");
+      if (!f) return;
+      const { sql, params } = sqlFileSplit(f.text);
+      p.tabs.push({ name: f.name, sql, dialect: tab.dialect, ...(params ? { params } : {}), disk: diskOf(f, sqlFileText(sql, params)) });
+    }
+    p.whCompareShown = p.whMonitorShown = false;
+    p.active = at < 0 ? p.tabs.length - 1 : at;
+    saveQueryTabs();
+    renderQuery();
+  };
+  const saveDisk = async (asNew, t = tab) => {
+    let path = asNew ? null : t.disk?.path;
+    if (!path) {
+      const name = t.disk?.name || `${(t.name || "query").replace(/[<>:"/\\|?*\x00-\x1f]+/g, " ").trim().replace(/\.sql$/i, "") || "query"}.sql`;
+      path = await attempt(() => invoke("pick_sql_file", { start: t.disk?.path || null, saveName: name }), "Could not show the Save dialog");
+      if (!path) return false;
+    }
+    const same = !!t.disk && path.toLowerCase() === t.disk.path.toLowerCase();
+    const text = sqlFileText(t.sql, t.params);
+    // The Save dialog itself asks before replacing a file, so Save as may write over one.
+    const write = (expect, overwrite) => attempt(() => rpc("sql_file_write", { path, text, expect, overwrite,
+      encoding: t.disk?.encoding || "utf-8", newline: t.disk?.newline || "\r\n" }), "Could not save the file");
+    let out = await write(same ? t.disk.version : "", !same);
+    if (out?.conflict) {
+      if (!(await confirmDialog(`Save ${out.name}?`, `${out.message} Saving writes this tab over the file, and the other version is lost.`,
+        "Save anyway", { danger: true }))) return false;
+      out = await write("", true);
+    }
+    if (!out || out.conflict) return false;
+    t.disk = diskOf(out, text);
+    if (!same) t.name = out.name;
+    saveQueryTabs();
+    toast(`Saved ${out.name}`);
+    if (p.ref === ref && state.view === "query") renderQuery();
+    return true;
+  };
+  // Closing a tab with changes the file doesn't have: Save, Don't save, or Cancel (false).
+  const askSaveDisk = (i) => new Promise((resolve) => {
+    const t = p.tabs[i];
+    let settled = false;
+    const done = (v) => { if (settled) return; settled = true; closeDialog(); resolve(v); };
+    showDialog(`Save changes to ${t.disk.name}?`,
+      h("div", {}, h("p", { class: "text" }, "You changed this tab since it was saved. If you don't save, the file on this PC stays as it was.")),
+      [btn("Cancel", null, () => done(false), "tool outline"), btn("Don't save", null, () => done(true), "tool outline"),
+        btn("Save", null, async () => { settled = true; closeDialog(); resolve(await saveDisk(false, t)); }, "tool primary")],
+      () => done(false));
+  });
+  // The file's line above the editor, and a note when another program changed the file on this PC.
+  const diskNote = h("div", { class: "sql-disk-note", hidden: true });
+  const fileRow = tab.disk && filesOn ? h("div", { class: "sql-file-row" },
+    h("span", { class: "sql-file-chip", title: tab.disk.path }, `File on this PC: ${tab.disk.path}`),
+    h("span", { class: "muted-text" }, "Ctrl+S saves to this file."), diskNote) : null;
+  const checkDisk = async () => {
+    const d = tab.disk;
+    if (!d || !filesOn || !here()) return;
+    const now = await rpc("sql_file_info", { path: d.path }).catch(() => null);
+    if (!now || tab.disk !== d || !here()) return;
+    const dirty = sqlDiskDirty(tab);
+    const load = async () => {
+      const f = await attempt(() => rpc("sql_file_read", { path: d.path }), "Could not read the file");
+      if (!f) return;
+      const { sql, params } = sqlFileSplit(f.text);
+      Object.assign(tab, { sql, params: params || {}, disk: diskOf(f, sqlFileText(sql, params)) });
+      saveQueryTabs();
+      renderQuery();
+    };
+    const keep = () => { tab.disk = { ...d, version: now.version || "", saved: null }; saveQueryTabs(); renderQuery(); };
+    if (!now.exists) {
+      diskNote.replaceChildren(h("span", null, h("b", null, `${d.name} isn't on this PC any more.`), " Save as .sql... keeps this tab in a file."));
+    } else if (now.version !== d.version) {
+      const at = now.changed ? timeText(new Date(now.changed * 1000)) : "";
+      diskNote.replaceChildren(h("span", null, h("b", null, `${d.name} changed on this PC`), at ? ` (another program saved it at ${at}). ` : ". ",
+        dirty ? "Your tab has unsaved changes; loading the new version discards them." : "Your tab has no unsaved changes."),
+        h("div", { class: "row" }, btn("Load the new version", null, load, "tool primary"), btn("Keep this tab as it is", null, keep, "tool outline")));
+    } else { diskNote.hidden = true; return; }
+    diskNote.hidden = false;
+    diskNote.setAttribute("role", "alert");
+  };
+  p.checkDisk = checkDisk;
+  const fileButtons = () => filesOn ? [btn("Open .sql...", "folderOpen", openDisk, "tool", { title: "Open a .sql file on this PC in a new tab" }),
+    btn("Save as .sql...", null, () => saveDisk(true), "tool", { title: "Save this tab as a .sql file on this PC. The tab then saves to that file." })] : [];
   // WH-11: the warehouse's project in Git, on the explorer's Project tab. A file opens in its own
   // tab, or in the tab that already holds it; Save writes it back.
   const openProjectFile = async (f, project) => {
@@ -1056,7 +1842,9 @@ function renderQuery() {
       tab.proj ? btn("Save file", "save", saveFile, "tool", { title: `Save to ${tab.proj.path} in ${tab.proj.folder} (Ctrl+S). Commit it in Source control.` })
         : btn("Save query", "save", () => saveQuery(false), "tool", { title: tab.file ? `Save to ${tab.file.name} in ${tab.file.place === "mine" ? "My queries" : tab.file.place_label}` : "Save this tab as a .sql file in My queries or a Git repository" }),
       tab.file && !tab.proj ? btn("Save as new", null, () => saveQuery(true), "tool") : null,
+      ...fileButtons(),
       btn("Open in Fabric", "open", () => openInFabric(fabricLink)),
+      whSsmsButton(ref, () => editor.text()),
       btn("Monitoring", "monitor", () => whMonitorOpen(ref), "tool", { title: "Fabric's workspace monitoring for this warehouse, and its monitoring views (Preview)" }),
       h("span", { class: "spacer" }),
       whChangesSwitch(ref, () => renderQuery()),
@@ -1081,6 +1869,7 @@ function renderQuery() {
           changes: "Nothing, until you tick Allow changes. Then a script that changes the warehouse (DDL, DML, EXEC) runs only after it shows what it changes and you confirm, typing the warehouse's name in Prod; it runs in one transaction, so a failure keeps nothing.",
           results: "A snapshot of the rows on this PC, read a page at a time, with Copy and Export to Downloads. The query text stays on this PC.",
           more: [["Capacity", "The query runs in Fabric, so it uses capacity on the warehouse's workspace."],
+            ["Open in SSMS", "Starts SQL Server Management Studio (or VS Code's MSSQL extension) on this warehouse with its server and database from Fabric. It signs in on its own with Microsoft Entra; the app passes it no password or token. With this query, the editor's text is written to a .sql file in the app's data folder first."],
             ["Your templates", "Saving, importing or deleting a template of your own writes or removes a .sql file in My templates (the app's data folder) or in the sql-templates folder of a Git repository you opened. Export writes a new file in Downloads."],
             ["Saved queries", "Save query writes the tab to a .sql file in My queries (the app's data folder) or in the sql-queries folder of a Git repository you opened; Delete removes that file. Nothing is committed for you."],
             ["Project", "The Project tab reads and writes .sql files in a <warehouse>.Warehouse folder of a Git repository you opened, in Fabric's Git layout. Import from the warehouse and Compare run catalog queries in Fabric. Import writes new files and, only if you tick it, replaces files that differ; Compare writes nothing unless you take the warehouse's version of an object. Nothing is committed and no file is removed. Deploy changes the warehouse: it previews each change and runs only the ones you tick, each as a confirmed change; Test and Prod deploy only committed, pushed files."],
@@ -1090,12 +1879,13 @@ function renderQuery() {
       h("section", { class: "sql-main" }, tabs,
         monitorOn ? whMonitorView(ref, { insight: openInsight })
           : compareOn ? whCompareView(ref, { open: openProjectFile })
-          : h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, grid))))
+          : h("div", { class: "sql-card" }, actions, fileRow, h("div", { class: "sql-editor-row" }, edit, compat), paramsBox, band, rtabs, gridRow))))
     : h("div", { class: "sql-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
       btn("New SQL query", "add", addTab),
       btn("New notebook", "notebook", () => newNotebook(ref)),
       btn("Refresh", "sync", () => { p.tables = null; p.cols = {}; p.pending = {}; renderQuery(); }),
+      ...fileButtons(),
       h("span", { class: "spacer" }),
       h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB, so no Fabric job starts. Reading OneLake still uses some capacity. ", learnMore("sql-queries")))),
     h("div", { class: "nb-body" },
@@ -1104,7 +1894,7 @@ function renderQuery() {
           h("span", { class: "label" }, ref.name)),
         tablesBox),
       h("section", { class: "sql-main" }, tabs,
-        h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, grid)))));
+        h("div", { class: "sql-card" }, actions, fileRow, h("div", { class: "sql-editor-row" }, edit, compat), paramsBox, band, rtabs, gridRow)))));
   drawResults();
   drawTables();
   if (tab.autorun) { delete tab.autorun; run(tab.sql); }
@@ -1112,11 +1902,33 @@ function renderQuery() {
   if (wh) whMonitorAutoCheck(ref);
   if (wh && !p.envRead) { p.envRead = true; whEnvRead(); }
   if (!p.tables && !wh) loadTables();
+  checkDisk();
   editor.focus();
 }
+
+// S38: coming back to the app (another program may have saved the file) checks the open tab's .sql file.
+window.addEventListener("focus", () => { if (state.view === "query") sqlPage.checkDisk?.(); });
 
 // The query tabs' own key, listed in the Keyboard shortcuts dialog while the SQL page is open (sqlTab above).
 registerShortcuts("SQL query", [
   { keys: ["F5", "Ctrl+Enter"], label: "Run the selected text, or the whole query when nothing is selected", when: () => state.view === "query" },
+  { keys: ["Ctrl+Shift+Enter"], label: "Run only the statement the cursor is in (or the selected text)", when: () => state.view === "query" },
+  { keys: ["Ctrl+R"], label: "Hide or show the results pane", when: () => state.view === "query" },
+  { keys: ["Ctrl+Shift+U", "Ctrl+Shift+L"], label: "In the editor: make the selection (or the word at the cursor) upper or lower case", when: () => state.view === "query" },
+  { keys: ["Ctrl+G"], label: "In the editor: go to a line", when: () => state.view === "query" },
+  { keys: ["F12"], label: "In the editor: show the table under the cursor (or an alias's or column's table) in the Explorer", when: () => state.view === "query" },
+  { keys: ["Ctrl+F2"], label: "In the editor: bookmark the cursor's line, or remove its bookmark", when: () => state.view === "query" },
+  { keys: ["F2", "Shift+F2"], label: "In the editor: go to the next or previous bookmark", when: () => state.view === "query" },
+  { keys: ["Ctrl+Shift+F2"], label: "In the editor: remove every bookmark", when: () => state.view === "query" },
   { keys: ["Delete"], label: "On a query tab: close it (asks first when it has SQL of its own)", when: () => !!document.querySelector(".sql-tabs") },
 ]);
+
+// Ctrl+R on the SQL page hides or shows the results pane wherever focus is (the editor handles it itself
+// first), and never reloads the window, which would lose open work.
+document.addEventListener("keydown", (e) => {
+  if (state.view !== "query" || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "r") return;
+  const handled = e.defaultPrevented;
+  e.preventDefault();
+  if (handled || document.getElementById("dialog-root")?.childElementCount || document.getElementById("palette")) return;
+  sqlPage.togglePane?.();
+});

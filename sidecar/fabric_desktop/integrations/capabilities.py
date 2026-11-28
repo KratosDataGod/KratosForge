@@ -175,16 +175,101 @@ def register_core(reg: Registry) -> None:
             "READ_METADATA", services.get_placement_advice, workspaces=scope.notebook, status="preview",
             artifact_types=("Notebook",), timeout=60),
     ]
-    caps += _prove() + _pipelines() + _pipeline_runs() + _executions() + _prove_actions() + _semantic_models()
+    caps += _metadata_project() + _local_data() + _prove() + _pipelines() + _pipeline_runs() + _executions() + _prove_actions() + _semantic_models()
     for cap in caps:
         reg.register(cap)
+
+
+RUN_ENV = {"enum": ["dev", "test", "prod"], "default": "dev",
+       "description": "The metadata project's environment whose run log to read."}
+ENTITY = {"type": "string", "minLength": 1, "maxLength": 200, "description": "An entity's name, from fabric_desktop_get_project."}
+RUN_ID = {"type": "string", "minLength": 1, "maxLength": 100, "pattern": r"^[A-Za-z0-9_.:\-]+$",
+          "description": "A run_id from fabric_desktop_list_project_runs."}
+RUN_LOG_LIMIT = ("Test and Prod keep their run log in OneLake: reading it uses your own Fabric sign-in.",
+                 "Counts and statuses only: no rows of data.")
+
+
+def _metadata_project() -> list[Capability]:
+    """The open metadata (Data mesh) project's lineage, runs and data quality results. Read only."""
+    run = schema({"run_id": STR, "entity": STR, "status": STR}, extra=True)
+    return [
+        Capability(
+            "fabric_desktop_get_lineage", "Get column lineage",
+            "Column lineage of an entity in the metadata project, worked out from the project's files: where each "
+            "column comes from (source, derived expression, lookup, key, framework or custom code) and whether the "
+            "link is declared, inferred or opaque. With a column: the steps back to where it starts and every "
+            "column built from it further on. Runs nothing and reads no table.",
+            schema({"entity": ENTITY, "column": {"type": "string", "maxLength": 200, "default": "",
+                                                 "description": "One column to trace; empty for all of the entity's columns."}},
+                   ["entity"]),
+            schema({"entity": STR, "columns": {"type": "object"}, "column": STR, "upstream": {"type": "array"},
+                    "downstream": {"type": "array"}}, ["entity"], extra=True),
+            "READ_METADATA", services.get_lineage, workspaces=scope.project, timeout=30,
+            resource="fabric-desktop://projects/metadata/lineage/{entity}"),
+        Capability(
+            "fabric_desktop_list_project_runs", "List metadata project runs",
+            "Runs of the metadata project's entities in one environment, newest first: status, rows read, written "
+            "and quarantined, the Delta version written and where each ran.",
+            schema({"env": RUN_ENV, **PAGING}), paged_output(run),
+            "READ_METADATA", services.list_project_runs, workspaces=scope.run_environment, locations=("this_pc", "fabric"), status="preview",
+            limitations=RUN_LOG_LIMIT, timeout=60),
+        Capability(
+            "fabric_desktop_get_project_run", "Get a metadata project run",
+            "One run of a metadata project entity: its steps and its data quality results (each check, how many "
+            "rows failed it and what was done with them).",
+            schema({"run_id": RUN_ID, "env": RUN_ENV}, ["run_id"]),
+            schema({"run_id": STR, "status": STR, "steps": {"type": "array"}, "quality": {"type": "array"},
+                    "quality_failed": {"type": "integer"}}, ["run_id", "quality"], extra=True),
+            "READ_METADATA", services.get_project_run, workspaces=scope.run_environment, locations=("this_pc", "fabric"), status="preview",
+            limitations=RUN_LOG_LIMIT, timeout=60),
+    ]
+
+
+LOCAL_PROJECT = {"type": "string", "minLength": 1, "maxLength": 120, "pattern": r"^[A-Za-z0-9\-]+$",
+                 "description": "A local data project's id, from fabric_desktop_list_local_projects."}
+LOCAL_LIMIT = ("Read from each project's saved catalog and Delta logs; its database is never opened, so the app keeps it.",
+               "Metadata only: names, columns, sizes and versions, no rows.",
+               "A tool limited to some workspaces can't use these, because a source folder can be a OneLake folder on this PC.",
+               "Results include full folder paths on this PC (the project's folder, its source folders, read errors).")
+
+
+def _local_data() -> list[Capability]:
+    """Local data projects (Local data page): SQL over files on this PC. Read only, and never Fabric."""
+    table = schema({"schema": STR, "table": STR, "kind": STR, "columns": {"type": "array"}}, extra=True)
+    return [
+        Capability(
+            "fabric_desktop_list_local_projects", "List local data projects",
+            "The local data projects on this PC (the Local data page): each one's name, folder, the folders it "
+            "reads files from, and how many tables it has.",
+            schema(), schema({"projects": {"type": "array", "items": schema({"id": STR, "name": STR}, extra=True)}},
+                             ["projects"], extra=True),
+            "READ_METADATA", services.list_local_projects, workspaces=scope.UNKNOWN, limitations=LOCAL_LIMIT,
+            timeout=30, resource="fabric-desktop://local-data"),
+        Capability(
+            "fabric_desktop_get_local_tables", "List a local data project's tables",
+            "The tables a local data project found in its folders (CSV, Parquet, JSON, Delta and more) and the Delta "
+            "tables it made, each with its columns and types, its source folder and whether it could be read.",
+            schema({"project": LOCAL_PROJECT, **PAGING}, ["project"]), paged_output(table),
+            "READ_METADATA", services.get_local_tables, workspaces=scope.UNKNOWN, limitations=LOCAL_LIMIT,
+            timeout=30, resource="fabric-desktop://local-data/{project}/tables"),
+        Capability(
+            "fabric_desktop_get_local_table_history", "Get a local Delta table's history",
+            "The versions of one of a local data project's Delta tables, newest first: when, which operation, "
+            "rows and files added.",
+            schema({"project": LOCAL_PROJECT, "table": {"type": "string", "minLength": 1, "maxLength": 300,
+                                                         "description": "schema.table, as fabric_desktop_get_local_tables lists it."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 50}}, ["project", "table"]),
+            schema({"table": STR, "version": {"type": "integer"}, "versions": {"type": "array"}}, ["table", "versions"], extra=True),
+            "READ_METADATA", services.get_local_table_history, workspaces=scope.UNKNOWN, limitations=LOCAL_LIMIT,
+            timeout=60),
+    ]
 
 
 PIPELINE_LIMIT = ("Reads only the definition you pass; it doesn't fetch pipelines from Fabric.",
                   "Expressions are read, never evaluated; nothing in the pipeline runs.",
                   "Definitions up to 1 MB (the local API's request limit); the desktop app reads larger ones.")
-COMPAT_LIMIT = ("No activity runs on this PC yet: local execution arrives with ORCH-003. 'planned' is a proposal, "
-                "not support.",
+COMPAT_LIMIT = (("No activity runs on this PC yet: local execution arrives with ORCH-003. 'planned' is a proposal, "
+                "not support."),
                 "No entry has been compared against Fabric yet; Fabric-only type names are marked unverified.")
 DEFINITION = {"type": "string", "minLength": 2, "maxLength": 1_000_000,
               "description": "pipeline-content.json, or a getDefinition result with base64 parts, as text."}
@@ -313,11 +398,11 @@ RUN_INPUT = {
     "children": {"type": "object", "default": {}, "description": "Child pipeline definitions as text, by "
                  "referenceName or pipelineId."},
 }
-RUN_LIMIT = ("Runs control flow (variables, conditions, loops, waits, Fail, Filter) and child pipelines on this PC. "
+RUN_LIMIT = (("Runs control flow (variables, conditions, loops, waits, Fail, Filter) and child pipelines on this PC. "
              "Copy, Notebook, Lookup, Get Metadata, Script and other data or compute activities need a mock; "
-             "cloud-only and unknown activities refuse the run.",
-             "Nothing is sent to Fabric and no capacity is used. Behaviour follows Data Factory's documentation and "
-             "hasn't been compared with Fabric.",
+             "cloud-only and unknown activities refuse the run."),
+             ("Nothing is sent to Fabric and no capacity is used. Behaviour follows Data Factory's documentation and "
+             "hasn't been compared with Fabric."),
              "Activity outputs and variable values are left out; open the run in KratosForge to see them.")
 
 
@@ -370,8 +455,8 @@ def _pipeline_runs() -> list[Capability]:
     ]
 
 
-PROVE_LIMIT = ("Cell outputs and example rows are left out: they can contain data. Open the proof in "
-               "KratosForge to see them.",)
+PROVE_LIMIT = (("Cell outputs and example rows are left out: they can contain data. Open the proof in "
+               "KratosForge to see them."),)
 NAME_FILTER = {"name": {"type": "string", "maxLength": 200, "default": "", "description": "Only this notebook's; empty for all."}}
 
 
@@ -447,7 +532,7 @@ WAIT = {"wait_seconds": {"type": "number", "minimum": 0, "maximum": 120, "defaul
 EXECUTION = schema({"id": STR, "kind": STR, "state": {"enum": ["queued", "running", "succeeded", "failed", "cancelled", "timed_out"]},
                     "seconds": {"type": "number"}, "result": {}, "error": {"type": "object"}}, ["id", "state"], extra=True)
 OPT_ID = {"type": "string", "maxLength": 100, "pattern": r"^[A-Za-z0-9\-]*$", "default": ""}
-EXECUTION_ID = {"type": "string", "pattern": r"^ex_[0-9a-f]{20}$"}
+EXECUTION_ID = {"type": "string", "maxLength": 23, "pattern": r"^ex_[0-9a-f]{20}$"}
 CODE_LIMITS = ("Runs in a Python process of its own on this PC, ended afterwards; nothing is kept between runs.",
                "Can read the attached lakehouse; writing lakehouse tables and getting other tokens are refused.",
                "Output is capped at 100,000 characters; images and HTML are left out.",
@@ -553,7 +638,7 @@ def _prove_actions() -> list[Capability]:
             "A readable report of a receipt (markdown, HTML or JSON). Parts in hide, and any your organization "
             "requires, are left out. Without hiding values it includes example rows, so it needs READ_DATA.",
             schema({"id": ID, "format": {"enum": ["markdown", "html", "json"], "default": "markdown"},
-                    "hide": {"type": "array", "items": {"enum": ["identity", "locations", "values", "machine"]}, "default": []}},
+                    "hide": {"type": "array", "items": {"enum": ["identity", "locations", "values", "machine"]}, "maxItems": 4, "default": []}},
                    ["id"]),
             schema({"format": STR, "text": STR, "hidden": {"type": "array"}}, ["format", "text"], extra=True),
             "READ_DATA", services.export_receipt, workspaces=scope.receipt, approval="ask", timeout=60),

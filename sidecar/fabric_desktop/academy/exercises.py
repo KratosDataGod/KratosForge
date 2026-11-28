@@ -79,11 +79,11 @@ def _folder(pack_id: str, root: Path) -> Path:
 
 def ids(pack_id: str, root: Path = registry.ROOT) -> list[str]:
     folder = _folder(pack_id, root)
-    return sorted(p.name for p in folder.iterdir() if p.is_dir() and _ID.match(p.name)) if folder.is_dir() else []
+    return sorted(p.name for p in folder.iterdir() if p.is_dir() and _ID.fullmatch(p.name)) if folder.is_dir() else []
 
 
 def get(pack_id: str, exercise_id: str, root: Path = registry.ROOT) -> dict[str, Any]:
-    if not _ID.match(str(exercise_id)) or not (_folder(pack_id, root) / exercise_id / "exercise.json").is_file():
+    if not _ID.fullmatch(str(exercise_id)) or not (_folder(pack_id, root) / exercise_id / "exercise.json").is_file():
         raise ValueError(f"{pack_id} has no exercise {exercise_id}")
     return dict(_read_json(_folder(pack_id, root) / exercise_id / "exercise.json"))
 
@@ -100,7 +100,7 @@ def exercises(pack_id: str, root: Path = registry.ROOT, include_drafts: bool = T
 
 def file_text(pack_id: str, exercise_id: str, name: str, root: Path = registry.ROOT) -> str:
     """One of the exercise's own learner files (never grading material)."""
-    if not _ID.match(str(exercise_id)) or not _FILE.match(str(name)) or ".." in name:
+    if not _ID.fullmatch(str(exercise_id)) or not _FILE.fullmatch(str(name)) or ".." in name:
         raise ValueError(f"Not an exercise file: {exercise_id}/{name}")
     return (_folder(pack_id, root) / exercise_id / name).read_text(encoding="utf-8")
 
@@ -131,7 +131,7 @@ def reference(pack_id: str, exercise_id: str, root: Path = registry.ROOT) -> dic
     ``{"setup": sql or None, "starter": sql, "solution": sql, "wrong": {name: sql}}``."""
     ex = get(pack_id, exercise_id, root)
     setup: str | None
-    uses = _USES.match(str(ex.get("uses") or ""))
+    uses = _USES.fullmatch(str(ex.get("uses") or ""))
     if uses:
         module_id, lab_ex = uses.groups()
         m = learn_content.get(module_id)
@@ -236,7 +236,7 @@ def _exercise_problems(pack_id: str, folder: Path, ex: dict[str, Any], cert: dic
         out.append(f"{eid}: version is a whole number from 1")
     if not isinstance(ex["minutes"], int) or not 1 <= ex["minutes"] <= 240:
         out.append(f"{eid}: minutes is a whole number from 1 to 240")
-    if ex["status"] == "live" and not _DATE.match(str(ex.get("reviewed") or "")):
+    if ex["status"] == "live" and not _DATE.fullmatch(str(ex.get("reviewed") or "")):
         out.append(f"{eid}: a live exercise needs the date it was last reviewed (reviewed: YYYY-MM-DD)")
     # ACD-003: the class has to be one this adapter can honestly give, on this pack's platform.
     plat = registry.platform(cert)
@@ -268,7 +268,7 @@ def _exercise_problems(pack_id: str, folder: Path, ex: dict[str, Any], cert: dic
         elif eid not in objs[oid]["exercises"] + objs[oid].get("capstones", []):
             out.append(f"{eid}: objective {oid} doesn't list this exercise in the registry")
     for p in ex.get("prerequisites") or []:
-        if not (_ID.match(str(p)) and (folder.parent / p).is_dir()) and not (learn_content.is_id(p)
+        if not (_ID.fullmatch(str(p)) and (folder.parent / p).is_dir()) and not (learn_content.is_id(p)
                                                                               and (learn_content.ROOT / p).is_dir()):
             out.append(f"{eid}: unknown prerequisite {p}")
     out += [f"{eid}: unknown remediation lesson {r}" for r in ex.get("remediation") or []
@@ -330,7 +330,7 @@ def _file_problems(pack_id: str, folder: Path, ex: dict[str, Any], root: Path) -
     elif ex.get("notebooks") or ex.get("files_folder"):
         out.append(f"{eid}: notebooks and files_folder are for pyspark_lab exercises")
     for name in names:
-        if not isinstance(name, str) or not _FILE.match(name) or ".." in name:
+        if not isinstance(name, str) or not _FILE.fullmatch(name) or ".." in name:
             out.append(f"{eid}: {name!r} isn't a plain file name in the exercise's folder")
         elif not (folder / name).is_file():
             out.append(f"{eid}: {name} is missing")
@@ -339,7 +339,7 @@ def _file_problems(pack_id: str, folder: Path, ex: dict[str, Any], root: Path) -
     leaked = [p.name for p in folder.iterdir() if p.name.startswith(("solution", "wrong-"))]
     out += [f"{eid}: {n} is grading material; it goes in grading/{eid}/, never beside the starter" for n in leaked]
     if ex.get("uses"):
-        m = _USES.match(str(ex["uses"]))
+        m = _USES.fullmatch(str(ex["uses"]))
         if not m:
             out.append(f"{eid}: uses names a Learn lab exercise like LAB-04/rebuild")
         else:
@@ -419,7 +419,7 @@ def problems(root: Path = registry.ROOT) -> list[str]:
         if not folder.is_dir():
             continue
         for sub in sorted(p for p in folder.iterdir() if p.is_dir()):
-            if not _ID.match(sub.name):
+            if not _ID.fullmatch(sub.name):
                 out.append(f"{pack_id}/{sub.name}: an exercise folder is named by its id, like E01 or C1")
                 continue
             try:

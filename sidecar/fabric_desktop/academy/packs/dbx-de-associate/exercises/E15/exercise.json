@@ -1,0 +1,99 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E15",
+  "version": 1,
+  "status": "draft",
+  "title": "A database table to bronze over JDBC-style partitioned reads",
+  "objectives": [
+    "2.5"
+  ],
+  "objective_text": "Land a database table into bronze with partitioned reads, splitting it on a numeric column the way a JDBC read with partitionColumn, lowerBound, upperBound and numPartitions does, so every row lands exactly once.",
+  "scenario": "The nightly job copies the shop's orders table to bronze over JDBC in one query, and it has become the slowest step. The DBA gave you a partition column and bounds from last year, when the table had 1,000 orders; it has 1,200 now. Split the read into four, and don't lose or double a single order.",
+  "minutes": 25,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "python_lab",
+  "engine_label": "Python with SQLite and Polars on this PC",
+  "lesson": "lesson.md",
+  "starter": "read_orders.py",
+  "files": [
+    "orders_source.csv"
+  ],
+  "prerequisites": [
+    "E14"
+  ],
+  "verifies": [
+    "Your script ran on this PC, read the source table in four queries split on order_id the way a partitioned JDBC read splits it, and landed all 1,200 orders once each, including those above the upper bound."
+  ],
+  "does_not_verify": [
+    "A real JDBC driver or connection: the source is a SQLite copy and query() stands in for one connection.",
+    "Spark running the partitions in parallel, fetchsize, the load on the source database, or reading the connection's secret with dbutils.secrets.get."
+  ],
+  "datasets": [],
+  "expected": {
+    "file": "out/bronze_orders.parquet",
+    "rows": 1200
+  },
+  "validation": [
+    {
+      "kind": "notebook_ran",
+      "pass": "Your script ran to the end.",
+      "fail": "Your script stopped with an error; read its output."
+    },
+    {
+      "kind": "data_quality",
+      "path": "out/bronze_orders.parquet",
+      "format": "parquet",
+      "rules": [
+        {
+          "rule": "row_count",
+          "equals": 1200
+        },
+        {
+          "rule": "unique",
+          "column": "order_id"
+        },
+        {
+          "rule": "not_null",
+          "columns": [
+            "order_id",
+            "customer_id",
+            "amount",
+            "status"
+          ]
+        }
+      ],
+      "pass": "All 1,200 orders, each once.",
+      "fail": "Count the orders: the bounds only split the read, and a boundary row belongs to one partition."
+    },
+    {
+      "kind": "config_matches",
+      "path": "out/_partitions.json",
+      "rules": [
+        {
+          "path": "partitions",
+          "count": 4,
+          "why": "NUM_PARTITIONS is 4: one query per partition."
+        },
+        {
+          "path": "partitions.3.rows",
+          "min": 449,
+          "why": "The last partition takes every order above its lower edge, including those past the upper bound."
+        }
+      ],
+      "pass": "Four partitions, and the last one reaches past the upper bound.",
+      "fail": "Check out/_partitions.json: one entry per query, with the rows each one read."
+    }
+  ],
+  "hints": [
+    "The stride is (UPPER_BOUND - LOWER_BOUND) // NUM_PARTITIONS. Partition i covers LOWER_BOUND + i * stride up to the next edge.",
+    "Use >= low AND < high for the middle partitions. BETWEEN includes both ends, so a boundary order would be read twice.",
+    "The bounds don't filter: the first partition's WHERE has no lower edge and the last has no upper edge."
+  ],
+  "explanation": "A partitioned JDBC read splits the range between lowerBound and upperBound into numPartitions strides and runs one query per stride. The first query takes everything below its upper edge (and NULLs) and the last takes everything from its lower edge up, so rows outside the bounds still land; the bounds tune the split, they never filter. The middle queries use >= and <, so a row on a boundary is read once. Here the stride is 249: order_id < 250, 250 to 498, 499 to 747, and order_id >= 748, which also takes orders 1,001 to 1,200.",
+  "remediation": [
+    "https://docs.databricks.com/aws/en/connect/external-systems/jdbc",
+    "https://spark.apache.org/docs/latest/sql-data-sources-jdbc.html"
+  ],
+  "reset": "Reset removes the out folder and puts the starter script back."
+}

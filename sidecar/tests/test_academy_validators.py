@@ -418,3 +418,12 @@ def test_unchanged_counts_duplicates(con: duckdb.DuckDBPyConnection) -> None:
     con.execute("DELETE FROM d")
     con.execute("INSERT INTO d VALUES (1), (2)")
     assert not v.unchanged(con, ["d"], before)["passed"]
+
+
+def test_config_messages_show_short_plain_lists_but_never_secret_looking_items() -> None:
+    out = v.config_matches({"ops": ["DELETE", "WRITE"]}, [{"path": "ops", "equals": ["WRITE", "DELETE"]}])
+    assert out["detail"].startswith('ops is ["DELETE", "WRITE"]; it should be ["WRITE", "DELETE"].')
+    out = v.config_matches({"ops": ["WRITE", "token=abc"]}, [{"path": "ops", "equals": []}])
+    assert "abc" not in out["detail"] and "a list of 2" in out["detail"]
+    out = v.config_matches({"ops": list(range(9))}, [{"path": "ops", "equals": []}])
+    assert "a list of 9" in out["detail"]

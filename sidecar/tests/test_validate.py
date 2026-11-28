@@ -129,7 +129,7 @@ def test_spark_features_this_pc_lacks_stop_a_pc_run():
     assert "in place with spark.sql" in stops("spark.sql('UPDATE LH_Keys.dbo.t SET x = 1 WHERE id = 2')")[0]
     assert stops('spark.sql("""\n  DELETE FROM LH_Keys.dbo.t WHERE x = 1""")')
     assert stops("spark.sql(f\"UPDATE dbo.t SET x = 1\")") == []  # an f-string's text is only known when it runs
-    assert "replaceWhere" in stops("df.write.option('replaceWhere', 'd > 1').saveAsTable('dbo.t')")[0]
+    assert stops("df.write.option('replaceWhere', 'd > 1').saveAsTable('dbo.t')") == []  # WR-115
     assert stops("spark.sql('SELECT * FROM dbo.t')") == [] and stops("df.write.mode('overwrite').saveAsTable('dbo.t')") == []
 
 

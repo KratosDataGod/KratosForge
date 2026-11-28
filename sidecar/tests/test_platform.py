@@ -295,7 +295,8 @@ def test_the_definition_lists_every_function_or_fabric_refuses_it():
     # The shape Fabric's own getDefinition returns: schema 1.1.0 and a libraries block (probe, 2026-11-03)
     body = json.loads(parts["definition.json"])
     assert body["$schema"].endswith("/definition/1.1.0/schema.json")
-    assert body["libraries"] == {"public": [], "private": []}
+    assert body["libraries"] == {"public": [{"name": "fabric-user-data-functions", "type": "PYPI", "version": "1.0.0"}],
+                                 "private": []}, "updateDefinition refuses a definition without Fabric's library"
     key_table = next(f for f in described if f["name"] == "ensure_key_table")
     assert [(b["type"], b["name"]) for b in key_table["bindings"]] == [
         ("HttpTrigger", "req"), ("FabricItem", "sqlDB"), ("UserDataFunctionContext", "ctx")]
@@ -416,7 +417,7 @@ def test_an_entity_reads_another_teams_table_through_a_link(svc, tmp_path):
     res = Engine(project, store, link_table=lambda alias: uri).run("silver.regions")
     assert res.status == "ok", res.message
     assert store.read("LH_Silver", "dbo", "regions").height == 2
-    with pytest.raises(GateError, match="read it"):
+    with pytest.raises(GateError, match="silver.regions reads it"):
         svc.mesh_delete_link("regions")
 
 

@@ -61,6 +61,15 @@ RULES: tuple[Rule, ...] = (
          "Each count() runs the whole query again. Keep the count in a variable, or cache the DataFrame."),
     Rule("NB012", "Warning", "Reliability", "Error caught and ignored",
          "except ...: pass hides failures, so a run looks fine when it isn't. Log the error, or let it fail."),
+    Rule("NB014", "Warning", "Performance", "Row-by-row pandas loop",
+         "iterrows(), itertuples() and apply(..., axis=1) run Python once per row, which is slow on large tables. "
+         "Write the change as a column expression, or use Polars or DuckDB."),
+    Rule("NB015", "Info", "Performance", "Polars reads the whole file, then filters",
+         "pl.read_csv or pl.read_parquet loads every row before .filter() drops most of them. "
+         "pl.scan_csv or pl.scan_parquet with .filter() and .collect() may read only what the filter keeps."),
+    Rule("NB017", "Info", "Maintenance", "print() used for logging in a scheduled notebook",
+         "Nobody reads a scheduled run's printed output, and it has no time or level. Use the logging module, "
+         "or write the run's facts to a table.", scheduled_only=True),
     # NB018 to NB020 are based on guidance in microsoft/skills-for-fabric (MIT), written in our own words.
     Rule("NB018", "Info", "Performance", "Python UDF in Spark code",
          "A Python UDF moves every row out of Spark and back. Use a built-in function from "
@@ -105,9 +114,16 @@ def check(sources: list[str], scheduled: bool = False,
     settings = settings or {}
     found: list[dict[str, Any] | None] = []  # _finding gives None for a rule that's turned off
     counts: dict[str, list[tuple[int, int]]] = {}
+    trees: list[tuple[int, ast.AST]] = []  # each Python cell's tree, for rules that read across cells
     for n, source in enumerate(sources, 1):
-        for rule_id, line in _cell(source, scheduled, counts, n):
+        for rule_id, line in _cell(source, scheduled, counts, n, trees):
             found.append(_finding(rule_id, n, line, settings))
+    parsed = {n for n, _ in trees}
+    other_text = [source if n not in parsed else  # a %%sql cell, or a cell's magic and shell lines, may name a frame
+                  "\n".join(line for line in source.split("\n") if line.lstrip().startswith(("%", "!")))
+                  for n, source in enumerate(sources, 1)]
+    for cell, line in _eager_read_kept_then_filtered(trees, other_text):
+        found.append(_finding("NB015", cell, line, settings))
     for name, where in counts.items():
         if len(where) >= 3:
             found.append(_finding("NB011", where[2][0], where[2][1], settings, f"{name}.count()"))
@@ -130,7 +146,8 @@ def _finding(rule_id: str, cell: int, line: int, settings: dict[str, dict[str, A
             "description": rule.description, "url": url(rule_id)}
 
 
-def _cell(source: str, scheduled: bool, counts: dict[str, list[tuple[int, int]]], n: int) -> Iterator[tuple[str, int]]:
+def _cell(source: str, scheduled: bool, counts: dict[str, list[tuple[int, int]]], n: int,
+          trees: list[tuple[int, ast.AST]] | None = None) -> Iterator[tuple[str, int]]:
     for f in scan_text(source):
         yield "NB001", f["line"]
     for m in _ONELAKE_ID_PATH.finditer(source):
@@ -152,6 +169,8 @@ def _cell(source: str, scheduled: bool, counts: dict[str, list[tuple[int, int]]]
         tree = ast.parse(_without_magics(source))
     except SyntaxError:
         return  # the editor already underlines it; nothing here can be read reliably
+    if trees is not None:
+        trees.append((n, tree))
     yield from _python(tree, source, scheduled, counts, n)
 
 
@@ -186,6 +205,20 @@ def _python(tree: ast.AST, source: str, scheduled: bool, counts: dict[str, list[
             n: int) -> Iterator[tuple[str, int]]:
     in_loop: set[int] = set()
     decorators: set[int] = set()  # @udf(...) is found on its function, not again as a call
+    # lf = pl.scan_parquet(...).filter(...), then lf.collect() later in the cell: lf is a Polars lazy frame
+    lazy = {tgt.id for node in ast.walk(tree) if isinstance(node, ast.Assign) and _chain(node.value) & _POLARS_LAZY
+            for tgt in node.targets if isinstance(tgt, ast.Name)}
+    # totals = df.groupBy("r").agg(...), then totals.collect(): aggregated first, as NB003's advice says
+    # Only a name every assignment of which is aggregated: one reassigned to a whole frame is collected as one.
+    assigned: dict[str, list[ast.AST]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)) and node.value is not None:
+            for tgt in (node.targets if isinstance(node, ast.Assign) else [node.target]):
+                for ref in ast.walk(tgt):
+                    if isinstance(ref, ast.Name):
+                        assigned.setdefault(ref.id, []).append(node.value if isinstance(node, ast.Assign) and
+                                                                isinstance(tgt, ast.Name) else ast.Constant(None))
+    summed = frozenset(n for n, values in assigned.items() if all(_aggregated(v) for v in values))
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(_is_udf(d) for d in node.decorator_list):
             decorators.update(id(d) for d in node.decorator_list)
@@ -201,9 +234,17 @@ def _python(tree: ast.AST, source: str, scheduled: bool, counts: dict[str, list[
             continue
         name = _called(node)
         chain = _chain(node)
+        if _row_by_row(node, name):
+            yield "NB014", node.lineno
+        if name == "filter" and _eager_polars_read(node):
+            yield "NB015", node.lineno
+        if scheduled and isinstance(node.func, ast.Name) and node.func.id == "print":
+            yield "NB017", node.lineno
         if chain & {"read", "readStream"} and any(a.lower().startswith(("http://", "https://")) for a in _str_args(node)):
             yield "NB019", node.lineno
-        if name in {"collect", "toPandas"} and not chain & {"limit", "head", "take", "sample", "tail"}:
+        if name in {"collect", "toPandas"} and not chain & {"limit", "head", "take", "sample", "tail"} \
+                and not (name == "collect" and (chain & _POLARS_LAZY or chain & lazy)) \
+                and not _aggregated(node, summed):  # a Polars lazy query's collect() runs it; few rows once aggregated
             yield "NB003", node.lineno
         elif name == "display" and scheduled and node.args and not (_chain(node.args[0]) & {"limit", "head", "sample"}):
             yield "NB004", node.lineno
@@ -245,6 +286,64 @@ def _chain(node: ast.AST) -> set[str]:
             return names
         else:
             return names
+
+
+# Aggregating first: a grouped or summarised frame, or a select of aggregate functions, has few rows to bring back.
+_AGGREGATING = {"agg", "groupBy", "groupby", "group_by", "rollup", "cube", "describe", "summary"}
+_AGGREGATES = {"sum", "count", "countDistinct", "count_distinct", "approx_count_distinct", "avg", "mean", "min",
+               "max", "stddev", "variance", "percentile_approx", "median", "first", "last"}
+_EXPR_AGGREGATE = re.compile(r"(?i)\s*(?:sum|count|avg|mean|min|max|stddev|variance|percentile_approx|"
+                             r"approx_count_distinct)\s*\(")
+# Checked on the query's top level only (subqueries and function arguments emptied), so a GROUP BY or an aggregate
+# in a subquery doesn't count, and an aggregate with OVER (...) is a window, which keeps every row.
+_SQL_GROUP_BY = re.compile(r"(?is)\bgroup\s+by\b")
+_SQL_SELECT_AGGREGATE = re.compile(r"(?is)^\s*select\b(?:(?!\bfrom\b).)*\b(?:sum|count|avg|min|max)\s*\x01(?!\s*over\b)")
+_SQL_WINDOW = re.compile(r"(?is)\bover\s*\x01")
+_EXPR_WINDOW = re.compile(r"(?is)\bover\s*\(")
+# Calls after an aggregate that can bring the row count back up.
+_GROWING = {"join", "crossJoin", "union", "unionAll", "unionByName", "explode", "explode_outer", "posexplode"}
+
+
+def _top_level(sql: str) -> str:
+    """``sql`` with each parenthesised part, innermost first, replaced by \\x01:
+    SELECT a, f(b) FROM (SELECT ...) t -> SELECT a, f\\x01 FROM \\x01 t."""
+    while True:
+        flat = re.sub(r"\([^()]*\)", "\x01", sql)
+        if flat == sql:
+            return flat
+        sql = flat
+
+
+def _sql_aggregated(sql: str) -> bool:
+    top = _top_level(sql)
+    if _SQL_WINDOW.search(top):
+        return False
+    return bool(_SQL_GROUP_BY.search(top) or _SQL_SELECT_AGGREGATE.search(top))
+
+
+def _aggregated(node: ast.AST, summed: frozenset[str] = frozenset()) -> bool:
+    """Whether the frame a chain ends in is aggregated, with nothing after that can bring rows back (a join, a union,
+    an explode): groupBy/agg/describe along it, a select whose every column is an aggregate function, spark.sql of a
+    query with GROUP BY or aggregates in its top-level SELECT list, or a variable in ``summed``."""
+    for call in _chain_calls(node):
+        method = call.func.attr if isinstance(call.func, ast.Attribute) else ""
+        if method in _GROWING or any(isinstance(a, ast.Call) and _called(a) in _GROWING
+                                     for arg in [*call.args, *(k.value for k in call.keywords)] for a in ast.walk(arg)):
+            return False
+        if method in _AGGREGATING:
+            return True
+        if method == "select" and call.args and all(
+                isinstance(a, ast.Call) and _called(a) in _AGGREGATES for a in call.args):
+            return True
+        if method in {"selectExpr", "sql"} and call.args and all(
+                isinstance(a, ast.Constant) and isinstance(a.value, str) and
+                (_sql_aggregated(a.value) if method == "sql" else
+                 _EXPR_AGGREGATE.match(a.value) and not _EXPR_WINDOW.search(a.value))
+                for a in call.args):
+            return True
+        if isinstance(call.func, ast.Attribute) and isinstance(call.func.value, ast.Name) and call.func.value.id in summed:
+            return True
+    return False
 
 
 def _chain_calls(node: ast.AST) -> Iterator[ast.Call]:
@@ -318,3 +417,85 @@ def _short_hours(call: ast.Call) -> bool:
     given = [*call.args[:1], *(k.value for k in call.keywords if k.arg in {"retentionHours", "retention_hours"})]
     return any(isinstance(v, ast.Constant) and isinstance(v.value, (int, float)) and not isinstance(v.value, bool)
                and v.value < _SAFE_HOURS for v in given)
+
+
+def _row_by_row(call: ast.Call, name: str) -> bool:
+    """df.iterrows() / df.itertuples() / df.apply(f, axis=1): pandas calling Python once per row."""
+    if not isinstance(call.func, ast.Attribute):
+        return False
+    if name in {"iterrows", "itertuples"} and not call.args:
+        return True
+    return name == "apply" and any(k.arg == "axis" and isinstance(k.value, ast.Constant) and k.value.value in {1, "columns"}
+                                   for k in call.keywords)
+
+
+_POLARS_LAZY = {"scan_csv", "scan_parquet", "scan_ndjson", "scan_ipc", "scan_delta", "lazy"}
+_POLARS_READS = {"read_csv", "read_parquet", "read_ndjson", "read_ipc"}
+
+
+def _is_eager_polars_read(node: ast.AST) -> bool:
+    """pl.read_csv(...) (and the other eager reads), maybe followed by with_columns, select or rename."""
+    while isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in {"with_columns", "select", "rename"}:
+        node = node.func.value
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in _POLARS_READS
+            and isinstance(node.func.value, ast.Name) and node.func.value.id in {"pl", "polars"})
+
+
+def _eager_read_kept_then_filtered(trees: list[tuple[int, ast.AST]], other_text: list[str] | None = None,
+                                   ) -> Iterator[tuple[int, int]]:
+    """NB015 across lines and cells: df = pl.read_csv(...), and every use of df anywhere in the notebook is
+    df.filter(...). A name bound twice (assigned, a loop or with target, an argument, an import), used any
+    other way in any cell (its columns, its length, passed on), or named in a string or in ``other_text``
+    (a %%sql cell, magic lines: duckdb.sql("... FROM df") reads it whole), isn't reported, because then the
+    whole frame may be needed. Yields (cell, line)."""
+    bound: dict[str, list[ast.AST]] = {}
+    strings: list[str] = list(other_text or [])
+    for _, tree in trees:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                bound.setdefault(node.id, []).append(node)
+            elif isinstance(node, ast.arg):
+                bound.setdefault(node.arg, []).append(node)
+            elif isinstance(node, ast.alias):
+                bound.setdefault((node.asname or node.name).split(".")[0], []).append(node)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                bound.setdefault(node.name, []).append(node)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                strings.append(node.value)
+    parents = {id(child): node for _, tree in trees for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    eager = set()
+    for name, nodes in bound.items():
+        assign = parents.get(id(nodes[0])) if len(nodes) == 1 else None
+        if isinstance(assign, ast.Assign) and len(assign.targets) == 1 and assign.targets[0] is nodes[0] \
+                and _is_eager_polars_read(assign.value) \
+                and not any(re.search(rf"\b{re.escape(name)}\b", text) for text in strings):
+            eager.add(name)
+    if not eager:
+        return
+    filters: dict[str, list[tuple[int, int]]] = {}
+    other: set[str] = set()
+    for n, tree in trees:
+        parents = {id(child): node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in eager):
+                continue
+            attr = parents.get(id(node))
+            call = parents.get(id(attr)) if attr is not None else None
+            if isinstance(attr, ast.Attribute) and attr.attr == "filter" and isinstance(call, ast.Call) and call.func is attr:
+                filters.setdefault(node.id, []).append((n, call.lineno))
+            else:
+                other.add(node.id)
+    for name, where in filters.items():
+        if name not in other:
+            yield min(where)
+
+
+def _eager_polars_read(call: ast.Call) -> bool:
+    """pl.read_csv(...).filter(...) in one chain: the read loads every row first."""
+    if not isinstance(call.func, ast.Attribute):
+        return False
+    inner = call.func.value
+    while isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute) and inner.func.attr in {"with_columns", "select", "rename", "filter"}:
+        inner = inner.func.value
+    return (isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute) and inner.func.attr in _POLARS_READS
+            and isinstance(inner.func.value, ast.Name) and inner.func.value.id in {"pl", "polars"})

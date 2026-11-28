@@ -87,8 +87,12 @@ def test_nothing_is_retried_once_a_statement_has_been_sent(monkeypatch, tmp_path
     monkeypatch.setattr(warehouse, "connect", connect)
     job = {"query": "UPDATE dbo.t SET a = 1", "writes": True, "out": str(tmp_path / "out.arrow"),
            "warehouse": {"server": "s", "database": "WH"}}
-    with pytest.raises(DriverError):
+    with pytest.raises(warehouse.Interrupted, match=r"during the change \(UPDATE dbo.t SET a = 1\) because its "
+                                                    r"capacity is busy \(error 40501\), so the whole change was rolled "
+                                                    r"back and nothing was kept") as failed:
         warehouse.run(job, lambda: "tok", lambda *a, **k: None)
+    assert (failed.value.kind, failed.value.batch) == ("throttled", 1)
+    assert isinstance(failed.value.__cause__, DriverError), "the driver's error is kept as the cause"
     assert connects == [1], "a statement that failed is reported, not sent again"
 
 

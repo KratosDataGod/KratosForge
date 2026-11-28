@@ -9,6 +9,7 @@ entry of the shortcut's folder through OneLake.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -19,7 +20,7 @@ from . import governance_notices as notices
 from . import shortcut_center as center
 from . import shortcut_watch as watch
 from . import shortcuts as shortcuts_mod
-from . import sql_exec
+from . import csv_cells, sql_exec
 from .auth import ONELAKE_SCOPES
 from .central import core
 from .errors import NotSetUp
@@ -160,12 +161,14 @@ class ShortcutMixin:
         if ids is not None:
             by_id = {r["id"]: r for r in rows}
             rows = [by_id[i] for i in dict.fromkeys(ids) if i in by_id]
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         path = sql_exec._reserve(folder, "KratosForge shortcuts", ".csv")
         # The mark tells Excel it's UTF-8; newline="" keeps the CSV's own \r\n (Windows would make it \r\r\n)
-        path.write_text(center.to_csv(rows), encoding="utf-8-sig", newline="")
-        return {"path": str(path), "rows": len(rows)}
+        cells = csv_cells.Cells()
+        path.write_text(center.to_csv(rows, cells), encoding="utf-8-sig", newline="")
+        notes = [csv_cells.note(cells.protected, can_keep_raw=False)] if cells.protected else []
+        return {"path": str(path), "rows": len(rows), "protected": cells.protected, "notes": notes}
 
     # ---- health
 
@@ -413,8 +416,8 @@ class ShortcutMixin:
         try:
             rules = self._catalog().call("shortcut_rules")  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - rules that can't be read block the change instead of skipping the check
-            return {"blocked": [f"The platform's shortcut rules couldn't be read, so nothing can be checked: {exc}. "
-                                "Try again once the platform answers."], "warnings": [], "unchecked": True}
+            return {"blocked": [(f"The platform's shortcut rules couldn't be read, so nothing can be checked: {exc}. "
+                                "Try again once the platform answers.")], "warnings": [], "unchecked": True}
         return center.check_rules(rules, self._sc_new(workspace_id, workspace_name, source, target_workspace_name),
                                   self._sc_admin())
 
@@ -607,9 +610,9 @@ class ShortcutMixin:
                     self._sc_progress(req, found=not ours)
                     others = self._sc_make_twins(req, why)
                     out = super().platform_decide(id, approve, note)  # type: ignore[misc]
-                    return out | {"next": [*(out.get("next") or []), f"{d['name']} was already in "
+                    return out | {"next": [*(out.get("next") or []), (f"{d['name']} was already in "
                                            f"{d.get('lakehouse_name') or 'the lakehouse'}, pointing where this request "
-                                           "asks, so it was kept", *others]}
+                                           "asks, so it was kept"), *others]}
                 self._sc_progress(req)
                 others = self._sc_make_twins(req, why)
                 out = super().platform_decide(id, approve, note)  # type: ignore[misc]
@@ -748,12 +751,39 @@ class ShortcutMixin:
                 f"{found['target_type']} {found['target'] or '(no path)'}, not where this request asks. Decline the "
                 "request, or remove that shortcut and approve it again.") from conflict
         sid = core.shortcut_id(d["item_id"], f"{where}/{d['name']}")
-        since = str(req.get("requested_at") or "")
         logged = self._catalog().call("shortcut_changes", days=3650, shortcut=sid)  # type: ignore[attr-defined]
-        ours = any(c.get("kind") == "added" and str(c.get("at") or "") >= since for c in logged)
+        ours = _added_since(logged, str(req.get("requested_at") or ""))
         if not ours:
             ref = {"workspace_id": d["workspace_id"], "lakehouse_id": d["item_id"], "path": where, "name": d["name"],
                    "workspace_name": d.get("workspace_name", ""), "lakehouse_name": d.get("lakehouse_name", "")}
             self._sc_log("added", ref, None, self._sc_def(d["workspace_id"], d["item_id"], where, d["name"], wanted), why)
         self._all_shortcuts = None
         return ours
+
+
+def _at(value: Any) -> dt.datetime | None:
+    try:
+        at = dt.datetime.fromisoformat(str(value or ""))
+    except ValueError:
+        return None
+    return at if at.tzinfo else at.replace(tzinfo=dt.timezone.utc)
+
+
+
+def _added_since(logged: list[dict[str, Any]], requested_at: str) -> bool:
+    """Whether an "added" change at or after the request, with no "removed" after it, is logged. The times
+    are compared as times: a request's is kept to the second and a change's to the microsecond, so as text
+    "16:01:58.8" sorts after "16:01:58+00:00" (#2640). Within the request's own second, a shortcut made and
+    removed again before the request isn't taken for the request's own: the removal after it rules it out."""
+    since = _at(requested_at)
+    if since is None:
+        return False
+    changes = sorted(((at, str(c.get("kind") or "")) for c in logged if (at := _at(c.get("at"))) is not None),
+                     key=lambda t: t[0])
+    added = False
+    for at, kind in changes:
+        if kind == "added" and at >= since:
+            added = True
+        elif kind == "removed":
+            added = False
+    return added

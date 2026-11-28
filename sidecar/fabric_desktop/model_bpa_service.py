@@ -20,7 +20,6 @@ from typing import Any
 from . import model_bpa, risk
 from .errors import NotSetUp
 from .fabric_api import FabricError
-from .fabric_compute import RESULTS_DIR
 from .fabric_run import TERMINAL
 from .jsonfile import read_json, write_json
 from .meta.store import META_LAKEHOUSE, OneLakeStore
@@ -110,8 +109,11 @@ class ModelBpaMixin:
         unreadable = ""
         saved_error: dict[str, str] | None = None
         if newest and newest.get("status") in TERMINAL and (last or {}).get("request_id") != newest["request_id"]:
-            data = FileStore(lambda: self.auth.storage_token()).read_bytes(  # type: ignore[attr-defined]
-                t["workspace_id"], t["meta_lakehouse_id"], f"{RESULTS_DIR}/{newest['request_id']}.json")
+            try:
+                data = model_bpa.read_results(FileStore(lambda: self.auth.storage_token()),  # type: ignore[attr-defined]
+                                              t["workspace_id"], t["meta_lakehouse_id"], newest["request_id"])
+            except model_bpa.ResultsTooLarge as exc:
+                data, unreadable = None, f"{exc}. Check the model again."
             if data:
                 found = None
                 try:
@@ -133,10 +135,22 @@ class ModelBpaMixin:
                 f"The check finished, but saved no findings in {META_LAKEHOUSE}. Open the run in Fabric to see why."
                 if failed.get("status") == "Completed" else "")
         return {"model": t["name"], "model_id": t["model_id"], "env": env, "workspace_id": t["workspace_id"],
-                "workspace_name": t["workspace_name"], "last": last, "running": running,
+                "workspace_name": t["workspace_name"], "version": model_bpa.VERSION, "last": last, "running": running,
                 "failed": {"status": failed.get("status"), "message": message, "url": failed.get("url", ""),
                            "traceback": (saved_error or {}).get("traceback", ""), "pip": (saved_error or {}).get("pip", "")}
                           if failed else None}
+
+    def model_bpa_share(self, env: str = "test", layer: str | None = None, name: str | None = None,
+                        approve: bool = False, confirm: str = "") -> dict[str, Any]:
+        """Add the model's last check, its Error and Warning findings, to the central Optimize lakehouse,
+        so they show in Optimize > Opportunities. Without ``approve`` and the matching ``confirm`` it
+        writes nothing and asks first (the Optimize lakehouse's consent step); rows are shaped by
+        ``model_bpa_share.analysis_rows`` and carry no saving."""
+        from . import model_bpa_share
+
+        rows = model_bpa_share.analysis_rows(self.model_bpa_status(env, layer, name))
+        return self._optimize_share_analysis(  # type: ignore[attr-defined]
+            rows, "this model's best practices check", approve=approve, confirm=confirm)
 
     def model_bpa_risk(self, env: str = "test", layer: str | None = None, name: str | None = None,
                        refresh: bool = False) -> dict[str, Any]:

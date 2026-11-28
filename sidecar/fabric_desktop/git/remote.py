@@ -25,7 +25,7 @@ def check_url(url: str) -> str:
         raise GitError("Enter the repository's address.", kind="invalid")
     if url.startswith("-") or any(c in url for c in "\0\r\n\t ") or "::" in url:
         raise GitError("That isn't a repository address Git can use.", kind="invalid")
-    if _SCP.match(url):
+    if _SCP.fullmatch(url):
         return url
     parts = urlsplit(url)
     scheme = parts.scheme.lower()
@@ -54,7 +54,7 @@ def _looks_like_token(user: str) -> bool:
 
 def repo_name(url: str) -> str:
     """A folder name for a clone of ``url``: its last path part without .git."""
-    m = _SCP.match(url)
+    m = _SCP.fullmatch(url)
     path = m.group("path") if m else (urlsplit(url).path if "://" in url else url)
     name = re.split(r"[\\/]", path.rstrip("/\\"))[-1]
     name = name[:-4] if name.lower().endswith(".git") else name
@@ -67,7 +67,7 @@ def parse(url: str) -> dict[str, Any]:
     browser link can be made. The address in the result has no user name or password."""
     url = (url or "").strip()
     host, path = "", ""
-    m = _SCP.match(url)
+    m = _SCP.fullmatch(url)
     if m:
         host, path = m.group("host").lower(), m.group("path")
     elif "://" in url:
@@ -159,7 +159,7 @@ def links(url: str, branch: str | None = None, base: str | None = None, commit: 
 
 def safe_display(url: str) -> str:
     """The address without any user name or password, for showing and saving."""
-    m = _SCP.match(url or "")
+    m = _SCP.fullmatch(url or "")
     if m:
         return url
     if "://" in (url or ""):

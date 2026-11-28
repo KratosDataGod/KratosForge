@@ -413,6 +413,79 @@ def test_a_change_that_fails_keeps_nothing(runs):
     assert seen["rolled_back"] and "committed" not in seen
 
 
+# ---------------------------------------------------------------- a script written as one transaction (WR-204)
+
+WRAPPED = "BEGIN TRAN;\nUPDATE dbo.sales SET region = 'West' WHERE id = 7;\nGO\nEXEC dbo.load_totals;\nCOMMIT;\nGO\n"
+
+
+@pytest.mark.parametrize("query", [
+    WRAPPED,
+    WRAPPED.replace("\n", "\r\n"),
+    "-- nightly fix\nbegin transaction\nUPDATE dbo.t SET a = 'COMMIT'\ncommit transaction",
+    "BEGIN TRANSACTION\nGO\nUPDATE dbo.t SET a = 1\nGO\nCOMMIT WORK",
+    "  BEGIN TRAN  \nUPDATE dbo.t SET a = 1 -- then COMMIT\n  COMMIT TRAN ;  \n\n",
+])
+def test_a_script_wrapped_in_begin_tran_and_commit_runs_as_the_one_transaction(query):
+    v = warehouse.verdicts(query, writes=True)
+    assert sql_exec.sql_policy.refused(v, ("read_only", "warehouse_write")) is None, v
+    sent = warehouse.change_batches(query)
+    assert not any(b.strip().upper().startswith(("BEGIN TRAN", "COMMIT")) for b in sent), sent
+
+
+def test_only_the_wrapping_lines_are_taken_off():
+    body, wrapped = warehouse.without_outer_transaction("BEGIN TRAN\nUPDATE dbo.t SET a = 'x\nCOMMIT'\nCOMMIT")
+    assert wrapped and body == "UPDATE dbo.t SET a = 'x\nCOMMIT'"
+    assert warehouse.without_outer_transaction("UPDATE dbo.t SET a = 1") == ("UPDATE dbo.t SET a = 1", False)
+
+
+@pytest.mark.parametrize("query", [
+    "BEGIN TRAN\nUPDATE dbo.t SET a = 1",  # never committed
+    "UPDATE dbo.t SET a = 1\nCOMMIT",  # never begun
+    "BEGIN TRAN t1\nUPDATE dbo.t SET a = 1\nCOMMIT TRAN t1",  # named
+    "BEGIN TRAN\nUPDATE dbo.t SET a = 1\nROLLBACK",
+    "BEGIN TRAN\nUPDATE dbo.t SET a = 1\nIF @@ROWCOUNT = 0 ROLLBACK\nCOMMIT",
+    "BEGIN TRAN\nUPDATE dbo.t SET a = 1\nCOMMIT\nUPDATE dbo.t SET b = 2\nCOMMIT",  # a commit in the middle
+    "BEGIN TRAN\nSAVE TRAN s1\nUPDATE dbo.t SET a = 1\nCOMMIT",
+    "BEGIN TRAN\nBEGIN TRAN\nUPDATE dbo.t SET a = 1\nCOMMIT\nCOMMIT",  # nested
+    "BEGIN TRAN UPDATE dbo.t SET a = 1 COMMIT",  # not on lines of their own
+    "/* BEGIN TRAN */\nUPDATE dbo.t SET a = 1\nCOMMIT",
+    "BEGIN DISTRIBUTED TRANSACTION\nUPDATE dbo.t SET a = 1\nCOMMIT",
+])
+def test_any_other_transaction_control_is_still_refused(query):
+    stop = sql_exec.sql_policy.refused(warehouse.verdicts(query, writes=True), ("read_only", "warehouse_write"))
+    assert stop is not None and "the run is one transaction" in stop.reason, query
+
+
+def test_without_allow_changes_a_wrapped_script_is_still_refused():
+    with pytest.raises(ValueError, match="can't be shown to only read"):  # a read run is one query that reads
+        warehouse.verdicts("BEGIN TRAN\nSELECT 1 AS one\nCOMMIT")
+
+
+def test_a_wrapped_change_runs_once_confirmed_without_its_begin_and_commit(runs):
+    with pytest.raises(PermissionError, match="after you confirm it"):
+        change(runs, WRAPPED, confirm=False)
+    status = wait(runs, change(runs, WRAPPED)["id"])
+    assert status["state"] == "completed", status["error"]
+    seen = json.loads(runs.log.read_text())
+    assert seen["committed"] and seen["ran"] == ["UPDATE dbo.sales SET region = 'West' WHERE id = 7;", "EXEC dbo.load_totals;"]
+
+
+def test_a_failed_wrapped_change_rolls_back_and_names_the_batch_that_failed(runs):
+    script = "BEGIN TRAN\nUPDATE dbo.sales SET region = 'West';\nGO\nUPDATE dbo.sales SET fail = 1\nCOMMIT"
+    status = wait(runs, change(runs, script)["id"])
+    assert status["state"] == "failed" and status["committed"] is False
+    assert ("Batch 2 of 2 (UPDATE dbo.sales SET fail = 1) failed, so the whole change was rolled back and nothing was "
+            "kept. Fix that batch and run the change again. Invalid column name 'nope'.") in status["error"]
+    seen = json.loads(runs.log.read_text())
+    assert seen["rolled_back"] and "committed" not in seen
+
+
+def test_a_one_batch_change_that_fails_says_so_without_a_batch_number(runs):
+    status = wait(runs, change(runs, "UPDATE dbo.sales SET fail = 1")["id"])
+    assert status["error"].startswith("The change (UPDATE dbo.sales SET fail = 1) failed, so the whole change was rolled back "
+                                      "and nothing was kept. Fix it and run it again.")
+
+
 def test_a_change_needs_its_confirm_and_the_warehouses_name(runs):
     with pytest.raises(PermissionError, match="after you confirm it, naming the warehouse"):
         change(runs, "UPDATE dbo.sales SET a = 1", confirm=False)
@@ -628,7 +701,7 @@ def test_an_estimated_plan_turns_showplan_on_around_the_query_and_returns_its_xm
 
 
 def test_an_estimated_plan_is_only_for_a_warehouse_query_that_reads(runs):
-    with pytest.raises(ValueError, match="estimated plan is for a warehouse query that reads"):
+    with pytest.raises(ValueError, match="estimated plan is for a lakehouse or warehouse query that reads"):
         change(runs, "UPDATE dbo.t SET a = 1", estimated_plan=True)
     refused = start(runs, "UPDATE dbo.t SET a = 1", estimated_plan=True)
     assert refused["state"] == "failed" and refused["error_kind"] == "permission", "still only reads"

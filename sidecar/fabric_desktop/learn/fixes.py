@@ -186,7 +186,7 @@ def _sq005(s: Stmt, i: int, tables: list[tuple[str, str]], columns: dict[str, li
     hits = [x for x in tables if x[1].lower() == t.text.lower()]
     if len(hits) != 1 or hits[0][0].lower() != "dbo":
         return None
-    schema = hits[0][0] if _PLAIN.match(hits[0][0]) else f"[{hits[0][0]}]"
+    schema = hits[0][0] if _PLAIN.fullmatch(hits[0][0]) else f"[{hits[0][0]}]"
     return {"start": t.start, "end": t.end, "text": f"{schema}.{t.raw}",
             "why_safe": f"{t.text} is only in the {hits[0][0]} schema, the default one, so it names the same table."}
 

@@ -66,7 +66,12 @@ def hmac(key_hex: str | None, message_hex: str | None, algorithm: str | None) ->
                          "takes SHA-224, SHA-256, SHA-384, SHA-512, SHA-1 or MD5.")
     if not key_hex:
         raise ValueError("[INVALID_PARAMETER_VALUE.HMAC_CRYPTO_ERROR] hmac() can't use an empty key.")
-    return _hmac.new(bytes.fromhex(key_hex), bytes.fromhex(message_hex), getattr(hashlib, digest)).hexdigest()
+    # The user's query picks the algorithm: MD5 and SHA-1 here match Databricks, not a security check,
+    # so they say so, or an OpenSSL in FIPS mode refuses them.
+    def made(data: bytes = b"") -> Any:
+        return hashlib.new(digest, data, usedforsecurity=False)
+
+    return _hmac.new(bytes.fromhex(key_hex), bytes.fromhex(message_hex), made).hexdigest()
 
 
 def bit_reverse(kind: str, value: int | None) -> int | None:
@@ -81,11 +86,10 @@ def bit_reverse(kind: str, value: int | None) -> int | None:
 
 
 def register(con: Any) -> None:
-    """Add the __kf_ functions above to DuckDB connection ``con``. A NULL argument gives NULL."""
-    from duckdb.sqltypes import BIGINT, BOOLEAN, VARCHAR
+    """Add the __kf_ functions above to DuckDB connection ``con``, but __kf_url_decode, which Spark SQL uses too
+    (spark_hash.register adds it). A NULL argument gives NULL."""
+    from duckdb.sqltypes import BIGINT, VARCHAR
     pure: dict[str, Any] = {"side_effects": False}
-    con.create_function("__kf_url_decode", url_decode, [VARCHAR, BOOLEAN], VARCHAR, null_handling="special",
-                        **pure)  # try_url_decode gives NULL for bad input
     con.create_function("__kf_make_valid_utf8", make_valid_utf8, [VARCHAR], VARCHAR, **pure)
     con.create_function("__kf_hmac", hmac, [VARCHAR, VARCHAR, VARCHAR], VARCHAR, **pure)
     con.create_function("__kf_bit_reverse", bit_reverse, [VARCHAR, BIGINT], BIGINT, **pure)

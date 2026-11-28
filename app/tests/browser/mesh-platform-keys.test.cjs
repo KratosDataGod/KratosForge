@@ -36,8 +36,8 @@ const WORKSPACES = [{ id: "ws-plat-dev", displayName: "Platform Dev" }, { id: "w
 // core.require_admin's refusal, as server.py sends a PlatformError: "<type>: <message>".
 const NOT_ADMIN = "PlatformError: Only platform admins can add platform admins. Send a request in Data mesh > Requests, or ask a platform admin.";
 // service._save_platform and service._check_can_share when IT's policy.json sets the platform.
-const POLICY_SETS = "PermissionError: Your organization sets the platform, so it can't be changed here";
-const POLICY_KEYS = "PermissionError: Your organization sets the platform, so keys can't be moved from this PC";
+const POLICY_SETS = "PermissionError: Your organization sets the platform, so it can't be changed here. Ask IT to change platform in the policy file.";
+const POLICY_KEYS = "PermissionError: Your organization sets the platform, so keys can't be moved from this PC. Ask IT to change platform in the policy file.";
 
 const copy = (x) => JSON.parse(JSON.stringify(x));
 
@@ -126,7 +126,8 @@ const writes = () => app.calls.filter((c) => WRITES.includes(c.method) || (APPRO
 const sent = (method) => app.calls.filter((c) => c.method === method);
 const dialogTitle = () => page().getAttribute(".dialog", "aria-label");
 const settingRow = (text) => page().locator(".setting", { has: page().locator(".setting-text b", { hasText: text }) });
-const dialogButton = (name) => page().locator(".dialog .dialog-actions").getByRole("button", { name, exact: true });
+// Exactly this button; a step that creates in Fabric also carries its Preview tag (QA-020).
+const dialogButton = (name) => page().locator(".dialog .dialog-actions").getByRole("button", { name: new RegExp(`^${name}( ?Preview)?$`) });
 const waitDialog = (title) => page().waitForFunction((t) => document.querySelector(".dialog")?.getAttribute("aria-label") === t, title);
 const noDialog = () => page().waitForFunction(() => !document.querySelector(".dialog"));
 const toastText = async (re) => {
@@ -361,14 +362,14 @@ test("refusals read as the engine's sentence: not a platform admin, and the orga
   fail.share_plan = POLICY_KEYS;
   await settingRow("Keys:").getByRole("button", { name: "Move keys in" }).click();
   assert.strictEqual((await toastText(/Could not read the keys/)).split("\n")[0],
-    "Could not read the keys: Your organization sets the platform, so keys can't be moved from this PC");
+    "Could not read the keys: Your organization sets the platform, so keys can't be moved from this PC. Ask IT to change platform in the policy file.");
 
   fail.platform_forget = POLICY_SETS;
   await settingRow("Test: Platform Test").getByRole("button", { name: "Forget" }).click();
   await waitDialog("Stop using Platform Test for Test?");
   await dialogButton("Forget").click();
   const forgot = await toastText(/Not changed/);
-  assert.strictEqual(forgot.split("\n")[0], "Not changed: Your organization sets the platform, so it can't be changed here");
+  assert.strictEqual(forgot.split("\n")[0], "Not changed: Your organization sets the platform, so it can't be changed here. Ask IT to change platform in the policy file.");
   assert.doesNotMatch(forgot, /PermissionError|undefined|\[object Object\]/);
   assert.ok(await page().$(".setting:has-text('Test: Platform Test')"), "the platform stays as it was");
   assert.deepStrictEqual(app.errors, []);

@@ -431,3 +431,64 @@ def test_incident_impact_reads_the_catalog_and_tell_them_posts_once_and_notes_it
     assert again == {"told": False, "reason": "already posted", "people": out["people"]} and len(posts) == 1
     with pytest.raises(ValueError, match="Nobody downstream"):
         svc.incident_tell_impacted("dev", other["id"], [])
+
+
+# ---------------------------------------------------------------------------- measures: acknowledge, resolve, SLAs met
+
+
+def _inc(n, prio, opened, state="open", acked=None, resolved=None):
+    return {"id": f"inc-{n}", "number": f"INC-DEV-{n:04d}", "kind": "reported", "priority": prio, "state": state,
+            "opened_at": opened, "acknowledged_at": acked, "resolved_at": resolved}
+
+
+def test_measures_count_times_and_slas_from_each_incidents_latest_state():
+    import datetime as dt
+
+    from fabric_desktop.workloads.incident_history import report
+    now = dt.datetime(2026, 11, 11, 12, 0, tzinfo=dt.UTC)
+    items = [
+        _inc(1, "P1", "2026-11-10T10:00:00Z", "resolved", "2026-11-10T10:10:00Z", "2026-11-10T12:00:00Z"),  # both met
+        _inc(2, "P1", "2026-11-10T10:00:00Z", "resolved", "2026-11-10T10:30:00Z", "2026-11-10T15:00:00Z"),  # both missed
+        _inc(3, "P1", "2026-11-11T11:00:00Z", "open"),  # ack breached (15 min), resolve still in its window
+        _inc(4, "P3", "2026-11-11T11:00:00+00:00", "resolved", None, "2026-11-11T11:30:00Z"),  # resolving acknowledges
+        _inc(5, "P2", "2026-09-01T10:00:00Z", "resolved", "2026-09-01T10:05:00Z", "2026-09-01T11:00:00Z"),  # too old
+        _inc(6, "P2", None, "open"),  # no open time: not measured
+    ]
+    out = report(items, sla.DEFAULT_TARGETS, now, 30)
+    total = out["total"]
+    assert (total["opened"], total["resolved"], total["open"]) == (4, 3, 1)
+    assert total["time_to_acknowledge"] == {"count": 3, "median_minutes": 30, "p90_minutes": 30}
+    assert total["time_to_resolve"] == {"count": 3, "median_minutes": 120, "p90_minutes": 300}
+    assert total["sla"]["acknowledge"] == {"met": 2, "missed": 1, "breached": 1, "met_percent": 50}
+    assert total["sla"]["resolve"] == {"met": 2, "missed": 1, "breached": 0, "met_percent": 67}
+    p1 = next(p for p in out["priorities"] if p["priority"] == "P1")
+    assert p1["opened"] == 3 and p1["time_to_acknowledge"]["median_minutes"] == 10
+    assert [p["priority"] for p in out["priorities"]] == ["P1", "P3"]  # only priorities with incidents
+    assert out["since"] == "2026-10-12T12:00:00Z"
+    # Reopened: still open, but it carries the resolved_at of its earlier fix. Not counted as resolved.
+    reopened = _inc(7, "P3", "2026-11-11T09:00:00Z", "open", "2026-11-11T09:10:00Z", "2026-11-11T10:00:00Z")
+    again = report([reopened], sla.DEFAULT_TARGETS, now, 7)["total"]
+    assert again["resolved"] == 0 and again["open"] == 1 and again["time_to_resolve"]["count"] == 0
+    assert again["time_to_acknowledge"]["median_minutes"] == 10
+    empty = report([], sla.DEFAULT_TARGETS, now, 7)["total"]
+    assert empty["time_to_resolve"]["median_minutes"] is None and empty["sla"]["resolve"]["met_percent"] is None
+
+
+def test_measures_copy_first_and_ask_before_setting_up_tables(central):
+    central.optimize_create("w1", workspace_name="Platform")
+    with pytest.raises(ValueError, match="days is one of"):
+        central.incidents_measures(days=12)
+    with pytest.raises(ValueError, match="env is one of"):
+        central.incidents_measures(env="qa")
+    assert central.incidents_measures()["state"] == "needs_confirm"  # nothing written yet
+    inc = central.incident_report("dev", "Revenue looks doubled", priority="P2")
+    central.incident_resolve("dev", inc["id"], "Fixed the measure")
+    out = central.incidents_measures("dev", 7, approve=True)  # copies what's new, then measures
+    assert out["state"] == "ready" and out["days"] == 7 and out["sla_source"] == "default"
+    assert out["total"]["opened"] == 1 and out["total"]["resolved"] == 1
+    assert out["total"]["time_to_resolve"]["count"] == 1
+    assert next(e for e in out["copy"] if e["env"] == "dev")["snapshots"] == 1
+
+
+def test_measures_without_the_central_lakehouse_say_why(svc):
+    assert svc.incidents_measures()["state"] == "not_connected"

@@ -17,9 +17,9 @@ One page to follow when you roll KratosForge out to a pilot group, from first do
 
 ## Policy file
 
-- [ ] Push `%ProgramData%\FabricDesktop\policy.json` as SYSTEM, so only administrators can change it ([deploy, step 4](enterprise-install.md#deploy)). Save it as UTF-8: settings come only from this file, not from the registry.
+- [ ] Push `%ProgramData%\FabricDesktop\policy.json` as SYSTEM, so only administrators can change it ([deploy, step 4](enterprise-install.md#deploy)). Save it as UTF-8. Group Policy can also set most settings through the ADMX templates in `deploy/policy`, and a value set there wins over the file ([Enterprise install](enterprise-install.md#deploy)).
 - [ ] Choose its keys ([all keys](azure-setup.md#4-push-settings-to-everyone)). The ones most pilots set:
-    - `auto_update` and `channel` pin the update model and the release channel.
+    - `auto_update` and `channel` pin the update model and the release channel. Set `channel` in the policy file, because the updater doesn't read it from Group Policy.
     - `allowed_tenants` restricts sign-in to your tenant's ids.
     - `show_preview` hides Preview features.
     - `allow_fabric_runs` keeps work on the PC.

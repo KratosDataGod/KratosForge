@@ -1965,6 +1965,66 @@
   "probe": "ALTER TABLE t RENAME TO t2"
  },
  {
+  "name": "CREATE TABLE LIKE",
+  "group": "Statements",
+  "probe": "CREATE TABLE n LIKE t"
+ },
+ {
+  "name": "AUTOINCREMENT",
+  "group": "Statements",
+  "probe": "CREATE TABLE n (id INT AUTOINCREMENT, a INT)"
+ },
+ {
+  "name": "PRIMARY KEY",
+  "group": "Statements",
+  "probe": "CREATE TABLE n (a INT PRIMARY KEY)"
+ },
+ {
+  "name": "INSERT ALL",
+  "group": "Statements",
+  "probe": "INSERT ALL INTO t INTO s SELECT 1, 2"
+ },
+ {
+  "name": "INSERT FIRST",
+  "group": "Statements",
+  "probe": "INSERT FIRST WHEN 1 = 1 THEN INTO t INTO s SELECT 1, 2"
+ },
+ {
+  "name": "TRUNCATE TABLE IF EXISTS",
+  "group": "Statements",
+  "probe": "TRUNCATE TABLE IF EXISTS t"
+ },
+ {
+  "name": "ALTER TABLE DROP COLUMN A, B",
+  "group": "Statements",
+  "probe": "ALTER TABLE t DROP COLUMN a, b"
+ },
+ {
+  "name": "ALTER TABLE SWAP WITH",
+  "group": "Statements",
+  "probe": "ALTER TABLE t SWAP WITH s"
+ },
+ {
+  "name": "BEGIN",
+  "group": "Statements",
+  "probe": "BEGIN"
+ },
+ {
+  "name": "START TRANSACTION",
+  "group": "Statements",
+  "probe": "START TRANSACTION"
+ },
+ {
+  "name": "DDL INSIDE BEGIN",
+  "group": "Statements",
+  "probe": "BEGIN; CREATE TABLE n (a INT); COMMIT"
+ },
+ {
+  "name": "VALUES",
+  "group": "Statements",
+  "probe": "SELECT $1, $2 FROM VALUES (1, 'one')"
+ },
+ {
   "name": "WITH",
   "group": "Statements",
   "probe": "WITH c AS (SELECT 1 AS x) SELECT x FROM c"

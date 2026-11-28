@@ -174,7 +174,8 @@ def arguments(cap: Capability, inside: bool) -> dict:
     values = {"workspace_id": ws, "lakehouse_id": "lh-" + ws, "item_id": "item-1", "table": "dbo.orders",
               "name": "nb_allowed" if inside else "nb_other", "id": RECEIPT_IN if inside else RECEIPT_OUT,
               "execution_id": EXEC_IN if inside else EXEC_OUT, "query": "select 1", "code": "x = 1",
-              "definition": "{}", "text": "name: m", "workload_id": "w-allowed" if inside else "w-other", "action": "run"}
+              "definition": "{}", "text": "name: m", "workload_id": "w-allowed" if inside else "w-other", "action": "run",
+              "entity": "orders", "run_id": "r-1", "project": "sales"}
     props = cap.input_schema.get("properties", {})
     out = {}
     optional = [k for k in ("workspace_id", "lakehouse_id") if k in props]  # a lakehouse to attach, say

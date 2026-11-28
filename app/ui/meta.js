@@ -145,8 +145,12 @@ const MESH_CONTEXT = {
 function meshPage({ intro, context, actions, tabs, banners, groupSeg, body }) {
   const slots = meshSlotsFor(state.meta.tab, context);
   if (actions) slots.actions.replaceChildren(...actions.filter(Boolean));
-  return h("div", { class: "page mesh-page" },
-    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Data mesh"), slots.context, intro), slots.actions),
+  // Living Experience (home-hero.js, Preview): Chris's header art with the page's name on its sky. The
+  // tab's line and its buttons (up to three, and they change by tab) stay under it, buttons at the right.
+  const hero = typeof pageHero === "function" ? pageHero("datamesh", "Data mesh") : null;
+  return h("div", { class: hero ? "page mesh-page living-head" : "page mesh-page" },
+    hero ? [hero, h("div", { class: "page-head" }, h("div", {}, slots.context, intro), slots.actions)]
+      : h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Data mesh"), slots.context, intro), slots.actions),
     ...tabs,
     ...banners, slots.banners,
     h("div", { class: "row mesh-view-row" }, groupSeg, slots.views, h("span", { class: "spacer" }), slots.tools,
@@ -157,7 +161,8 @@ function meshPage({ intro, context, actions, tabs, banners, groupSeg, body }) {
 // ---------- main page ----------
 
 async function renderMetadata() {
-  setView(h("div", { class: "page" }, h("h1", {}, "Data mesh"), h("p", { class: "muted-text" }, "Loading the metadata project...")));
+  const hero = typeof pageHero === "function" ? pageHero("datamesh", "Data mesh") : null;
+  setView(h("div", { class: hero ? "page living-head" : "page" }, hero || h("h1", {}, "Data mesh"), h("p", { class: "muted-text" }, "Loading the metadata project...")));
   const p = await loadMetaProject();
   if (state.view !== "metadata") return;
   // The mesh's own tabs need no project, so they show even when the project couldn't be read.
@@ -190,8 +195,8 @@ async function renderMetadata() {
       btn("New entity", "add", newEntityDialog, "tool outline"),
       preview("schedules", btn("Schedule", "history", () => scheduleMetaRuns(m.env), "tool outline",
         { title: `Run every entity in ${ENV_LABEL[m.env]} on a schedule, on this PC or in Fabric` })),
-      btn(inFabric(p, m.env) ? "Run all in Fabric" : "Run all", "play", () => runEntities(null), "tool primary",
-        { disabled: p.errors.length ? true : null })] : null,
+      fabricMarked(inFabric(p, m.env), btn(inFabric(p, m.env) ? "Run all in Fabric" : "Run all", "play", () => runEntities(null), "tool primary",
+        { disabled: p.errors.length ? true : null }))] : null,
     tabs: [h("div", { class: "subtabs meta-groups", role: "tablist", "aria-label": "Data mesh" }, shownGroups("mesh").map(groupTab),
       h("button", { class: `tab${inProject ? " active" : ""}`, role: "tab", "aria-selected": String(inProject), onclick: () => goMeta(m.projectTab || "entities") }, "Project")),
     inProject ? h("div", { class: "subtabs meta-project-groups", role: "tablist", "aria-label": "Project" }, shownGroups("project").map(groupTab)) : null],
@@ -334,7 +339,7 @@ function renderMetaSetup(p) {
     } },
   h("span", { class: "main" }, h("span", { class: "n" }, `${id} layers`),
     h("span", { class: "w" }, layers.map((l) => l.name).join(" → ")))));
-  const openPath = h("input", { id: "meta-open-path", placeholder: "C:\\Users\\you\\Documents\\metadata", "aria-label": "Folder with a layers.toml" });
+  const openPath = h("input", { id: "meta-open-path", placeholder: "C:\\Users\\you\\KratosForge\\metadata", "aria-label": "Folder with a layers.toml" });
   setView(h("div", { class: "page narrow" },
     h("h1", {}, "Set up a metadata project"),
     pageIntro("A metadata project is a folder you keep in Git. Each table is one file that says where its data comes from, how to clean and check it, and how to load it. Each layer gets its own lakehouse, so layers never mix."),
@@ -492,6 +497,7 @@ async function renderEntity() {
   const errBox = h("div", {}, e.errors.length ? h("div", { class: "problems" }, h("b", {}, "This entity doesn't pass the save gate yet"), gateList(e.errors)) : null);
 
   const save = async () => {
+    if (previewShown() && !(await confirmContractChange(e.name, editor.value))) return;
     const res = await metaCall("meta_save_entity", { name: e.name, text: editor.value }, "Not saved");
     if (!res) return;
     toast(res.errors.length ? `Saved with ${res.errors.length} problem${res.errors.length === 1 ? "" : "s"} to fix` : "Saved. It passes the save gate.");
@@ -543,8 +549,8 @@ async function renderEntity() {
         btn("Compare", "flow", () => compareDialog(e.name), "tool outline"),
         preview("history", btn("History", "history", () => historyDialog(e.name), "tool outline", { title: "Every version of the table; restore an earlier one" })),
         btn("Rebuild with downstream", "sync", () => runEntities([e.name], { cascade: true }), "tool outline"),
-        btn(inFabric(state.meta.project, state.meta.env) ? `Run in Fabric (${ENV_LABEL[state.meta.env]})` : `Run in ${ENV_LABEL[state.meta.env]}`, "play",
-          () => (dirty() ? save() : Promise.resolve()).then(() => runEntities([e.name])), "tool primary"))),
+        fabricMarked(inFabric(state.meta.project, state.meta.env), btn(inFabric(state.meta.project, state.meta.env) ? `Run in Fabric (${ENV_LABEL[state.meta.env]})` : `Run in ${ENV_LABEL[state.meta.env]}`, "play",
+          () => (dirty() ? save() : Promise.resolve()).then(() => runEntities([e.name])), "tool primary")))),
     h("div", { class: "card pad" },
       h("div", { class: "row" }, h("b", {}, "What happens on every run"), h("span", { class: "muted-text" }, "Grey steps are the framework. Purple is your code, at a fixed point.")),
       h("div", { class: "steps" }, stepsFor(e).map(([label, kind], i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null,
@@ -557,8 +563,9 @@ async function renderEntity() {
         errBox, editor),
       h("div", { class: "side" },
         h("div", { class: "card pad" }, h("b", {}, "Contract"), h("div", { class: "cols" }, cols)),
-        h("div", { class: "card pad" }, h("div", { class: "row" }, h("b", { class: "grow" }, "Lineage"),
-          preview("lineage", btn("Columns", "flow", () => columnLineage(e.name), "tool link small"))),
+        h("div", { class: "card pad" }, h("div", { class: "row wrap lineage-head" }, h("b", { class: "grow" }, "Lineage"),
+          preview("lineage", btn("Columns", "flow", () => columnLineage(e.name), "tool link small")),
+          preview("lineage", btn("Impact", null, () => impactDialog(e.name), "tool link small", { title: "What a change to one of its columns would break" }))),
           h("div", { class: "lineage3" },
             h("div", {}, h("span", { class: "muted-text small" }, "Reads"),
               e.reads.length ? e.reads.map((r) => h("button", { class: "node", onclick: () => openEntity(r) }, entityName(r)))
@@ -596,6 +603,8 @@ function keysCard(e) {
 
 // opts.danger: the action deletes or overwrites data, so it is drawn red and Cancel has focus (UX-018).
 // opts.typeToConfirm: the action stays off until exactly this text is typed, for the worst overwrites.
+// opts.typeLabel says what to type when "Type <text> to confirm" isn't the right words.
+// opts.items: a list under the text, such as the reasons for the confirm.
 // opts.reason: { label, placeholder, max } asks why in a required box; the dialog then resolves with
 // the trimmed text instead of true.
 // Escape, the close button and a click outside count as Cancel.
@@ -615,12 +624,14 @@ function confirmDialog(title, text, okLabel = "OK", opts = {}) {
     }
     if (opts.typeToConfirm) {
       ok.disabled = true;
-      typed = h("label", { class: "field" }, `Type ${opts.typeToConfirm} to confirm`,
+      typed = h("label", { class: "field" }, opts.typeLabel || `Type ${opts.typeToConfirm} to confirm`,
         h("input", { autocomplete: "off", spellcheck: "false",
           oninput: (e) => { ok.disabled = e.target.value.trim() !== opts.typeToConfirm; },
           onkeydown: (e) => { if (e.key === "Enter" && !ok.disabled) done(true); } }));
     }
-    showDialog(title, h("div", {}, h("p", { class: "text" }, text), typed), [cancel, ok],
+    // opts.after: a closing sentence under the list, such as what can't be undone.
+    showDialog(title, h("div", {}, h("p", { class: "text" }, text), opts.items?.length ? gateList(opts.items) : null,
+      opts.after ? h("p", { class: "text" }, opts.after) : null, typed), [cancel, ok],
       () => { if (!settled) { settled = true; resolve(false); } });
     if (opts.danger && (!typed || why)) cancel.focus();
   });
@@ -756,6 +767,7 @@ function showRunResults(results, decision) {
       : r.status === "needs_decision" ? "Waiting for your choice below" : r.message),
     r.maintenance === "queued" ? h("span", { class: "pill-s info", title: "Fabric's table maintenance job: OPTIMIZE with V-Order, then VACUUM" }, "Optimize queued") : null,
     r.maintenance === "Failed" ? h("span", { class: "pill-s wrn", title: r.maintenance_message }, "Optimize not started") : null,
+    r.maintenance === "skipped" ? h("span", { class: "pill-s wrn", title: r.maintenance_message }, "Not optimized (capacity warning)") : null,
     r.run_id && r.status !== "needs_decision" ? btn("Details", null, () => showRun(r.run_id), "tool link small") : null));
   const actions = [btn("Close", null, closeDialog, decision ? "tool outline" : "tool primary")];
   let body = h("div", { class: "scroll" }, rows);
@@ -933,9 +945,16 @@ async function renderEnvTab(body, p) {
       h("div", { class: "row" }, previewMarked("promote", h("b", {}, `Promote ${ENV_LABEL[source]} to ${ENV_LABEL[target]}`)), h("span", { class: "spacer" }),
         btn(`Promote to ${ENV_LABEL[target]}`, "publish", async () => {
           if (!state.user && !(await signIn())) return;
+          // Prod, or a workspace a project on this PC named Prod (WR-251): the promote waits for the workspace's
+          // name typed (WR-250), as a Prod write does. The gate check says which name; Prod's is known without it.
+          const prodName = checks[target]?.confirm_name || (target === "prod" ? (envs.prod?.workspace_name || envs.prod?.workspace_id || "Prod") : "");
+          if (prodName && !(await confirmDialog(`Promote to ${ENV_LABEL[target]}?`,
+            target === "prod" ? `This puts ${ENV_LABEL[source]}'s metadata on ${prodName}, the Prod workspace, and its next runs use it.`
+              : `This puts ${ENV_LABEL[source]}'s metadata on ${prodName}, and its next runs use it. ${prodName} is another project's Prod workspace on this PC.`,
+            "Promote", { danger: true, typeToConfirm: prodName }))) return;
           toast(`Promoting to ${ENV_LABEL[target]}...`);
           let cancelled = false;
-          const res = await metaCall("meta_promote", { source, target }, "Promote blocked", (err) => { cancelled = friendlyError(err).cancelled; });
+          const res = await metaCall("meta_promote", { source, target, ...(prodName ? { confirm_name: prodName } : {}) }, "Promote blocked", (err) => { cancelled = friendlyError(err).cancelled; });
           // Anvil Strike on the message once the target is on the new version; the ember beside the
           // error when the promote fails, and nothing for a cancelled sign-in (motion.js).
           if (res) {
@@ -948,7 +967,79 @@ async function renderEnvTab(body, p) {
       box, promoteImpact(source, target), lastRelease(target, render));
   };
   body.replaceChildren(h("div", { class: "env-cards" }, ["dev", "test", "prod"].map(card)),
-    promoteRow("dev", "test"), promoteRow("test", "prod"));
+    promoteRow("dev", "test"), promoteRow("test", "prod"), deltaFeaturesCard(p));
+}
+
+// ---------- Delta table features at publish (Preview) ----------
+
+// Each table's delta_features, as the engine names them (delta_profile.TABLE_CHOICES); "" is no setting,
+// which is the modern profile.
+const DELTA_CHOICES = [
+  ["", "Default: deletion vectors and column mapping (modern)"],
+  ["every_reader", "Every reader: no deletion vectors or column mapping"],
+  ["deletion_vectors", "Allow deletion vectors only"],
+  ["column_mapping", "Allow column mapping by name only"],
+];
+
+// What each choice allows, for the typed confirm's title.
+const DELTA_ALLOWS = { "": "deletion vectors and column mapping", deletion_vectors: "deletion vectors", column_mapping: "column mapping" };
+
+// "a", "a and b", "a, b and c".
+function andList(items) {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+function deltaFeaturesCard(p) {
+  if (!previewShown()) return null;
+  const tables = (p.entities || []).filter((e) => e.delta);
+  return h("div", { class: "card pad" },
+    previewMarked("deltaPerTable", h("b", {}, "Delta table features at publish")),
+    h("p", { class: "muted-text" }, "A run that publishes a table to OneLake uses only the Delta features you allow here. "
+      + "If the table already uses a feature you didn't allow, the run writes nothing, so change the setting first."),
+    tables.length ? h("div", { class: "delta-tables" }, tables.map((e) => deltaFeaturesRow(e)))
+      : h("p", { class: "muted-text" }, "This project has no tables yet. Add an entity to choose its features."));
+}
+
+function deltaFeaturesRow(e) {
+  const note = h("div");
+  const current = e.delta.features || "";
+  const select = h("select", { onchange: () => chooseDeltaFeatures(e, select, note) },
+    DELTA_CHOICES.map(([value, label]) => h("option", { value, selected: value === current ? true : null }, label)));
+  return h("div", { class: "row wrap" },
+    h("span", { class: "mono grow" }, e.name),
+    h("label", { class: "field" }, "Delta features", select),
+    h("span", { class: "muted-text small" }, `Checked against ${andList(e.delta.reader_names)}.`),
+    e.delta.problems?.length ? deltaRefusedNote(e.delta.problems[0]) : null,
+    note);
+}
+
+// Saves a table's choice. A choice one of its readers can't read asks for its full name first, and
+// the engine refuses it without that name (delta_profile.confirm_choice).
+async function chooseDeltaFeatures(e, select, note) {
+  const choice = select.value;
+  const reasons = e.delta.reasons[choice || "default"] || [];
+  let confirmName = null;
+  if (reasons.length) {
+    const ok = await confirmDialog(`Allow ${DELTA_ALLOWS[choice] || "this"} on ${e.name}?`,
+      `These readers of ${e.name} can't read it with this choice, or no source says they can. It applies to this table only.`, "Allow it",
+      { danger: true, typeToConfirm: e.name, typeLabel: `Type ${e.name} to allow it`, items: reasons });
+    if (!ok) { select.value = e.delta.features || ""; return; }
+    confirmName = e.name;
+  }
+  try {
+    const res = await rpc("meta_set_delta_features", { name: e.name, delta_features: choice || null, confirm_name: confirmName });
+    state.meta.project = res;
+    e.delta = (res.entities || []).find((x) => x.name === e.name)?.delta || e.delta;
+    note.replaceChildren();
+    toast(`Saved. Runs that publish ${e.name} now use this choice.`);
+  } catch (err) {
+    select.value = e.delta.features || "";
+    note.replaceChildren(deltaRefusedNote(friendlyError(err).text));
+  }
+}
+
+function deltaRefusedNote(text) {
+  return h("div", { class: "problems" }, h("p", {}, text), docLink("delta-reader-matrix.md#each-tables-own-choice-preview", "See the reader matrix"));
 }
 
 // This PC or Fabric runs the environment's entities. Fabric can only reach tables in OneLake.
@@ -1038,7 +1129,7 @@ async function createEnvWorkspace(env, p) {
   showDialog(`New workspace for ${ENV_LABEL[env]}`, h("div", {},
     h("label", { class: "field" }, "Name", name),
     h("label", { class: "field" }, "Capacity", capacity), note),
-  [btn("Back", null, () => pickEnvWorkspace(env, p), "tool outline"), btn("Create workspace", "add", create, "tool primary")]);
+  [btn("Back", null, () => pickEnvWorkspace(env, p), "tool outline"), previewMarked("createWorkspace", btn("Create workspace", "add", create, "tool primary"))]);
   name.select();
   const caps = (await attempt(() => rpc("list_capacities"), "Could not list capacities")) || [];
   capacity.replaceChildren(...caps.map((c) => h("option", { value: c.id },
@@ -1381,26 +1472,81 @@ function shortDate(iso) {
   return dateTimeText(iso, { empty: "never" });
 }
 
+// The workspaces whose capacity has a warning, for the toast after Optimize skipped their tables.
+function maintainWarnedText(check, count) {
+  const names = (check?.workspaces || []).filter((w) => w.result === "warning").map((w) => w.workspace_name || "its workspace");
+  if (!names.length) return `${count} table${count === 1 ? "" : "s"} weren't optimized, because their capacity check has a warning.`;
+  const where = names.length === 1 ? names[0] : `${names.length} workspaces`;
+  const why = names.length === 1 ? "its capacity has" : "their capacities have";
+  if (count === 1) return `The table on ${where} wasn't optimized, because ${why} a warning.`;
+  return `The ${count} tables on ${where} weren't optimized, because ${why} a warning.`;
+}
+
+// Optimize all in Fabric when a workspace's capacity check is Warning: say which tables it holds and
+// what the warning is, and start them only once the box is ticked. The others can start on their own.
+// The engine checks again and records the acceptance before it starts anything (meta_optimize risk_ids).
+function maintainWarningDialog(check, start) {
+  const all = check.workspaces.filter((w) => w.result !== "blocked");
+  const warned = all.filter((w) => w.result === "warning");
+  const count = (ws) => ws.reduce((n, w) => n + w.tables.length, 0);
+  const total = count(all), clear = total - count(warned);
+  const plural = (n) => `${n} table${n === 1 ? "" : "s"}`;
+  const box = h("input", { type: "checkbox", onchange: () => { every.disabled = !box.checked; } });
+  const every = btn(`Optimize all ${total}`, null, () => { closeDialog(); start(Object.fromEntries(warned.map((w) => [w.workspace_id, w.risk_id]))); }, "tool primary");
+  every.disabled = true;
+  const some = clear ? btn(`Optimize the ${clear} without warnings`, null, () => { closeDialog(); start(null); }, "tool outline") : null;
+  const panel = (w) => h("div", { class: "risk-panel warning" },
+    h("div", { class: "risk-head" }, h("span", { class: "pill-s wrn" }, "Warning"), h("b", {}, `${w.workspace_name || w.workspace_id}: ${plural(w.tables.length)}`)),
+    h("div", {}, w.title + (w.detail ? `. ${w.detail}` : "")));
+  const others = all.filter((w) => w.result !== "warning");
+  showDialog(`Optimize ${plural(total)} in Fabric?`, h("div", { class: "wl-confirm" },
+    h("p", { class: "text" }, "Fabric's table maintenance job runs OPTIMIZE with V-Order, then VACUUM keeping each layer's history days, on the workspace's capacity."),
+    warned.map(panel),
+    h("label", { class: "risk-ack" }, box, "I've looked at these and want to run anyway"),
+    others.length ? h("p", { class: "muted-text small" }, others.map((w) => `${w.workspace_name || w.workspace_id}: ${plural(w.tables.length)}, capacity check ${w.result === "pass" ? "passed" : "not known"}.`).join(" ")) : null),
+  [btn("Cancel", null, closeDialog, "tool outline"), some, every].filter(Boolean));
+}
+
 async function renderHealthTab(body) {
   const m = state.meta;
   body.replaceChildren(h("p", { class: "muted-text" }, "Reading every table's Delta log..."));
   if (m.env !== "dev" && !state.user && !(await signIn())) return;
   const hl = await metaCall("meta_health", { env: m.env });
   if (!hl || state.view !== "metadata" || m.tab !== "health") return;
-  const optimize = async (entities) => {
+  const run = async (entities, riskIds, check) => {
     toast(hl.local ? "Compacting on this PC..." : "Starting Fabric's table maintenance...");
-    const res = await metaCall("meta_optimize", { env: m.env, entities }, "Optimize failed");
+    const res = await metaCall("meta_optimize", { env: m.env, entities, risk_ids: riskIds || null }, "Optimize failed");
     if (!res) return;
-    const failed = res.filter((r) => r.status === "Failed");
-    toast(failed.length ? `${failed.length} of ${res.length} didn't start: ${failed[0].message}`
-      : hl.local ? `Compacted ${res.length} table${res.length === 1 ? "" : "s"}` : `Queued ${res.length} maintenance job${res.length === 1 ? "" : "s"} in Fabric`, failed.length > 0);
+    const warned = res.filter((r) => r.status === "Failed" && r.warning);
+    const failed = res.filter((r) => r.status === "Failed" && !r.warning);
+    const queued = res.length - warned.length - failed.length;
+    const jobs = `${queued} maintenance job${queued === 1 ? "" : "s"}`;
+    if (hl.local) toast(failed.length ? `${failed.length} of ${res.length} didn't start: ${failed[0].message}` : `Compacted ${res.length} table${res.length === 1 ? "" : "s"}`, failed.length > 0);
+    else if (warned.length) {
+      const parts = [queued ? `Queued ${jobs} in Fabric.` : "", maintainWarnedText(check, warned.length),
+        failed.length ? `${failed.length} didn't start: ${failed[0].message}` : ""];
+      toast(parts.filter(Boolean).join(" "), failed.length > 0);
+    }
+    else toast(failed.length ? `${failed.length} of ${res.length} didn't start: ${failed[0].message}` : `Queued ${jobs} in Fabric`, failed.length > 0);
     renderHealthTab(body);
   };
+  // A capacity Warning asks first, as X-ray does (Chris, 2026-11-18); Blocked, Pass and Unknown start as before.
+  const optimize = async (entities) => {
+    if (hl.local) return run(entities);
+    const check = await metaCall("meta_optimize_check", { env: m.env, entities }, "Couldn't check the capacity");
+    if (!check) return;
+    if (!check.workspaces.some((w) => w.result === "warning")) return run(entities, null, check);
+    maintainWarningDialog(check, (riskIds) => run(entities, riskIds, check));
+  };
   const needs = hl.tables.filter((t) => t.status === "needs_maintenance");
+  const unreadable = hl.tables.filter((t) => t.status === "unreadable").length;
   const head = h("div", { class: "card pad" },
     h("div", { class: "row wrap" },
       h("b", {}, hl.local ? `${ENV_LABEL[m.env]} tables on this PC` : `${ENV_LABEL[m.env]} tables in OneLake`),
-      h("span", { class: "muted-text" }, needs.length ? `${needs.length} of ${hl.tables.length} would benefit from maintenance` : "Every table is in good shape"),
+      needs.length || !unreadable ? h("span", { class: "muted-text" }, needs.length ? `${needs.length} of ${hl.tables.length} would benefit from maintenance` : "Every table is in good shape") : null,
+      unreadable ? h("span", { class: "error-text" }, unreadable === 1
+        ? "1 table couldn't be read. Its row below says why and how to fix it."
+        : `${unreadable} tables couldn't be read. Their rows below say why and how to fix them.`) : null,
       h("span", { class: "spacer" }),
       btn("Refresh", "sync", () => renderHealthTab(body), "tool outline small"),
       btn(hl.local ? "Compact all" : "Optimize all in Fabric", "flash", () => optimize(null), "tool primary small")),
@@ -1409,6 +1555,13 @@ async function renderHealthTab(body) {
       : "Optimize runs Fabric's table maintenance job on the workspace's capacity: OPTIMIZE with V-Order (what Direct Lake and the SQL endpoint read fastest), then VACUUM with 7 days' retention. Tables written from this PC have no V-Order until it runs."),
     hl.local ? null : h("label", { class: "check" },
       h("input", { type: "checkbox", checked: hl.optimize_after_run ? true : null, onchange: async (ev) => {
+        if (ev.target.checked) {
+          const check = await metaCall("meta_optimize_check", { env: m.env }, "Couldn't check the capacity");
+          const warned = check?.workspaces.find((w) => w.result === "warning");
+          if (!check || (warned && !(await confirmDialog(`Optimize after every ${ENV_LABEL[m.env]} run?`,
+            `${warned.title}. After each run, Optimize starts only while the capacity check passes or is unknown. While it shows this warning, the run's tables are listed as "Not optimized (capacity warning)", and you can optimize them from table health once you've looked at the warning.`,
+            "Turn on")))) { ev.target.checked = false; return; }
+        }
         const res = await metaCall("meta_set_maintenance", { env: m.env, optimize_after_run: ev.target.checked });
         if (res) toast(ev.target.checked ? "Every table a run writes gets optimized in Fabric afterwards" : "Runs no longer optimize afterwards");
       } }),
@@ -1426,7 +1579,7 @@ async function renderHealthTab(body) {
         h("td", { class: "n" }, t.versions_since_vacuum), h("td", {}, shortDate(t.last_optimize)),
         h("td", {}, t.advice.length ? h("ul", { class: "gate-list" }, t.advice.map((a) => h("li", {}, a))) : h("span", { class: "pill-s pass" }, "Healthy")),
         h("td", {}, btn(hl.local ? "Compact" : "Optimize", null, () => optimize([t.entity]), "tool link small")),
-      ] : h("td", { colspan: hl.local ? 8 : 9, class: "muted-text" }, t.message || "Not written in this environment yet")))));
+      ] : h("td", { colspan: hl.local ? 8 : 9, class: t.status === "unreadable" ? "error-text" : "muted-text" }, t.message || "Not written in this environment yet")))));
   const jobs = hl.maintenance || [];
   body.replaceChildren(head, list, jobs.length ? h("div", { class: "card pad" }, h("b", {}, "Recent maintenance jobs in Fabric"),
     h("table", { class: "mini" }, h("tbody", {}, jobs.map((j) => h("tr", {},
@@ -1492,6 +1645,8 @@ async function renderModelTab(body) {
     directLakeCard(plan, () => build()),
     dictionaryCard(plan),
     ossieCard(plan),
+    semanticViewCard(plan),
+    modelBpaCard(plan),
     h("div", { class: "entity-grid" },
       h("div", { class: "card pad grow" }, h("b", {}, `Tables (${plan.tables.length})`),
         h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Table", "Kind", "Delta table", "Entity"].map((c) => h("th", {}, c)))),
@@ -1524,7 +1679,7 @@ function dictionaryCard(plan) {
   load();
   const exportCsv = btn("Export CSV", "arrowDownload", async () => {
     const res = await metaCall("meta_model_dictionary_export", { layer: plan.layer }, "Not exported");
-    if (res) toast(`Saved ${res.rows.toLocaleString()} rows to ${res.path}`);
+    if (res) toast(`Saved ${res.rows.toLocaleString()} rows to ${res.path}${res.notes?.length ? `. ${res.notes.join(" ")}` : ""}`);
   }, "tool primary small");
   const save = btn("Save to the project", "save", async () => {
     const res = await metaCall("meta_model_dictionary_save", { layer: plan.layer }, "Not saved");
@@ -1616,21 +1771,27 @@ function dictionaryImportDialog(plan, reload) {
   [btn("Cancel", null, closeDialog, "tool outline"), go]);
 }
 
-// ---------- Direct Lake check (model_directlake_service.py) ----------
+// ---------- Direct Lake fallback risk (model_directlake_service.py) ----------
 
 const DL_SEVERITY = { fail: ["Would fail", "fail"], warn: ["Falls back", "wrn"], info: ["Info", "info"] };
+const DL_RISK = { will: "fail", might: "wrn", within: "pass", not_checked: "neu" };
+// The guardrail findings are shown table by table in the risk table; the other checks stay in their own list.
+const DL_IN_RISK = new Set(["Parquet files", "Row groups", "Rows", "Model size", "Table missing"]);
 
-// What would make a model fall back to DirectQuery or fail; null when preview features are hidden. Reads only.
+// Will the model fall back to DirectQuery, or fail, before people query it; null when preview features are hidden.
+// Reads only. Picking another capacity after a check judges the same numbers again without reading anything.
 function directLakeCard(plan, updateModel) {
-  const title = preview("directLakeCheck", h("b", {}, "Direct Lake check "));
+  const title = preview("directLakeCheck", h("b", {}, "Direct Lake fallback risk "));
   if (!title) return null;
   const m = state.meta;
-  const result = h("div", { class: "dl-result" });
+  const result = h("div", { class: "dl-result", "aria-live": "polite" });
   const model = h("select", { "aria-label": "Model to check" },
     h("option", { value: plan.existing ? plan.name : "" }, plan.existing ? `${plan.name} (this layer's model)` : "Reading the workspace's models..."));
   const sku = h("select", { "aria-label": "Capacity limits" }, h("option", { value: "" }, "Reading the capacity..."));
+  const behavior = h("select", { "aria-label": "Fallback setting", disabled: true }, h("option", {}, "Read from the model when you check"));
   const keys = h("input", { type: "checkbox" });
   const checkBtn = btn("Check now", "search", () => run(), "tool primary small");
+  let last = null;
   metaCall("meta_model_ossie_models", { env: m.env }, "Models not listed").then((res) => {
     if (!res) return;
     fill(model, ...(res.models.length ? res.models.map((x) => h("option", { value: x.name, selected: x.name === plan.name ? true : null },
@@ -1642,27 +1803,34 @@ function directLakeCard(plan, updateModel) {
     fill(sku, ...(known ? [] : [h("option", { value: "" }, res.capacity_sku ? `${res.capacity_sku} (no Direct Lake limits known)` : "Pick the capacity")]),
       ...res.skus.map((x) => h("option", { value: x, selected: x === known ? true : null }, x === known ? `${x} (this workspace's capacity)` : x)));
   });
+  sku.addEventListener("change", () => {
+    if (last?.prediction?.by_sku?.[sku.value]) fill(result, directLakeResult(last, plan, updateModel, sku.value));
+  });
   const run = async () => {
     if (!model.value) { toast("Pick a model to check"); return; }
     checkBtn.disabled = true;
     fill(result, h("p", { class: "muted-text" }, `Reading ${model.value}'s definition and its Delta tables...`));
     const out = await metaCall("meta_model_directlake_check", { env: m.env, name: model.value, sku: sku.value, keys: keys.checked }, "Not checked");
     checkBtn.disabled = false;
+    last = out;
     if (!out) { fill(result); return; }
-    fill(result, directLakeResult(out, plan, updateModel));
+    if (out.prediction) fill(behavior, h("option", {}, `${out.prediction.behavior_label} (from the model)`));
+    fill(result, directLakeResult(out, plan, updateModel, sku.value));
   };
   return h("div", { class: "card pad dl-card" },
     h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }), checkBtn),
-    h("p", { class: "muted-text" }, "Finds what would make the model fall back to DirectQuery, or fail, before people query it: tables past the capacity's Direct Lake limits, columns the Delta table no longer has, relationship keys that aren't unique, and fact rows whose key has no match, which Power BI shows under (Blank). It reads the model's definition from Fabric and each table's Delta log from OneLake, then checks on this PC. It starts no Fabric job; reading from OneLake uses capacity."),
-    h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Model", model), h("label", { class: "field" }, "Limits for capacity", sku),
-      h("label", { class: "check" }, keys, " Also check relationship keys: unique, and a match for every row (reads those columns from OneLake)")),
+    h("p", { class: "muted-text dl-predicted" }, "Predicted from metadata on this PC. Fabric hasn't run a query."),
+    h("div", { class: "row wrap dl-controls" }, h("label", { class: "field" }, "Model", model), h("label", { class: "field" }, "Limits for capacity", sku),
+      h("label", { class: "field" }, "Fallback setting", behavior)),
+    h("label", { class: "check" }, keys, " Also check relationship keys: unique, and a match for every row (reads those columns from OneLake)"),
     result,
     howItWorks("directLakeCheck", {
-      reads: "The model's definition from Fabric (getDefinition, read only), each table's Delta log and Parquet footers from OneLake, and both key columns of each relationship when you tick the box.",
+      reads: "The model's definition from Fabric (getDefinition, read only), each table's Delta log, its recent commits and Parquet footers from OneLake, and both key columns of each relationship when you tick the box. It starts no Fabric job and runs no query; reading from OneLake uses capacity.",
       changes: "Nothing. Fixes open where you make them: Update model, or Table health to compact a table.",
       results: "Shown here only.",
-      more: [["Where the limits come from", "Microsoft's Direct Lake guardrails for the capacity you pick. The idea comes from Microsoft's semantic-link-labs (MIT) and Elegant BI's blank row finder for Tabular Editor (MIT); the check is written for this PC and needs no notebook."]],
-      anchor: "direct-lake-check",
+      more: [["Where the limits come from", "Microsoft's Direct Lake guardrails for the capacity you pick. The idea comes from Microsoft's semantic-link-labs (MIT) and Elegant BI's blank row finder for Tabular Editor (MIT); the check is written for this PC and needs no notebook."],
+        ["The forecast", "From each table's recent commits in its Delta log: how fast its Parquet files, row groups and rows grow, and when that passes the limit. It needs at least 3 commits over 7 days, and says how many it used."]],
+      anchor: "direct-lake-fallback-risk",
     }));
 }
 
@@ -1674,47 +1842,123 @@ function directLakeFix(f, plan, updateModel) {
   return h("span", { class: "muted-text" }, "");
 }
 
-function directLakeResult(out, plan, updateModel) {
+// 412 million, 1.5 billion, 48,000: the mockup's way of saying a Direct Lake number.
+function dlNum(n) {
+  if (n === null || n === undefined) return "";
+  if (n >= 1e9) return `${(n / 1e9).toFixed(n % 1e9 ? 1 : 0)} billion`;
+  if (n >= 1e6) return `${Math.round(n / 1e6)} million`;
+  return Number(n).toLocaleString("en-US");
+}
+
+const dlLevel = (have, limit) => (have === null || have === undefined || !limit ? "" : have > limit ? "over" : have >= limit * 0.9 ? "near" : "");
+// a, b and c
+const dlList = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}` : xs.join(""));
+const dlGb = (bytes) => `${Math.round(bytes / 1024 ** 3)} GB`;
+
+function directLakeResult(out, plan, updateModel, pickedSku) {
   if (!out.direct_lake) return h("p", { class: "muted-text" }, `${out.name} has no Direct Lake tables, so there's nothing to check.`);
-  const c = out.counts;
-  const tile = (label, n, cls) => h("div", { class: "dl-tile" }, h("span", { class: "muted-text" }, label), h("b", { class: cls }, String(n)));
-  const lim = out.limits;
-  const num = (n) => (n === null || n === undefined ? "" : Number(n).toLocaleString());
-  const over = (n, limit) => (lim && n !== null && n !== undefined ? (n > limit ? "n over" : n >= limit * 0.9 ? "n near" : "n") : "n");
+  const p = out.prediction;
+  const picked = (p.by_sku && p.by_sku[pickedSku]) || p;
+  const nc = p.read_problem === "no_signin";
+  const others = out.findings.filter((f) => !DL_IN_RISK.has(f.check));
   return h("div", { class: "dl-out" },
-    h("div", { class: "dl-tiles" }, tile("Would fail", c.fail, "fail-text"), tile("Would fall back or slow down", c.warn, "warn-text"),
-      tile("Worth knowing", c.info, "info-text"),
-      h("div", { class: "dl-tile" }, h("span", { class: "muted-text" }, "Fallback setting"),
-        h("b", {}, out.behavior.toLowerCase() === "directlakeonly" ? "Direct Lake only" : "Automatic"),
-        h("span", { class: "muted-text" }, out.storage === "onelake" ? "Direct Lake on OneLake: past a limit, refresh fails"
-          : out.behavior.toLowerCase() === "directlakeonly" ? "Past a limit, queries fail" : "Past a limit, queries go to DirectQuery"))),
-    out.findings.length ? h("table", { class: "mini" },
+    nc ? h("div", { class: "dl-banner", role: "status" }, "The tables weren't read, because there's no OneLake sign-in on this PC. Sign in to OneLake in Settings, then check again.") : null,
+    directLakeVerdict(p, picked),
+    directLakeTiles(picked, nc),
+    directLakeRisk(picked, out, nc),
+    nc ? null : h("p", { class: "muted-text small" }, "Select a table to see each check, its evidence and the fix."),
+    others.length ? h("div", { class: "dl-others" }, h("b", {}, `Other checks (${others.length})`), h("table", { class: "mini" },
       h("thead", {}, h("tr", {}, ["Severity", "Table", "Check", "What we found", "Fix"].map((x) => h("th", {}, x)))),
-      h("tbody", {}, out.findings.map((f) => h("tr", {},
+      h("tbody", {}, others.map((f) => h("tr", {},
         h("td", {}, h("span", { class: `pill-s ${DL_SEVERITY[f.severity][1]}` }, DL_SEVERITY[f.severity][0])),
         h("td", { class: "mono" }, f.table || "Model"), h("td", {}, f.check), h("td", {}, f.message),
-        h("td", {}, directLakeFix(f, plan, updateModel))))))
-      : h("div", { class: "pass-box" }, icon("ok", 16), ` Nothing found${lim ? ` at ${lim.sku}'s limits` : ""}.`),
-    out.unread.length ? h("div", { class: "card pad warn-box" }, h("b", {}, `Couldn't check (${out.unread.length})`),
-      h("ul", { class: "gate-list" }, out.unread.map((u) => h("li", {}, h("span", { class: "mono" }, u.table), `: ${u.reason}`)))) : null,
-    lim ? null : h("p", { class: "muted-text" }, "Pick the capacity to compare each table with its Direct Lake limits."),
-    out.tables.length ? h("details", {}, h("summary", {}, lim ? `Every table against ${lim.sku}'s limits` : "Every table"),
-      h("table", { class: "mini" }, h("thead", {}, h("tr", {},
-        h("th", {}, "Table"), h("th", {}, "Delta table"),
-        h("th", { class: "n" }, lim ? `Rows (limit ${num(lim.rows)})` : "Rows"),
-        h("th", { class: "n" }, lim ? `Parquet files (limit ${num(lim.files)})` : "Parquet files"),
-        h("th", { class: "n" }, lim ? `Row groups (limit ${num(lim.row_groups)})` : "Row groups"),
-        h("th", { class: "n" }, "Size on OneLake"))),
-        h("tbody", {}, out.tables.map((t) => h("tr", {}, h("td", { class: "mono" }, t.table), h("td", { class: "mono" }, t.delta_table),
-          t.exists ? [
-            h("td", { class: over(t.rows, lim?.rows) }, num(t.rows)), h("td", { class: over(t.files, lim?.files) }, num(t.files)),
-            h("td", { class: over(t.row_groups, lim?.row_groups) }, (t.row_groups_estimated ? "about " : "") + num(t.row_groups)),
-            h("td", { class: "n" }, sizeText(t.bytes))]
-            : h("td", { colspan: 4, class: "muted-text" }, "No Delta table")))),
-        lim?.model_bytes ? h("tfoot", {}, h("tr", {}, h("td", { colspan: 5, class: "muted-text" }, "Model total"),
-          h("td", { class: over(out.model_bytes, lim.model_bytes) }, `${sizeText(out.model_bytes)} of ${sizeText(lim.model_bytes)}`))) : null),
-      h("p", { class: "muted-text" }, "Row groups come from each file's Parquet footer, up to 200 files a table; above that they're estimated from a sample and marked \"about\".")) : null,
-    h("p", { class: "muted-text" }, `Checked ${relTime(out.checked_at)}.`));
+        h("td", {}, directLakeFix(f, plan, updateModel))))))) : null,
+    p.not_checked.length ? h("details", { class: "dl-unseen" }, h("summary", {}, `What this can't see from this PC (${p.not_checked.length})`),
+      h("ul", { class: "gate-list" }, [...p.not_checked, ...p.notes].map((x) => h("li", {}, x)))) : null,
+    h("div", { class: "dl-how" }, h("b", {}, "How it's judged."),
+      ` Will fall back means a table is past one of ${picked.sku || "the capacity"}'s Direct Lake limits, or its source is a view. Might fall back means it's within 10% of a limit. Not checked means the table couldn't be read. The limits are Microsoft's Direct Lake guardrails for the capacity you pick. Nothing is sent to Fabric and nothing is changed.`),
+    h("p", { class: "muted-text small" }, `Checked ${relTime(out.checked_at)}.`));
+}
+
+// The model's verdict, the table that decides it, and the smallest capacity that fits today and at the horizon.
+function directLakeVerdict(p, picked) {
+  const v = picked.model;
+  const w = p.skus;
+  const fits = (s) => (s ? s : "none");
+  return h("div", { class: "dl-verdict" },
+    h("div", {}, h("span", { class: `pill-s ${DL_RISK[v.verdict]}` }, v.label), " ", h("span", {}, v.message)),
+    h("p", { class: "muted-text small" },
+      `Smallest capacity within limits: ${fits(w.smallest_today)} today, ${fits(w.smallest_horizon)} in ${w.horizon_days} days at the current rate.`,
+      w.every_sku.length ? ` ${dlList(w.every_sku)} ${picked.will_label.toLowerCase()} on every capacity, because a view or the endpoint's security doesn't depend on the limits.` : ""),
+    p.caveat ? h("p", { class: "muted-text small dl-caveat" }, p.caveat) : null);
+}
+
+function directLakeTiles(picked, nc) {
+  const c = picked.counts;
+  const tables = (n) => (n === 1 ? "table" : "tables");
+  const tile = (label, n, cls, sub) => h("div", { class: "dl-tile" }, h("span", { class: "muted-text" }, label), h("b", { class: cls }, String(n)), h("span", { class: "muted-text" }, sub));
+  const s = picked.size;
+  const level = s.bytes !== null && s.limit ? dlLevel(s.bytes, s.limit) : "";
+  const size = s.bytes === null || s.bytes === undefined
+    ? [h("b", { class: "dl-size" }, "Not read"), h("span", { class: "muted-text" }, nc ? "Needs a OneLake sign-in" : "No table was read")]
+    : s.limit ? [h("b", { class: "dl-size" }, h("span", { class: level ? `${level}-text` : "" }, dlGb(s.bytes)), ` of ${dlGb(s.limit)}`),
+      h("span", { class: "muted-text" }, level === "over" ? "Past the limit" : `Within the limit, ${dlGb(s.limit - s.bytes)} left`)]
+      : [h("b", { class: "dl-size" }, `${dlGb(s.bytes)}, no limit on ${picked.sku}`), h("span", { class: "muted-text" }, "Within the limit")];
+  return h("div", { class: "dl-tiles" },
+    tile(picked.will_label, c.will, "fail-text", tables(c.will)),
+    tile("Might fall back", c.might, "warn-text", `${tables(c.might)}, near a limit`),
+    tile("Within limits", c.within, "pass-text", tables(c.within)),
+    h("div", { class: "dl-tile" }, h("span", { class: "muted-text" }, "Model size on OneLake"), ...size));
+}
+
+// One row a table, with its checks, evidence, forecast and fix under it.
+function directLakeRisk(picked, out, nc) {
+  const reasons = Object.fromEntries(out.unread.map((u) => [u.table, u.reason]));
+  const cell = (t, key, limit) => {
+    if (t.view || (t.causes || []).includes("missing")) return h("td", { class: "n muted-text" }, "n/a");
+    if (!t.read || t[key] === null || t[key] === undefined) return h("td", { class: "n muted-text" }, "Not read");
+    const lv = dlLevel(t[key], limit);
+    return h("td", { class: "n" }, h("span", { class: lv ? `${lv}-text dl-strong` : "" }, (key === "row_groups" && t.row_groups_estimated ? "about " : "") + dlNum(t[key])),
+      limit ? h("span", { class: "dl-lim" }, `of ${dlNum(limit)}`) : null);
+  };
+  const limits = picked.limits || {};
+  const body = h("tbody", {});
+  picked.tables.forEach((t, i) => {
+    const id = `dl-detail-${i}`;
+    const open = !nc && t.status === "will";
+    const label = t.status === "will" ? picked.will_label : { might: "Might fall back", within: "Within limits", not_checked: "Not checked" }[t.status];
+    const detail = h("tr", { class: "dl-detail", id, hidden: open ? null : true }, h("td", { colspan: 5 }, directLakeChecks(t, reasons[t.table])));
+    const row = h("tr", { class: open ? "dl-open" : "" });
+    const toggle = h("button", { class: "dl-toggle", "aria-expanded": open ? "true" : "false", "aria-controls": id,
+      onclick: () => {
+        const now = toggle.getAttribute("aria-expanded") !== "true";
+        toggle.setAttribute("aria-expanded", String(now));
+        detail.hidden = !now;
+        row.classList.toggle("dl-open", now);
+      } }, h("span", { class: "dl-caret", "aria-hidden": "true" }), h("b", {}, t.table));
+    row.append(h("td", {}, toggle, t.view ? h("span", { class: "muted-text small" }, " view") : null),
+      h("td", {}, h("span", { class: `pill-s ${DL_RISK[t.status]}` }, label)),
+      cell(t, "rows", limits.rows), cell(t, "files", limits.files), cell(t, "row_groups", limits.row_groups));
+    body.append(row, detail);
+  });
+  return h("table", { class: "mini dl-risk" },
+    h("thead", {}, h("tr", {}, h("th", {}, "Table"), h("th", {}, "Risk"), h("th", { class: "n" }, "Rows"), h("th", { class: "n" }, "Parquet files"), h("th", { class: "n" }, "Row groups"))),
+    body);
+}
+
+function directLakeChecks(t, reason) {
+  const chk = (label, evidence, message, fix) => h("div", { class: "dl-chk" }, h("b", {}, label), h("span", {}, evidence),
+    h("span", { class: "muted-text" }, message), fix);
+  if (!t.read) return h("div", { class: "dl-checks" }, chk("Not read", "", reason || t.reason || "Its Delta table wasn't read.", null));
+  if (!t.checks.length) return h("div", { class: "dl-checks" }, chk("Not checked", "", t.reason || "Pick the capacity to compare it with.", null));
+  const fix = (c) => (c.fix_text ? h("span", { class: "dl-fix" }, `Fix: ${c.fix_text}`,
+    c.fix === "compact" ? [" ", btn("Compact in Table health", null, () => goMeta("health"), "tool small dl-fixbtn")] : null) : null);
+  return h("div", { class: "dl-checks" },
+    t.checks.map((c) => chk(c.check,
+      "have" in c && c.have !== null ? [h("span", { class: c.level === "over" || c.level === "near" ? `${c.level}-text dl-strong` : "" },
+        (c.about ? "about " : "") + dlNum(c.have)), ` of ${dlNum(c.limit)}`] : c.evidence,
+      c.message, fix(c))),
+    t.forecast && t.forecast.status !== "no_history" ? chk("Forecast", t.forecast.commits ? `${t.forecast.commits} commits read` : "No history", t.forecast.message, null) : null);
 }
 
 // ---------- Apache Ossie: export and import a semantic model (model_ossie_service.py) ----------
@@ -1748,7 +1992,7 @@ function ossieCard(plan) {
     if (!model.value) model.value = git.folders.length ? `git:${git.folders[0].path}` : "";
     // The engine lacks a package the converter needs (PyYAML): only this card is off, with the reason.
     if (git.unavailable) {
-      importBtn.disabled = exportBtn.disabled = true;
+      importBtn.disabled = exportBtn.disabled = tmdlBtn.disabled = true;
       fill(result, h("div", { class: "warn-box" }, icon("warning", 16), git.unavailable));
     }
   });
@@ -1765,19 +2009,20 @@ function ossieCard(plan) {
     fill(result, ossieExportResult(out));
   };
   const importBtn = btn("Import from Ossie...", "arrowUpload", () => ossieImportDialog(plan, result), "tool outline small");
+  const tmdlBtn = btn("Ossie file to TMDL...", "document", () => ossieToTmdlDialog(result), "tool outline small");
   const exportBtn = btn("Export to Ossie", "arrowDownload", exportModel, "tool primary small");
   return h("div", { class: "card pad ossie-card" },
     h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }),
-      importBtn, exportBtn),
+      importBtn, tmdlBtn, exportBtn),
     h("p", { class: "muted-text" }, "Ossie is the open format Snowflake, dbt, Databricks and others read for semantic models. Export reads the model's definition from Fabric, or its TMDL kept in Git, and converts it on this PC; nothing in Fabric changes. A model sent to Ossie and back comes back the same, because Power BI details travel in the file's Power BI section."),
     h("div", { class: "row wrap" }, h("label", { class: "field" }, "Model", model),
       h("label", { class: "check" }, sql, "Also write simple measures as portable SQL")),
     result,
     howItWorks("ossie", {
       reads: "The model's definition from Fabric (getDefinition, read only), its TMDL under semantic/ in the project's folder (no Fabric call), or the Ossie file you pick.",
-      changes: "Export changes nothing until you save the file into the metadata project's folder. Import writes the model's definition in Fabric (or creates a new model) only after you confirm; no refresh runs. Save TMDL to Git writes the model's TMDL files under semantic/ in the project's folder.",
+      changes: "Export changes nothing until you save the file into the metadata project's folder. Ossie file to TMDL writes TMDL files under semantic/ in the project's folder only when you say so. Import writes the model's definition in Fabric (or creates a new model) only after you confirm; no refresh runs. Save TMDL to Git writes the model's TMDL files under semantic/ in the project's folder.",
       results: "Files under semantic/ in the metadata project, ready to commit in Source control.",
-      more: [["How it converts", "On this PC, with the Apache Ossie Microsoft converter. No AI is involved, and nothing leaves this PC except the Fabric calls above."]],
+      more: [["How it converts", "On this PC, with the Apache Ossie Microsoft converter. Ossie file to TMDL and TMDL to Ossie don't call Fabric at all. No AI is involved, and nothing leaves this PC except the Fabric calls above."]],
     }));
 }
 
@@ -1806,6 +2051,10 @@ function ossieExportResult(out) {
         ossieReportList(kept) || h("p", { class: "muted-text" }, "Nothing: the whole model is portable.")),
       h("div", { class: "card pad" }, h("b", {}, `Not converted (${lost.length})`),
         ossieReportList(lost) || h("p", { class: "muted-text" }, "Nothing. Every object is either portable or kept."))),
+    out.round_trip ? h("div", {}, h("b", {}, "Round-trip check "),
+      out.round_trip.length
+        ? h("div", { class: "warn-box" }, icon("warning", 16), "Reading this file back doesn't give the same model: ", ossieReportList(out.round_trip))
+        : h("span", { class: "muted-text" }, "Reading this file back gives the same model.")) : null,
     h("pre", { class: "ossie-yaml mono" }, out.yaml.split("\n").slice(0, 40).join("\n") + (out.yaml.split("\n").length > 40 ? "\n..." : "")),
     h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Save in the project as", path), save, copy));
 }
@@ -1896,6 +2145,130 @@ function ossieImportDialog(plan, result) {
   [btn("Cancel", null, closeDialog, "tool outline"), go]);
 }
 
+// The Round-trip check: what the TMDL will hold, by kind, with nothing dropped unlisted (PB-110 mockup).
+function ossieRoundTrip(res) {
+  const c = res.counts || {};
+  const kept = res.report.filter((r) => r.kind === "kept");
+  const lost = [...res.report.filter((r) => r.kind === "lost"),
+    ...(res.changes || []).filter((r) => r.change === "needs_dax").map((r) => ({ object: r.object, message: "its SQL has no DAX equivalent, so the TMDL measure has no expression and shows blank until you add DAX" }))];
+  const total = (c.tables || 0) + (c.columns || 0) + (c.measures || 0) + (c.relationships || 0);
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  return h("div", { class: "ossie-groups ossie-roundtrip", role: "list" },
+    h("div", { class: "card pad", role: "listitem" }, h("b", {}, `Kept (${total})`),
+      h("p", { class: "muted-text" }, `${plural(c.tables || 0, "table")}, ${plural(c.columns || 0, "column")}, ${plural(c.relationships || 0, "relationship")}, ${plural(c.measures || 0, "measure")}, descriptions.`)),
+    h("div", { class: "card pad", role: "listitem" }, h("b", {}, `Kept in the Power BI section (${kept.length})`),
+      ossieReportList(kept) || h("p", { class: "muted-text" }, "None.")),
+    h("div", { class: `card pad${lost.length ? " warn-box" : ""}`, role: "listitem" }, h("b", {}, `Can't be carried (${lost.length})`),
+      ossieReportList(lost) || h("p", { class: "muted-text" }, "None. Nothing was dropped.")));
+}
+
+// Ossie file to TMDL in this project, on this PC with no Fabric call (meta_model_ossie_to_tmdl, PB-110).
+function ossieToTmdlDialog(result) {
+  const picked = { text: "", name: "" };
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const input = h("input", { type: "file", accept: ".yaml,.yml,.json", "aria-label": "Ossie file" });
+  const projectPath = h("input", { class: "mono", placeholder: "semantic/orders.ossie.yaml", "aria-label": "Ossie file in the project" });
+  const folder = h("input", { placeholder: "The name in the file", "aria-label": "Model folder name" });
+  const where = h("span", { class: "mono muted-text ossie-folder" });
+  const out = h("div", { class: "ossie-preview" });
+  const keep = new Map();  // removals the person unticked "Keep it" on
+  const go = btn("Write TMDL", "save", null, "tool primary");
+  go.disabled = true;
+  let last = null;
+  const refresh = async () => {
+    go.disabled = true;
+    last = null;
+    if (!picked.text) return;
+    fill(out, h("p", { class: "muted-text" }, "Converting on this PC..."));
+    let res;
+    try {
+      res = (await rpc("meta_model_ossie_to_tmdl", { text: picked.text, name: folder.value.trim(), remove: [...keep.keys()] })).confirm;
+    } catch (err) {
+      fill(where);
+      fill(out, h("div", { class: "warn-box", role: "alert" }, icon("warning", 16),
+        h("span", {}, h("b", {}, "Can't convert this file, so nothing was written. "), err.message || String(err))));
+      return;
+    }
+    last = res;
+    if (!folder.value.trim()) folder.placeholder = res.name;
+    fill(where, `${res.folder}/ `, h("b", { class: res.exists ? "error-text" : null }, res.exists ? "already there" : "(new)"));
+    const removable = res.removable.filter((o) => !res.changes.some((r) => r.object === o));
+    const rows = [...res.changes, ...removable.map((o) => ({ change: "remove", object: o, detail: "" })), ...[...keep.keys()].filter((o) => !removable.includes(o)).map((o) => ({ change: "remove", object: o, detail: "" }))];
+    const n = (k) => res.changes.filter((r) => r.change === k).length;
+    fill(out,
+      res.exists ? h("b", {}, `What changes in ${res.folder}/`) : h("p", { class: "counts" }, h("b", {}, "From the file: "),
+        `${plural(res.counts.tables, "table")}, ${plural(res.counts.columns, "column")}, ${plural(res.counts.measures, "measure")}, ${plural(res.counts.relationships, "relationship")}.`),
+      res.exists ? (rows.length ? h("table", { class: "list" }, h("thead", {}, h("tr", {}, ["Change", "Object", "Detail"].map((c) => h("th", {}, c)))),
+        h("tbody", {}, rows.map((r) => {
+          const [label, cls] = OSSIE_CHANGE[r.change] || [r.change, "neu"];
+          const kept = r.change === "remove" ? h("label", { class: "check" },
+            h("input", { type: "checkbox", checked: !keep.has(r.object), onchange: (e) => { if (e.target.checked) keep.delete(r.object); else keep.set(r.object, true); refresh(); } }), "Keep it") : null;
+          return h("tr", { class: r.change === "needs_dax" ? "warn-row" : null },
+            h("td", {}, h("span", { class: `pill-s ${cls}` }, label)), h("td", { class: "mono" }, r.object),
+            h("td", {}, r.change === "remove" ? h("span", {}, "Not in the Ossie file. ", kept) : r.detail));
+        }))) : h("p", { class: "muted-text" }, "Nothing changes, because the TMDL already matches the file.")) : null,
+      res.exists ? h("p", { class: "muted-text counts" }, `${n("add")} added, ${n("change")} changed, ${keep.size} removed (${removable.length - keep.size} kept). ${res.unchanged} file${res.unchanged === 1 ? "" : "s"} unchanged.`) : null,
+      h("p", {}, h("b", {}, "Round-trip check "), h("span", { class: "muted-text" }, "What the TMDL will hold. Nothing is dropped without being listed here.")),
+      ossieRoundTrip(res),
+      res.removed.length ? h("p", { class: "muted-text" }, `Removes ${res.removed.length} TMDL file${res.removed.length === 1 ? "" : "s"} for what you chose to take out: `, h("span", { class: "mono" }, res.removed.join(", "))) : null);
+    go.textContent = res.exists ? `Replace TMDL in ${res.name}...` : "Write TMDL";
+    go.disabled = false;
+  };
+  input.onchange = async () => {
+    const f = input.files[0];
+    if (!f) return;
+    if (f.size > OSSIE_MAX_BYTES) { fill(out, h("p", { class: "error-text" }, "The file is larger than 20 MB, so it isn't an Ossie model.")); return; }
+    Object.assign(picked, { text: await f.text(), name: f.name });
+    projectPath.value = "";
+    keep.clear();
+    refresh();
+  };
+  const readProject = btn("Read", null, async () => {
+    const res = await metaCall("meta_model_ossie_read", { path: projectPath.value.trim() }, "Not read");
+    if (!res) return;
+    Object.assign(picked, { text: res.text, name: res.path });
+    input.value = "";
+    keep.clear();
+    refresh();
+  }, "tool outline small");
+  folder.onchange = () => { keep.clear(); refresh(); };
+  go.onclick = async () => {
+    const res = last;
+    if (!res) return;
+    if (res.exists) {
+      const needs = res.changes.filter((r) => r.change === "needs_dax").map((r) => r.object);
+      const n = (k) => res.changes.filter((r) => r.change === k).length;
+      const FILE_CHANGE = { new: ["New", "pass"], changed: ["Changed", "info"], same: ["Same", "neu"], removed: ["Removed", "fail"] };
+      const files = h("table", { class: "list" }, h("thead", {}, h("tr", {}, h("th", {}, "File"), h("th", {}, "Change"))),
+        h("tbody", {}, (res.file_changes || []).map((f) => h("tr", {}, h("td", { class: "mono" }, f.path),
+          h("td", {}, h("span", { class: `pill-s ${(FILE_CHANGE[f.change] || [f.change, "neu"])[1]}` }, (FILE_CHANGE[f.change] || [f.change])[0]))))));
+      const ok = await confirmDialog(`Replace TMDL in ${res.name}?`,
+        h("div", {}, h("p", {}, `${res.folder}/ is already in this project. Writing replaces the files below, with ${n("add")} added, ${n("change")} changed and ${keep.size} removed, and keeps the ${res.removable.length - keep.size} the Ossie file doesn't have, as you ticked.${needs.length ? ` ${needs.length} measure${needs.length === 1 ? " has" : "s have"} no expression yet (${needs.join(", ")}).` : ""} Nothing in Fabric changes, and you can undo it in Source control before you commit.`),
+          h("div", { class: "scroll" }, files)),
+        "Replace TMDL", { danger: true });
+      if (!ok) return;
+    }
+    const done = await metaCall("meta_model_ossie_to_tmdl", { text: picked.text, name: folder.value.trim(), remove: [...keep.keys()], confirmed: true, token: res.token }, "TMDL not written");
+    if (!done) return;
+    closeDialog();
+    const needs = done.changes.filter((r) => r.change === "needs_dax").map((r) => r.object);
+    const n = (k) => done.changes.filter((r) => r.change === k).length;
+    fill(result, h("div", { class: "ossie-done" },
+      h("div", { class: "pass-box", role: "status" }, icon("ok", 16),
+        `Wrote ${done.folder}/ from ${picked.name}${done.exists ? `, with ${n("add")} added, ${n("change")} changed and ${done.removable.length - keep.size} kept` : ""}. It's in Source control, ready to commit.`),
+      needs.length ? h("div", { class: "card pad warn-box" }, `${needs.length} measure${needs.length === 1 ? " has" : "s have"} no expression yet, so ${needs.length === 1 ? "it shows" : "they show"} blank until you add DAX: `,
+        h("span", { class: "mono" }, needs.join(", "))) : null,
+      h("p", {}, h("b", {}, "Round-trip check")), ossieRoundTrip(done)));
+  };
+  showDialog("Ossie file to TMDL", h("div", { class: "scroll ossie-import ossie-to-tmdl" },
+    h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Ossie file on this PC", input),
+      h("label", { class: "field grow" }, "Or in the project", h("span", { class: "row tight" }, projectPath, readProject))),
+    h("div", { class: "row wrap" }, h("label", { class: "field grow" }, "Model folder name", folder), where),
+    out,
+    h("p", { class: "muted-text" }, "Writes TMDL files under semantic/ on this PC. Nothing in Fabric changes, and nothing is committed until you commit in Source control.")),
+  [btn("Cancel", null, closeDialog, "tool outline"), go]);
+}
+
 function ossieImportResult(res, file) {
   const n = res.counts || {};
   const saveTmdl = btn("Save TMDL to Git", "save", async () => {
@@ -1910,6 +2283,245 @@ function ossieImportResult(res, file) {
       `${res.needs_dax.length} measure${res.needs_dax.length === 1 ? " needs" : "s need"} DAX before reports use ${res.needs_dax.length === 1 ? "it" : "them"}; ${res.needs_dax.length === 1 ? "it shows" : "they show"} blank until then: `,
       h("span", { class: "mono" }, res.needs_dax.join(", "))) : null,
     h("div", { class: "row wrap" }, h("span", { class: "muted-text grow" }, `Keep Git in step: the model's TMDL, read back from Fabric, goes to semantic/${res.name}.SemanticModel/ next to the Ossie file.`), saveTmdl));
+}
+
+// ---------- Fabric Semantic View: the publish steps (OSSIE-005b, model_ossie_service.py) ----------
+
+// KratosForge never publishes a view or calls Fabric from this card: it reads the files saved in the project's
+// folder (meta_model_semantic_view_status), and its only buttons copy text, open that folder on this PC
+// (meta_model_semantic_view_reveal, audited), or save
+// the view's files there (meta_model_semantic_view_save, previewed and confirmed). Each step links the Learn
+// section it follows (docs/semantic-model-ossie.md#publish-the-view-in-fabric-preview).
+const SV_LEARN = {
+  create: "https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#create-a-view-with-the-starter-file",
+  upload: "https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#upload-existing-yaml-files",
+  save: "https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#edit-and-save",
+  publish: "https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-publish#publish-a-view",
+  check: "https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-publish#check-the-result",
+  createAccess: "https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-create#prerequisites",
+  publishAccess: "https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-publish#prerequisites",
+  overview: "https://learn.microsoft.com/en-us/fabric/fundamentals/semantic-views-overview",
+};
+const SV_MAX_FILES = 20;  // ossie_profiles.FABRIC_MAX_FILES
+// What the files leave out, by construct (semantic_view.STRIPPED), for the "left out" line.
+const SV_LEFT_OUT = { primary_key: ["primary key", "primary keys"], unique_keys: ["unique key list", "unique key lists"],
+  ai_context: ["ai_context note", "ai_context notes"], fields: ["dataset field", "dataset fields"],
+  custom_extensions: ["Power BI extension item", "Power BI extension items"], datatype: ["metric datatype", "metric datatypes"],
+  query_source: ["query source", "query sources"] };
+
+function svLearn(url, label, name) {
+  return h("a", { href: "#", class: "learn-more sv-learn", title: url, "aria-label": name || null,
+    onclick: (e) => { e.preventDefault(); openLink(url); } }, label, h("span", { "aria-hidden": "true" }, " ↗"));
+}
+
+function svSize(bytes) {
+  return bytes < 1000 ? `${bytes} bytes` : bytes < 1e6 ? `${Math.round(bytes / 1000)} KB` : `${(bytes / 1e6).toFixed(1)} MB`;
+}
+
+const svCount = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+// "4 datasets, 3 relationships" or "9 metrics, all DAX": what one file holds.
+// "a", "a and b", "a, b and c"
+function svList(items) {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+function svHolds(f) {
+  if (f.unreadable) return "Not readable as one YAML object. The check above says why.";
+  const parts = [];
+  if (f.datasets) parts.push(svCount(f.datasets, "dataset", "datasets"));
+  if (f.relationships) parts.push(svCount(f.relationships, "relationship", "relationships"));
+  if (f.metrics) parts.push(svCount(f.metrics, "metric", "metrics"), f.dax_metrics === f.metrics ? "all DAX" : `${f.dax_metrics} with DAX`);
+  return parts.join(", ") || "Version and name only";
+}
+
+// "2 primary keys and 1 ai_context note", from the report's rows the files leave out.
+function svLeftOutText(rows) {
+  const counts = new Map();
+  for (const r of rows) {
+    const key = r.excluded ? (r.kind === "relationship" ? "relationship" : r.kind === "measure" ? "metric" : "excluded") : (SV_LEFT_OUT[r.construct] ? r.construct : "other");
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  const names = { ...SV_LEFT_OUT, relationship: ["multi-column relationship", "multi-column relationships"],
+    metric: ["metric without DAX", "metrics without DAX"], excluded: ["other object", "other objects"], other: ["other key", "other keys"] };
+  const parts = [...counts].map(([k, n]) => svCount(n, ...names[k]));
+  return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
+}
+
+function svReportDialog(view, rows) {
+  showDialog(`What the ${view} view leaves out`, h("div", { class: "scroll sv-report" },
+    h("p", { class: "muted-text" }, "Each row names the documented rule it follows. Nothing here is sent to Fabric."),
+    h("table", { class: "mini" }, h("thead", {}, h("tr", {}, h("th", {}, "Object"), h("th", {}, "Why"))),
+      h("tbody", {}, rows.map((r) => h("tr", {}, h("td", { class: "mono" }, r.object),
+        h("td", {}, r.reason, r.source ? [" ", svLearn(r.source, "Learn", `Learn: ${r.rule}`)] : null)))))),
+    [btn("Close", null, closeDialog, "tool outline")]);
+}
+
+// Save view files (OSSIE-005a's engine call): previews, lists every file written and removed in the confirm, and
+// writes only with the preview's token. A removal makes it a danger confirm.
+async function svSaveFiles(view, modelPath, split, done) {
+  const params = { view_name: view, path: modelPath, split };
+  const res = await metaCall("meta_model_semantic_view_save", params, "View files not saved");
+  if (!res) return;
+  const c = res.confirm;
+  const names = c.files.map((f) => f.split("/").pop());
+  const removed = c.removed.map((f) => f.slice(c.folder.length + 1));
+  const ok = await confirmDialog(`Save the ${view} view's files?`,
+    `Writes ${svList(names)} to ${c.folder}/ in the project's folder, made on this PC from ${modelPath}. `
+    + (removed.length ? `Deletes ${svList(removed)} there, because Fabric merges every .yaml file in a view's folder into the view. ` : "")
+    + "Nothing is sent to Fabric.", removed.length ? "Save and delete" : "Save view files", { danger: removed.length > 0 });
+  if (!ok) return;
+  const out = await metaCall("meta_model_semantic_view_save", { ...params, confirmed: true, token: c.token }, "View files not saved");
+  if (!out) return;
+  toast(`Saved the ${view} view's files in ${out.folder}/. Commit them from Source control.`);
+  done(view);
+}
+
+// State (a): nothing saved yet, so only "Save the view's files first", with Save view files.
+function svNoFiles(folders, plan, done) {
+  if (!folders.length) {
+    return h("div", { class: "sv-first" }, h("b", {}, "Save the view's files first"),
+      h("p", { class: "muted-text" }, "A view's files are made on this PC from a model kept in the project's folder, under semantic/. Save the model's TMDL to Git first (Import from Ossie or Ossie file to TMDL on the Apache Ossie card), then save the view's files here."));
+  }
+  const pick = h("select", { "aria-label": "Model to make the view from" },
+    folders.map((f) => h("option", { value: f.path, selected: f.name === plan.name ? true : null }, `${f.name} (${f.path})`)));
+  const save = btn("Save view files", "save", () => {
+    const f = folders.find((x) => x.path === pick.value) || folders[0];
+    svSaveFiles(f.name, f.path, "schema_metrics", done);
+  }, "tool primary small");
+  return h("div", { class: "sv-first" }, h("b", {}, "Save the view's files first"),
+    h("p", { class: "muted-text" }, "KratosForge makes the view's .yaml files on this PC from a model in the project's folder and saves them in semantic-views\\<view>\\. Then this card shows the steps to publish them in Fabric."),
+    h("div", { class: "row wrap" }, h("label", { class: "field" }, "Model", pick), save));
+}
+
+function svChecks(st) {
+  const v = st.validation;
+  if (st.valid) {
+    const bytes = v.counts.yaml_bytes;
+    return h("div", { class: "sv-check" }, h("span", { class: "pill-s pass" }, "Ready"),
+      h("span", {}, `Passed Fabric's documented checks: version 0.2.0.dev0, DAX on every metric, single-column relationships, ${v.counts.yaml_files} of ${SV_MAX_FILES} files and ${svSize(bytes)} of 16 MB.`));
+  }
+  const problems = [...(v?.diagnostics || []).map((d) => ["", d]),
+    ...Object.entries(v?.files || {}).flatMap(([file, r]) => r.diagnostics.map((d) => [file, d]))];
+  return h("div", { class: "sv-check-fail" },
+    h("div", { class: "sv-check" }, h("span", { class: "pill-s fail" }, "Failed"),
+      h("span", {}, problems.length ? `${svCount(problems.length, "check", "checks")} failed, so Fabric would refuse to publish these files. Fix each one, or save the view's files again.`
+        : "The files weren't checked, so Fabric may refuse them. Bring the view to 20 files and 16 MB or less.")),
+    problems.length ? h("ul", { class: "gate-list" }, problems.slice(0, 12).map(([file, d]) => h("li", {},
+      file ? h("span", { class: "mono" }, `${file} `) : null, d.path && d.path !== "$" ? h("span", { class: "mono" }, `${d.path} `) : null,
+      `${d.message}. `, h("span", { class: "muted-text" }, `Fix: ${d.fix}`)))) : null,
+    problems.length > 12 ? h("p", { class: "muted-text" }, `And ${problems.length - 12} more.`) : null);
+}
+
+function svWarnings(st) {
+  const v = st.validation;
+  const all = [...(v?.warnings || []), ...Object.values(v?.files || {}).flatMap((r) => r.warnings)];
+  return all.length ? h("ul", { class: "gate-list sv-notes" }, all.map((d) => h("li", {}, h("span", { class: "pill-s wrn" }, "Note"), `${d.message}. `,
+    h("span", { class: "muted-text" }, d.fix)))) : null;
+}
+
+function svSteps(view, lh, ok) {
+  const wait = ok ? null : h("span", { class: "sv-wait" }, "Fix the files first");
+  const step = (n, text, link, label, dim) => h("li", { class: dim ? "sv-dim" : null },
+    h("span", { class: "sv-num", "aria-hidden": "true" }, String(n)),
+    h("div", {}, h("div", {}, text), dim ? wait.cloneNode(true) : null, svLearn(link, `Learn: ${label}`)));
+  const b = (t) => h("b", {}, t);
+  const m = (t) => h("span", { class: "mono" }, t);
+  return h("ol", { class: "sv-steps" },
+    step(1, [`Open ${lh || "the lakehouse"} in Fabric, in the Lakehouse view rather than the SQL analytics endpoint. If `, b("Context > Semantic Views"), " has no ", b(view),
+      " folder, select ", b("New semantic view"), ` on the ribbon, enter ${view} as the name, then select `, b("Create"), "."], SV_LEARN.create, "Create a view", false),
+    step(2, [b("Upload."), " In the Explorer pane, right-click the ", b(view), " folder, select ", b("Upload > Upload files"),
+      `, and choose the ${ok ? svCount(ok, "file", "files") : "files"} above. Uploaded files are saved right away. If Fabric made a starter `, m(".yaml"),
+      " file, delete it, because every ", m(".yaml"), " file in the folder joins the view."], SV_LEARN.upload, "Upload files", !ok),
+    step(3, [b("Save."), " Only if you change a file in Fabric. Open it, edit it, then select ", b("Save"), ". Saving writes the file and doesn't check it or update the model."],
+      SV_LEARN.save, "Edit and save", !ok),
+    step(4, [b("Publish."), " Right-click the ", b(view), " folder, select ", b("Publish"), ", then select ", b("Publish"), " in the dialog. Only saved changes are published."],
+      SV_LEARN.publish, "Publish a view", !ok),
+    step(5, [b("Check the result."), ` Open the ${view} model Fabric made, and read any warnings the publish gave.`], SV_LEARN.check, "Check the result", !ok));
+}
+
+function svBody(st, plan, folders, reload) {
+  const view = st.view;
+  const ok = st.valid ? st.files_summary.length : 0;
+  const source = folders.find((f) => f.name === view);
+  // The lakehouse and workspace only when this layer's model is the view's source: plan names what that model reads.
+  const lh = source && source.name === plan.name && plan.lakehouse ? plan.lakehouse : "";
+  const ws = lh ? plan.workspace_name || "" : "";
+  const where = `${lh ? `${lh} > ` : ""}Context/Semantic Views/${view}/`;
+  const other = view.toLowerCase() !== view ? view.toLowerCase() : view.toUpperCase();
+  const s = st.source;
+  const left = s?.same ? s.left_out : [];
+  const resave = source ? btn("Save view files", "save", () => svSaveFiles(view, source.path, s?.split || "schema_metrics", reload), "tool outline small") : null;
+  const open = btn("Open folder", "folderOpen", async () => {
+    const res = await metaCall("meta_model_semantic_view_reveal", { view_name: view }, "Couldn't open the folder");
+    if (res?.shown) toast(`Opened ${st.folder} in File Explorer.`);
+  }, "tool outline small");
+  const copy = btn("Copy path", "copyArrowRight", () => copyText(where, "Path"), "tool outline small");
+  return [
+    h("p", { class: "muted-text" }, `KratosForge doesn't publish semantic views, and nothing on this card writes to Fabric. You upload the files below to the lakehouse yourself, then publish the view there. Fabric then makes a read-only Direct Lake model named ${view}, and the view's files stay the source of truth.`),
+    h("h3", { class: "sv-h" }, "1. The files"),
+    svChecks(st),
+    h("table", { class: "mini sv-files" }, h("thead", {}, h("tr", {}, h("th", {}, "File"), h("th", {}, "Holds"), h("th", {}, "Size"))),
+      h("tbody", {}, st.files_summary.map((f) => h("tr", {}, h("td", { class: "mono" }, f.path), h("td", {}, svHolds(f)), h("td", { class: "n" }, svSize(f.bytes)))))),
+    svWarnings(st),
+    h("div", { class: "row wrap sv-folder" }, h("span", { class: "mono muted-text grow" }, `${st.folder.replace(/\//g, "\\")}\\ in the project folder`), open),
+    s && !s.same ? h("div", { class: "row wrap sv-line" }, h("span", { class: "pill-s info" }, "Changed"),
+      h("span", { class: "grow" }, `These files aren't what ${source.name} in ${source.path} gives now. Save the view's files again to bring them in step.`), resave) : null,
+    left.length ? h("p", { class: "sv-line" }, h("span", { class: "pill-s wrn" }, `${left.length} left out`),
+      ` The view publishes without ${svLeftOutText(left)}, because Fabric's YAML reference omits them or doesn't support them, so the files leave them out. `,
+      h("a", { href: "#", class: "learn-more", onclick: (e) => { e.preventDefault(); svReportDialog(view, left); } }, "See the report")) : null,
+    h("h3", { class: "sv-h" }, "2. Where they go"),
+    h("div", { class: "sv-path" }, h("span", { class: "mono grow" }, where), copy),
+    h("p", { class: "muted-text sv-small" }, lh ? `Lakehouse ${lh}${ws ? ` in workspace ${ws}` : ""}, which the view's datasets read. ` : "In the lakehouse the view's datasets read. ",
+      `The folder sits right under Semantic Views, and its name becomes the view's name and the model's name. OneLake folder names are case-sensitive but model names aren't, so a ${view} and a ${other} folder can't both publish.`),
+    h("h3", { class: "sv-h" }, "3. The steps in Fabric"),
+    svSteps(view, lh, ok),
+    h("div", { class: "sv-grid" },
+      h("div", {}, h("h3", { class: "sv-h" }, "Permissions you need"),
+        h("ul", { class: "sv-list" },
+          h("li", {}, "To create the folder and upload or save files, Write on the lakehouse. ", svLearn(SV_LEARN.createAccess, "Learn", "Learn: permissions to create and upload")),
+          h("li", {}, "To publish, Write on the lakehouse and the Contributor role or higher on the workspace. ", svLearn(SV_LEARN.publishAccess, "Learn", "Learn: permissions to publish")))),
+      h("div", {}, h("h3", { class: "sv-h" }, "Before you publish (Preview)"),
+        h("ul", { class: "sv-list" },
+          h("li", {}, "Semantic views are in Preview in Fabric."),
+          h("li", {}, "A workspace connected to Git, deployment pipelines or Power Platform solutions, or with workspace-level private links, can't publish a view."),
+          h("li", {}, h("b", {}, "Last write wins."), " If two people publish the same view at the same time, the later publish is the one that counts. Don't edit the files while a publish runs, because publish doesn't lock them. ", svLearn(SV_LEARN.overview, "Learn", "Learn: last write wins")),
+          h("li", {}, "The folder and the model aren't kept in step. A renamed folder can stop updating the model, and deleting either one leaves the other in place. ", svLearn(SV_LEARN.overview, "Learn", "Learn: the folder and the model")),
+          h("li", {}, "If a publish fails to compile, the model from the last publish stays as it was.")))),
+    h("div", { class: "sv-note" }, h("b", {}, "Published model:"), " not read. KratosForge doesn't read the model Fabric makes yet, so it can't compare it with these files."),
+  ];
+}
+
+// The publish-steps card under the Apache Ossie one; null when preview features are hidden.
+function semanticViewCard(plan) {
+  const name = h("span", {}, "Publish the semantic view in Fabric");
+  const title = preview("semanticView", h("b", { class: "sv-title" }, name, " "));
+  if (!title) return null;
+  const pick = h("select", { "aria-label": "Semantic view", hidden: true });
+  const body = h("div", { class: "sv-body" }, h("p", { class: "muted-text" }, "Reading the view's files on this PC..."));
+  const load = async (want) => {
+    const [list, git] = await Promise.all([
+      metaCall("meta_model_semantic_view_status", {}, "Semantic views not read"),
+      rpc("meta_model_ossie_folders", {}).catch(() => ({ folders: [] })),
+    ]);
+    if (!list) { fill(body, h("p", { class: "muted-text" }, "Couldn't read semantic-views\\ in the project's folder.")); return; }
+    const folders = git.folders || [];
+    const view = list.views.includes(want) ? want : list.views.includes(plan.name) ? plan.name : list.views[0];
+    pick.hidden = list.views.length < 2;
+    pick.replaceChildren(...list.views.map((v) => h("option", { value: v, selected: v === view ? true : null }, v)));
+    if (!view) { name.textContent = "Publish the semantic view in Fabric"; fill(body, svNoFiles(folders, plan, load)); return; }
+    name.textContent = `Publish the ${view} semantic view in Fabric`;
+    const source = folders.find((f) => f.name === view);
+    // Compared with its model in the project when there is one; a model that can't be read only loses the comparison.
+    let st = source ? await rpc("meta_model_semantic_view_status", { view_name: view, path: source.path }).catch(() => null) : null;
+    st = st || await metaCall("meta_model_semantic_view_status", { view_name: view }, "View files not read");
+    if (!st) { fill(body, h("p", { class: "muted-text" }, `Couldn't read semantic-views\\${view}\\ in the project's folder.`)); return; }
+    fill(body, st.files_summary.length ? svBody(st, plan, folders, load) : svNoFiles(folders, plan, load));
+  };
+  pick.onchange = () => load(pick.value);
+  load();
+  return h("div", { class: "card pad sv-card" },
+    h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }), pick), body);
 }
 
 // ---------- profiling ----------
@@ -1970,4 +2582,168 @@ async function profileEntity(name, source = true) {
       btn(source ? "Profile its table instead" : "Profile what it reads", null, () => profileEntity(name, !source), "tool link small")),
     h("b", {}, "Suggestions"), suggestions, preview, h("b", {}, "Columns"), columns),
   [btn("Close", null, closeDialog, "tool outline"), addBtn]).querySelector(".dialog").classList.add("wide");
+}
+
+// ---------- Best practices check of the model, run in Fabric (model_bpa_service.py) ----------
+
+const BPA_SEVERITY = { Error: ["Error", "fail"], Warning: ["Warning", "wrn"], Info: ["Info", "info"] };
+// A rule's link comes from a results file any workspace contributor can write, so only these open.
+const BPA_LINK_HOSTS = ["learn.microsoft.com", "docs.microsoft.com", "github.com", "www.sqlbi.com", "sqlbi.com"];
+const BPA_POLL_MS = 30000;
+
+function bpaRuleLink(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "https:" || !BPA_LINK_HOSTS.includes(u.hostname)) return null;
+  } catch { return null; }
+  return h("a", { href: "#", class: "small", onclick: (e) => { e.preventDefault(); openLink(url); } }, "About this rule");
+}
+
+// The card under the Direct Lake one; null when preview features are hidden.
+function modelBpaCard(plan) {
+  const title = preview("modelBpa", h("b", {}, "Best practices check "));
+  if (!title) return null;
+  const m = state.meta;
+  const target = { env: m.env, layer: plan.layer, name: plan.name };
+  const result = h("div", { class: "bpa-result" });
+  const checkBtn = btn("Check in Fabric", "play", () => start(), "tool primary small");
+  const card = h("div", { class: "card pad bpa-card" },
+    h("div", { class: "row wrap" }, title, h("span", { class: "spacer" }), plan.existing ? checkBtn : null),
+    h("p", { class: "muted-text" }, "Checks the model against Best Practice Analyzer rules with Microsoft's semantic-link-labs. It runs as a Python notebook in Fabric, because the library only runs there, so every check uses the workspace's capacity. It reads the model and never changes it."),
+    result,
+    howItWorks("modelBpa", {
+      reads: "The model, through its XMLA endpoint, from a notebook in the workspace. The app then reads the findings the notebook saved in LH_Meta.",
+      changes: "Publishes the notebook nb_fabric_desktop_bpa to the workspace once, and runs it once for each check. The model, its reports and its data stay as they are.",
+      results: "LH_Meta/Files/_fabric_desktop/results, and the last result for each model on this PC. Each check is listed in Monitor.",
+      more: [["Where the rules come from", "semantic-link-labs (MIT), which ports Microsoft's BPA rules. The check installs a fixed version in the notebook's own session."]],
+      anchor: "semantic-model-best-practices",
+    }));
+  if (!plan.existing) {
+    fill(result, h("p", { class: "muted-text" }, `${plan.name} isn't in the workspace yet. Create the model first, then check it.`));
+    return card;
+  }
+  let timer = null;
+  let version = "";  // the semantic-link-labs version a check installs, from the status
+  const view = { category: "", serious: true };  // the findings filter, kept across refreshes
+  const load = async () => {
+    clearTimeout(timer);
+    const status = await metaCall("model_bpa_status", target, "Last check not read");
+    if (!card.isConnected && timer !== null) return;  // the tab was left: stop asking
+    if (!status) { fill(result); return; }
+    version = status.version || version;
+    fill(result, bpaStatus(status, view));
+    checkBtn.disabled = !!status.running;
+    if (status.running) timer = setTimeout(() => { if (card.isConnected) load(); }, BPA_POLL_MS);
+  };
+  const start = async () => {
+    checkBtn.disabled = true;
+    try {
+      const risk = await rpc("model_bpa_risk", { ...target, refresh: true }).catch(riskCheckFailed);
+      if (!(await bpaConfirm(plan, risk, version))) return;
+      const res = await metaCall("model_bpa_check", { ...target, risk_id: risk.failed ? "" : risk.id || "" }, "Check not started");
+      if (!res) return;
+      toast(res.message);
+      timer = 0;
+      await load();
+    } finally {
+      if (!result.querySelector(".bpa-running")) checkBtn.disabled = false;
+    }
+  };
+  fill(result, h("p", { class: "muted-text" }, `Reading ${plan.name}'s last check...`));
+  timer = 0;
+  load();
+  return card;
+}
+
+// The confirm before a check: what it writes, what it doesn't change, and the risk check. Resolves true to go ahead.
+function bpaConfirm(plan, risk, version) {
+  return new Promise((resolve) => {
+    const done = (v) => { closeDialog(); resolve(v); };
+    const box = riskAckBox(risk);
+    const go = async () => {
+      if (risk?.result === "warning" && box && !box.querySelector("input").checked) {
+        toast("Tick \"I've looked at these\" first, or cancel.", true);
+        return;
+      }
+      done(true);
+    };
+    const blocked = risk?.result === "blocked";
+    showDialog(`Check ${plan.name} in Fabric?`, h("div", { class: "wl-confirm" },
+      h("b", {}, "What it writes"),
+      h("ul", { class: "gate-list" },
+        h("li", {}, `Publishes or updates the notebook nb_fabric_desktop_bpa in ${plan.workspace_name || "the workspace"}`),
+        h("li", {}, `Installs semantic-link-labs${version ? ` ${version}` : ""} into that notebook's session only`),
+        h("li", {}, "Saves the findings as one file in LH_Meta/Files/_fabric_desktop/results")),
+      h("b", {}, "What it doesn't change"),
+      h("p", {}, `${plan.name}, its reports and its data. The model is read through its XMLA endpoint, which needs XMLA read on the capacity (on by default).`),
+      riskPanel(risk, { box }),
+      risk?.note ? h("p", { class: "muted-text small" }, risk.note) : null),
+      blocked ? [btn("Close", null, () => done(false), "tool primary")]
+        : [btn("Cancel", null, () => done(false), "tool outline"), btn("Check in Fabric", null, go, "tool primary")]);
+  });
+}
+
+// semantic-link-labs' rule categories, as the filter names them.
+const BPA_CATEGORIES = ["Performance", "DAX expressions", "Error prevention", "Formatting", "Maintenance", "Naming conventions"];
+
+function bpaFindingsTable(findings, view) {
+  const shown = findings.filter((f) => (!view.serious || f.severity === "Error" || f.severity === "Warning")
+    && (!view.category || f.category.toLowerCase() === view.category.toLowerCase()));
+  if (!shown.length) return h("p", { class: "muted-text" }, "No findings match the filter.");
+  return h("table", { class: "mini" },
+    h("thead", {}, h("tr", {}, ["Severity", "Rule", "Object", "Category", "What the rule asks"].map((x) => h("th", {}, x)))),
+    h("tbody", {}, shown.map((f) => h("tr", {},
+      h("td", {}, h("span", { class: `pill-s ${(BPA_SEVERITY[f.severity] || BPA_SEVERITY.Info)[1]}` }, f.severity)),
+      h("td", {}, f.rule),
+      h("td", {}, h("span", { class: "muted-text" }, f.object_type ? `${f.object_type} ` : ""), h("span", { class: "mono" }, f.object)),
+      h("td", {}, f.category),
+      h("td", {}, f.description, f.url ? [" ", bpaRuleLink(f.url)] : null)))));
+}
+
+function bpaStatus(s, view = { category: "", serious: true }) {
+  const parts = [];
+  if (s.running) {
+    parts.push(h("div", { class: "info-box bpa-running" }, icon("info", 16),
+      ` Checking ${s.model} in Fabric, started ${relTime(s.running.started_at)}. This card looks again every 30 seconds.`,
+      s.running.url ? btn("Open the run in Fabric", "open", () => openInFabric(s.running.url), "tool link small") : null));
+  }
+  if (s.failed) {
+    const f = s.failed;
+    parts.push(h("div", { class: "card pad warn-box bpa-failed" },
+      h("b", {}, `The last check didn't finish (${f.status || "unknown"})`),
+      h("p", {}, f.message || "Fabric gave no reason. Check again, and if it fails again, open the run in Fabric."),
+      f.traceback ? h("details", {}, h("summary", {}, "Traceback"), h("pre", { class: "mono small" }, f.traceback)) : null,
+      f.pip ? h("details", {}, h("summary", {}, "pip output"), h("pre", { class: "mono small" }, f.pip)) : null,
+      f.url ? btn("Open the run in Fabric", "open", () => openInFabric(f.url), "tool link small") : null));
+  }
+  const last = s.last;
+  if (!last) {
+    if (!s.running && !s.failed) parts.push(h("p", { class: "muted-text" }, `${s.model} hasn't been checked yet.`));
+    return h("div", {}, parts);
+  }
+  const c = last.counts || {};
+  const tile = (sev) => h("div", { class: "dl-tile" }, h("span", { class: "muted-text" }, BPA_SEVERITY[sev][0]),
+    h("b", { class: `${BPA_SEVERITY[sev][1]}-text` }, String(c[sev] || 0)));
+  const table = h("div", { class: "bpa-table" });
+  const redraw = () => fill(table, bpaFindingsTable(last.findings, view));
+  const category = h("select", { "aria-label": "Category", onchange: (e) => { view.category = e.target.value; redraw(); } },
+    h("option", { value: "" }, "All categories"),
+    BPA_CATEGORIES.map((x) => h("option", { value: x, selected: x === view.category ? true : null }, x)));
+  const serious = h("input", { type: "checkbox", checked: view.serious ? true : null,
+    onchange: (e) => { view.serious = e.target.checked; redraw(); } });
+  redraw();
+  const when = `Checked ${relTime(last.checked_at)} with ${last.package || "semantic-link-labs"} ${last.version || ""}`.trim()
+    + (last.rules ? `, ${last.rules} rules.` : ".");
+  parts.push(h("div", { class: "bpa-out" },
+    h("div", { class: "dl-tiles" }, ["Error", "Warning", "Info"].map(tile)),
+    last.no_tables ? h("p", { class: "muted-text" }, "The model has no tables yet, so most rules had nothing to check.") : null,
+    last.findings.length ? [
+      h("div", { class: "row wrap bpa-filters" }, h("label", { class: "field" }, "Show", category),
+        h("label", { class: "check" }, serious, " Errors and warnings only")),
+      table,
+      h("p", { class: "muted-text" }, "Findings fixed by KratosForge's generator are fixed by the next Update model, not by editing in Fabric.")]
+      : h("div", { class: "pass-box" }, icon("ok", 16), " No rule found anything."),
+    h("p", { class: "muted-text" }, when, " ",
+      h("a", { href: "#", class: "small", onclick: (e) => { e.preventDefault(); monitorPage.panel = "runs"; go("monitor"); } }, "Open the run in Monitor"))));
+  return h("div", {}, parts);
 }

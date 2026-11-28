@@ -241,7 +241,7 @@ def test_cmd_cell_explains_off_windows(monkeypatch):
 
 
 def test_missing_shell_says_what_to_install(monkeypatch):
-    monkeypatch.setattr(shell.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(shell, "trusted_cli", lambda _name: None)
     with pytest.raises(FileNotFoundError, match="Git for Windows"):
         shell.script("bash", "echo hi")
 

@@ -1,13 +1,92 @@
 """Shared test setup."""
 
+import errno
 import faulthandler
+import ipaddress
 import json
 import os
+import re
+import socket
 import sys
 import threading
+import time
 
 import msal
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def no_real_event_log(monkeypatch):
+    """Audit writes also record the trail's end in the Windows event log (audit_anchor.py). Tests don't
+    add records to this PC's real log, and don't read ones other tests left; test_audit_anchor.py uses
+    a fake log, and one marked Windows-only test the real one."""
+    from fabric_desktop import audit_anchor
+    monkeypatch.setattr(audit_anchor, "writer", audit_anchor._no_writer)
+    monkeypatch.setattr(audit_anchor, "reader", audit_anchor._no_reader)
+    monkeypatch.setattr(audit_anchor, "_off_until", 0.0)  # a failure another test caused doesn't carry over
+
+
+class FakeEventLog:
+    """An event log in memory: ``audit_anchor``'s writer and reader."""
+
+    def __init__(self):
+        self.records: list[str] = []
+        self.fail = None  # an exception to raise on write and read
+
+    def write(self, value):
+        if self.fail:
+            raise self.fail
+        self.records.append(value)
+
+    def read(self):
+        if self.fail:
+            raise self.fail
+        return list(reversed(self.records))
+
+
+@pytest.fixture
+def event_log(monkeypatch):
+    from fabric_desktop import audit_anchor
+    log = FakeEventLog()
+    monkeypatch.setattr(audit_anchor, "writer", log.write)
+    monkeypatch.setattr(audit_anchor, "reader", log.read)
+    monkeypatch.setattr(audit_anchor, "_off_until", 0.0)
+    monkeypatch.setattr(audit_anchor, "_cache", {})
+    return log
+
+
+@pytest.fixture(autouse=True)
+def duckdb_default_connection_left_clean():
+    """After each test, DuckDB's default connection (duckdb.sql, spark without a session) holds no result
+    and no failed transaction. A result a test left unread is released by the next query; if a Cancel
+    test's interrupt() aborted it meanwhile, later tests' queries failed with "Current transaction is
+    aborted". A connection that can't run SELECT 1 is replaced. It uses the real duckdb module, imported
+    here before the test, since a test may put a fake or None in sys.modules["duckdb"]."""
+    import duckdb
+
+    yield
+    try:
+        duckdb.default_connection().execute("SELECT 1").fetchall()
+    except duckdb.Error:
+        duckdb.set_default_connection(duckdb.connect())
+
+
+@pytest.fixture(autouse=True)
+def spark_session_time_zone_left_utc():
+    """After each test, the process's local Spark session (spark_local.session(), which every Kernel in this
+    process shares) is back on UTC, its default. A test that set spark.sql.session.timeZone and didn't unset
+    it changed every later test's timestamps in that worker, whichever test file came next (main 7b43ff88's
+    Windows run: Europe/Paris, left set, moved from_utc_timestamp by an hour in test_spark_compat_edges)."""
+    yield
+    spark_local = sys.modules.get("fabric_desktop.spark_local")
+    live = getattr(spark_local, "_session", None)
+    if live is None:
+        return
+    try:
+        if "spark.sql.session.timeZone" in live.conf._set:
+            live.conf.unset("spark.sql.session.timeZone")
+    except Exception:  # noqa: BLE001  # silent-ok: a session a test closed or faked is replaced by the next one
+        spark_local._session = None
 
 
 @pytest.fixture(autouse=True)
@@ -17,6 +96,59 @@ def no_interactive_sign_in(monkeypatch):
     def refuse(self, scopes, **kwargs):
         return {"error": "access_denied", "error_description": "no interactive sign-in in tests"}
     monkeypatch.setattr(msal.PublicClientApplication, "acquire_token_interactive", refuse)
+
+
+@pytest.fixture(autouse=True)
+def no_remembered_secrets():
+    """dbutils.secrets keeps the values it read for the process, so one test's secret would be
+    redacted in the next test's output."""
+    from fabric_desktop import secret_redaction
+    secret_redaction.forget_all()
+    yield
+    secret_redaction.forget_all()
+
+
+# A test module that runs `fabric-desktop pipeline run` through the command line: ["pipeline", "run", ...],
+# on one line or split over several.
+CLI_PIPELINE_RUN = re.compile(r"""["']pipeline["']\s*,\s*["']run["']""")
+_cli_pipeline_modules: dict[str, bool] = {}
+
+
+def runs_cli_pipelines(path) -> bool:
+    """Whether the test module at ``path`` runs a pipeline through the command line."""
+    key = str(path)
+    if key not in _cli_pipeline_modules:
+        try:
+            text = open(key, encoding="utf-8").read()
+        except OSError:
+            text = ""
+        _cli_pipeline_modules[key] = bool(CLI_PIPELINE_RUN.search(text))
+    return _cli_pipeline_modules[key]
+
+
+@pytest.fixture(scope="session", autouse=True)
+def fingerprint_key_in_tmp(tmp_path_factory):
+    """Keyed fingerprints (keyed_fingerprint) make their key on first use in this PC's data folder; under the
+    tests it lives in a tmp folder, never the real data folder of whoever runs them."""
+    from fabric_desktop import keyed_fingerprint
+    path = tmp_path_factory.mktemp("fingerprint-key") / "fingerprint.key"
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(keyed_fingerprint, "key_path", lambda: path)
+        yield path
+
+
+@pytest.fixture(autouse=True)
+def cli_pipeline_runs_keep_their_data_in_tmp(request):
+    """A command-line pipeline run writes its audit lines to this PC's data folder (cli._pipeline_run), so
+    in a module that runs one, the data folder is in the test's tmp_path, never the real one of whoever
+    runs the tests. A module's own fixture can still point it at another folder in tmp_path."""
+    if not runs_cli_pipelines(request.node.path):
+        return
+    tmp_path = request.getfixturevalue("tmp_path")
+    monkeypatch = request.getfixturevalue("monkeypatch")
+    folder = tmp_path / "cli-data"
+    monkeypatch.setenv("LOCALAPPDATA", str(folder))
+    monkeypatch.setattr("fabric_desktop.service.data_dir", lambda: folder / "FabricDesktop")
 
 
 class _NoSignInService:
@@ -54,6 +186,133 @@ class _Reply:
         pass
 
 
+# Tests don't reach the network from the test process. In this process, a TCP connect, a datagram send or a
+# host name lookup that would leave this PC (anything but loopback, this PC's own address or a local socket
+# file) is refused and remembered, and the test that made it fails, naming the address. Refused rather than
+# only recorded, so code that retries or swallows errors can't make the call anyway; remembered, so a test
+# whose code catches the error still fails. Not covered: child processes a test starts, native code that opens
+# its own sockets (Rust object_store, DuckDB httpfs), and Windows asyncio's Proactor connects (ConnectEx).
+# A test that imports this file again (from tests import conftest) runs this code twice: the guard is put in
+# once, and every copy shares its list, so no_network checks the list the guard writes to.
+_installed = getattr(socket.socket.connect, "kf_outbound", None)
+_outbound: list[str] = _installed if _installed is not None else []
+# this PC's own addresses, learned from UDP route lookups: a connect to one of them doesn't leave the PC
+_own: set[str] = socket.socket.connect.kf_own if _installed is not None else set()  # type: ignore[attr-defined]
+_real_connect = socket.socket.connect
+_real_connect_ex = socket.socket.connect_ex
+_real_send = socket.socket.send
+_real_sendto = socket.socket.sendto
+_real_sendmsg = getattr(socket.socket, "sendmsg", None)  # Windows has no sendmsg
+_real_getaddrinfo = socket.getaddrinfo
+_INET = (socket.AF_INET, socket.AF_INET6)
+
+
+def _host_is_local(host) -> bool:
+    if host is None:
+        return True  # no host: a passive (bind) lookup, or the loopback default
+    if isinstance(host, bytes):
+        host = host.decode("ascii", "replace")
+    host = str(host).split("%")[0]
+    if host in ("", "localhost") or host in _own:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False  # a host name other than localhost
+
+
+def _is_local(sock: socket.socket, address) -> bool:
+    if sock.family not in _INET or not isinstance(address, tuple):
+        return True  # a local socket file (AF_UNIX), or a family that never leaves this PC
+    if sock.type == socket.SOCK_DGRAM:
+        return True  # a UDP connect sends nothing: it only picks a route (finding this PC's address)
+    return _host_is_local(address[0])
+
+
+def _refuse_outbound(address, what: str = "a connect to") -> OSError:
+    _outbound.append(repr(address))
+    return ConnectionRefusedError(f"tests don't reach the network: refused {what} {address!r}")
+
+
+def _guarded_connect(self, address):
+    if not _is_local(self, address):
+        raise _refuse_outbound(address)
+    done = _real_connect(self, address)
+    if self.type == socket.SOCK_DGRAM and self.family in _INET:
+        _own.add(str(self.getsockname()[0]))
+    return done
+
+
+def _guarded_connect_ex(self, address):
+    if not _is_local(self, address):
+        _refuse_outbound(address)
+        return errno.ECONNREFUSED
+    return _real_connect_ex(self, address)
+
+
+def _check_datagram(sock: socket.socket, address) -> None:
+    """A datagram leaves the PC when it is sent, so a send to a peer off this PC is refused. ``address`` is
+    the sendto/sendmsg target, or None for the peer a connect picked."""
+    if sock.family not in _INET or sock.type != socket.SOCK_DGRAM:
+        return
+    if address is None:
+        try:
+            address = sock.getpeername()
+        except OSError:
+            return  # not connected: the real send fails on its own
+    if isinstance(address, tuple) and not _host_is_local(address[0]):
+        raise _refuse_outbound(address, "a datagram to")
+
+
+def _guarded_send(self, data, *args):
+    _check_datagram(self, None)
+    return _real_send(self, data, *args)
+
+
+def _guarded_sendto(self, data, *args):
+    _check_datagram(self, args[-1] if args else None)
+    return _real_sendto(self, data, *args)
+
+
+def _guarded_sendmsg(self, buffers, *args):
+    _check_datagram(self, args[2] if len(args) > 2 else None)
+    return _real_sendmsg(self, buffers, *args)  # type: ignore[misc]
+
+
+def _guarded_getaddrinfo(host, *args, **kwargs):
+    name = host.decode("ascii", "replace") if isinstance(host, bytes) else str(host or "")
+    if name.lower().rstrip(".").endswith(".invalid"):
+        # .invalid never resolves anywhere (RFC 6761), so tests use it for "a name that doesn't resolve":
+        # answered here, the same way a resolver would, without a query leaving this PC
+        raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+    if not _host_is_local(host) and host != socket.gethostname():
+        _outbound.append(repr(host))
+        raise socket.gaierror(socket.EAI_NONAME, f"tests don't reach the network: refused a lookup of {host!r}")
+    return _real_getaddrinfo(host, *args, **kwargs)
+
+
+if _installed is None:
+    _guarded_connect.kf_outbound = _outbound  # type: ignore[attr-defined]
+    _guarded_connect.kf_own = _own  # type: ignore[attr-defined]
+    socket.socket.connect = _guarded_connect  # type: ignore[method-assign]
+    socket.socket.connect_ex = _guarded_connect_ex  # type: ignore[method-assign]
+    socket.socket.send = _guarded_send  # type: ignore[method-assign]
+    socket.socket.sendto = _guarded_sendto  # type: ignore[method-assign]
+    if _real_sendmsg is not None:
+        socket.socket.sendmsg = _guarded_sendmsg  # type: ignore[method-assign]
+    socket.getaddrinfo = _guarded_getaddrinfo
+
+
+@pytest.fixture(autouse=True)
+def no_network():
+    _outbound.clear()
+    yield
+    if _outbound:
+        tried = sorted(set(_outbound))
+        _outbound.clear()
+        pytest.fail(f"this test tried to reach the network: {', '.join(tried)}", pytrace=False)
+
+
 @pytest.fixture(autouse=True)
 def no_sign_in_service(monkeypatch):
     # The desktop's sign-in, and a service principal's (credentials.py) for agents.
@@ -68,6 +327,18 @@ def no_sign_in_service(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def cells_in_the_engine_unless_a_test_asks(request, monkeypatch):
+    """Notebooks run in a process of their own by default (PB-136), but most tests fake OneLake,
+    Fabric or a token by patching this process, and a cell in a process of its own doesn't see
+    those patches (it would reach the real service). So tests run cells inside the engine unless
+    they turn kernel_process on themselves, or are marked ``real_kernel_default``
+    (test_kernel_default.py checks the default itself)."""
+    if request.node.get_closest_marker("real_kernel_default") is None:
+        from fabric_desktop import app_settings
+        monkeypatch.setitem(app_settings.DEFAULTS, "kernel_process", False)
+
+
+@pytest.fixture(autouse=True)
 def saved_policy_in_tmp(monkeypatch, tmp_path):
     """Reading a policy file keeps a copy of it (app_settings.saved_policy_path); keep it out of the
     real profile, so one test's copy can't stand in for another test's broken file."""
@@ -75,6 +346,8 @@ def saved_policy_in_tmp(monkeypatch, tmp_path):
     monkeypatch.setattr(app_settings, "saved_policy_path", lambda: tmp_path / "saved-policy" / "policy-last-good.json")
     # Test policy files are the test account's own; the check for that has tests of its own.
     monkeypatch.setattr(app_settings, "user_can_change", lambda path: False)
+    monkeypatch.setattr(app_settings, "policy_file_untrusted", lambda: None)
+    monkeypatch.setattr(app_settings, "registry_key_untrusted", lambda lists: None)
 
 
 @pytest.fixture(autouse=True)
@@ -84,6 +357,18 @@ def no_lakehouse_left_attached(monkeypatch):
     depending on which file ran before it."""
     from fabric_desktop import lakehouse
     monkeypatch.setattr(lakehouse, "_attached", None)
+    # Likewise the maintenance guard a Service sets: without the app, OPTIMIZE, VACUUM and RESTORE fail closed.
+    monkeypatch.setattr(lakehouse, "maintenance_guard", None)
+    # And the Prod typed-name guard a Service sets (prod_writes_service.py): without the app, nothing is marked Prod.
+    monkeypatch.setattr(lakehouse, "prod_guard", None)
+
+
+@pytest.fixture(autouse=True)
+def no_databricks_tokens_refused_by_earlier_tests(monkeypatch):
+    """Tokens a workspace refused are remembered for the process (databricks_auth._REFUSED); each test
+    starts with none, so a stand-in token one test refused can't be withheld in the next."""
+    from fabric_desktop.engines import databricks_auth
+    monkeypatch.setattr(databricks_auth, "_REFUSED", {})
 
 
 @pytest.fixture(autouse=True)
@@ -119,8 +404,10 @@ def runtime_grants_on_record_once_per_worker(request, monkeypatch, tmp_path_fact
 # A test that hangs would otherwise hold CI until the job's 6-hour limit, with no output (logs only
 # come back once the job ends). After TEST_TIME_LIMIT seconds, print which test it was and every
 # thread's stack, then end pytest so the job fails with that in its log.
-# Under pytest-xdist (CI) os._exit ends only that worker: xdist reports the test as crashed, starts
-# another worker and the run still fails, with the stacks in the log.
+# Under pytest-xdist (CI) os._exit ends only that worker: xdist reports the test as crashed, and CI's
+# --max-worker-restart 0 then stops the run, which fails with the stacks in the log. (Without it,
+# xdist 3.8's loadfile scheduler starts a replacement worker that never gets work or a stop, and
+# the run waits for the job's time limit.)
 TEST_TIME_LIMIT = float(os.environ.get("FD_TEST_TIME_LIMIT", "300"))
 
 
@@ -170,3 +457,65 @@ def pytest_terminal_summary(terminalreporter, config):
     terminalreporter.write_sep("=", f"slowest {min(25, len(files))} test files of {len(files)} ({total:.0f}s of test time in all)")
     for path, (setup, rest, count) in sorted(files.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))[:25]:
         terminalreporter.write_line(f"{setup + rest:8.1f}s  setup {setup:7.1f}s  {count:4d} tests  {path}")
+
+
+# A test id carries each parametrized value as text. A long value (a 1,025-column CREATE TABLE, a 5,000-digit
+# number) made ids of many KB, and a 20 MB one wedged a Windows runner while xdist and the JUnit report passed
+# it around. A text or bytes value over PARAM_ID_LIMIT characters is named by its start, its length and a hash
+# of the whole, so ids stay short and still unique; and collection stops on any id over TEST_ID_LIMIT.
+PARAM_ID_LIMIT = 60
+TEST_ID_LIMIT = 200
+
+
+def pytest_make_parametrize_id(config, val, argname):
+    if not isinstance(val, (str, bytes)) or len(val) <= PARAM_ID_LIMIT:
+        return None  # pytest's own id
+    import hashlib
+    import re
+    raw = val.encode("utf-8", "surrogatepass") if isinstance(val, str) else val
+    start = re.sub(r"[^A-Za-z0-9_.,:=+-]", "_", (val if isinstance(val, str) else val.decode("latin-1"))[:24])
+    return f"{start}...{len(val)}chars-{hashlib.sha256(raw).hexdigest()[:10]}"
+
+
+def pytest_collection_modifyitems(session, config, items):
+    long = [item.nodeid for item in items
+            if hasattr(item, "callspec") and len(item.callspec.id) > TEST_ID_LIMIT]
+    if long:
+        shown = "\n".join(f"  {nodeid[:300]}" for nodeid in long[:20])
+        raise pytest.UsageError(f"{len(long)} test id(s) are over {TEST_ID_LIMIT} characters; give the "
+                                f"parametrize call short ids= (tests/conftest.py TEST_ID_LIMIT):\n{shown}")
+
+
+@pytest.fixture
+def sleep_jump(monkeypatch):
+    """time.monotonic, which a call moves forward by ``seconds``, as waking from sleep does. Timed
+    waits (Event.wait, so threading.Timer too) are counted on that clock, as on Windows, where a wait
+    whose time passed during sleep ends on waking; elsewhere the OS's own monotonic clock stops
+    during sleep, so a plain jump wouldn't show the bug."""
+    real = time.monotonic
+    offset = [0.0]
+    active = [True]
+    monkeypatch.setattr(time, "monotonic", lambda: real() + offset[0])
+    from fabric_desktop import awake_timer
+    monkeypatch.setattr(awake_timer, "_monotonic", lambda: real() + offset[0])  # its own binding
+    monkeypatch.setattr(awake_timer, "_UNBIASED", None)  # on Windows, so the jumped clock is the one read
+    event_wait = threading.Event.wait
+
+    def windows_wait(self, timeout=None):
+        if timeout is None:
+            return event_wait(self)
+        deadline = time.monotonic() + timeout
+        while True:
+            if not active[0]:  # the test is over and the clock back: end early, as a wait may
+                return event_wait(self, 0.05)
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return self.is_set()
+            if event_wait(self, min(left, 0.05)):
+                return True
+    monkeypatch.setattr(threading.Event, "wait", windows_wait)
+
+    def jump(seconds: float) -> None:
+        offset[0] += seconds
+    yield jump
+    active[0] = False

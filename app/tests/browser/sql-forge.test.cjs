@@ -18,6 +18,7 @@ before(async () => {
   if (skip) return;
   app = await openApp({
     mocks: {
+      app_settings: () => ({ motion_level: { value: 2 } }),  // Heroic: everyday effects play
       list_tables: () => ({ dbo: ["sales"] }),
       table_columns: () => [],
       sql_analyze: () => { throw new Error("not checked in this test"); },

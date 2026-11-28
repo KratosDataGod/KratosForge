@@ -212,7 +212,7 @@ def test_the_service_turns_it_on_and_off_with_preview(tmp_path, monkeypatch):
     monkeypatch.setattr(app_settings, "load", lambda: {**real(), "show_preview": {"value": preview["on"], "source": "user"}})
     svc = Service.__new__(Service)
     svc._client_id, svc._auth, svc.headless = OWN_APP, None, False
-    svc._auth_lock = __import__("threading").Lock()
+    svc._auth_lock, svc._auth_failed, svc._auth_building = __import__("threading").Lock(), None, None
     first = svc.auth
     assert first.continuous_access is True and svc.auth is first  # built once
     preview["on"] = False

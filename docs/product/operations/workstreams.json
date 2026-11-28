@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-11-09",
+  "updated": "2026-11-23",
   "about": "Machine-readable work queues for the six workstreams. GitHub Issues hold each story; this file says which story each workstream is on, what comes next and what blocks it. The orchestrator thread updates it at the weekly review and when a lead reports a story done. Check and render with: python docs/product/operations/tools/queues.py all",
   "rules": {
     "ready_minimum": 2,
@@ -31,14 +31,14 @@
         "Local TPC-H run slowdown"
       ],
       "active": {
-        "story": "WR-101"
+        "story": "WR-140"
       },
       "ready": [
         {
-          "story": "WR-102"
+          "story": "WR-141"
         },
         {
-          "story": "WR-103"
+          "story": "WR-142"
         }
       ],
       "backlog": [
@@ -49,10 +49,12 @@
         "PB-015 needs PB-012 accepted (Spark API matrix, In review)"
       ],
       "blockers": [
-        "PB-015 live Prove run waits on Chris's yes (state kept in the backlog; its issue is closed until approved)"
+        "PB-015 live Prove run waits on Chris's yes (state kept in the backlog; its issue is closed until approved)",
+        "DuckDB for OneLake writes: route decision card with Chris (DuckDB 2 opt-in recommended); the DuckDB 2 pin move and any local test of the extension wait on it",
+        "Delta compatibility profile thread: the default-profile decision is with Chris"
       ],
-      "last_completed": "#1861 every append caller stops a value-changing append; #2273 first-write race exposure; #2281 reproducible engine zip",
-      "next_action": "WR-101, then WR-102 and WR-103. The 8-hour soak and PB-015's live Prove run wait on Chris."
+      "last_completed": "Week of 11-16: WR-122 (#3074), WR-121 (#2972), WR-120 (#2995, #3073), WR-119 (#2980), WR-118 (#2973), WR-117 (#2966), WR-116 (#2933, #3031, #3120), WR-115 (#2900), WR-114 (#2896), WR-112 and WR-113 (#2894), WR-111 (#2886), WR-110 (#2873, #2879), WR-109 (#2864), WR-108 (#2857), WR-107 (#2851), WR-106 (#2846), WR-105 (#2772), WR-104 (#2753), WR-103 (#2754); also Spark follow-ups #3132, #3150, #3151, local files out of OneDrive (#3191). Earlier: WR-101 (#2273, #2277), WR-102 (#2329, #2350)",
+      "next_action": "WR-140, then WR-141 and WR-142. #3190 (pandas_udf numbers) is in review. WR-123 to WR-129 aren't queued: their titles weren't recorded where this review could check them; the orchestrator re-adds them. The DuckDB OneLake route waits on Chris."
     },
     {
       "key": "fabric",
@@ -70,29 +72,33 @@
         "Sync pinned workspaces with Fabric"
       ],
       "active": {
-        "story": "WR-201"
+        "story": "WR-238"
       },
       "ready": [
         {
-          "story": "WR-202"
+          "story": "WR-241"
         },
         {
-          "story": "WR-203"
+          "story": "WR-247"
         }
       ],
       "backlog": [
         "PB-003",
         "PB-052",
         "PB-040",
-        "PB-041"
+        "PB-041",
+        "WR-239",
+        "WR-242"
       ],
       "dependencies": [],
       "blockers": [
         "PB-002, PB-003, PB-049 and PB-052 live runs wait on Chris's yes (issues closed until approved)",
+        "WR-218's live check and Run 11 part 2 wait on Chris's yes (kf_tenant_test only)",
+        "The T-SQL variables and control-flow interpreter is a new capability: waits on Chris's go",
         "#799 staging cleaner held"
       ],
-      "last_completed": "#1869 T-SQL refused list matches the code; #1711, #1686 T-SQL gaps; #1936, #1965 local pipeline coverage",
-      "next_action": "WR-201 one module per PR. Warehouse run 8 and the tenant smoke tests wait on Chris's typed yes."
+      "last_completed": "Week of 11-16: WR-248 (#3100) with Prod typed-name follow-ups WR-249 (#3111) and #3114, #3129, #3144 (their titles reuse WR-250 to WR-252), WR-246 (#3179), WR-245 (#3135), WR-244 (#3145), WR-243 (#3075), WR-236 (#3067), WR-235 (#2999), WR-234 (#2996), WR-233 (#2993), WR-232 (#2981), WR-231 (#2965), WR-230 (#2954), WR-229 (#2952), WR-228 (#2932), WR-227 (#2898), WR-226 (#2888), WR-225 (#2887), WR-224 (#2874), WR-223 (#2870), WR-222 (#2865), WR-221 (#2861), WR-220 (#2847), WR-219 (#2841), WR-218 prepared, not run (#2840), WR-208 to WR-217 (#2783 to #2837); SQL translator thread WR-250 to WR-254 (#3101), WR-257 (#3181); PB-110 slices 2 and 3 (#2910, #3039, #3064, #3077, #3107); PB-115 BPA live test (#2913). Earlier: WR-201 to WR-207",
+      "next_action": "WR-238 (in review, #3184), then WR-241 and WR-247. WR-240 was dropped (duplicate of #2921). WR-255 and WR-259 are in review (#3188) in the SQL translator thread. WR-237's status isn't confirmed; check docs/quality/mutation-testing.md before re-queueing it."
     },
     {
       "key": "dbx-snow",
@@ -104,14 +110,14 @@
         "Snowflake local-first development (to be opened)"
       ],
       "active": {
-        "story": "WR-301"
+        "story": "WR-316"
       },
       "ready": [
         {
-          "story": "WR-302"
+          "story": "WR-318"
         },
         {
-          "story": "WR-303"
+          "story": "WR-319"
         }
       ],
       "backlog": [],
@@ -121,10 +127,10 @@
       ],
       "blockers": [
         "Databricks live runs need a workspace and Chris's yes",
-        "Snowflake sign-in and engine wait on Chris's D4 decision"
+        "Snowflake live runs need an account and Chris's yes"
       ],
-      "last_completed": "Spark DataFrame coverage list complete (#2240, #2250, #2266); Databricks SQL Fails at 0 (#2276, #2278); Academy Databricks exercises (#2301, #2304)",
-      "next_action": "WR-301 and WR-302 in parallel. Databricks live runs need a workspace and Chris's yes."
+      "last_completed": "Week of 11-16: WR-317 (#3076, #3164), WR-315 (#3106), WR-313 (#3065), WR-312 (#3048), WR-311 (#3047), WR-310 (already on main: databricks-functions.md has 0 Not checked), WR-309 (#2930, #2959, #2994), WR-308 (#2920), WR-307 (#2852, #3015), WR-306 (#2844), WR-305 (#2771), WR-304 (#2760, #2766). Earlier: WR-303 (#2332), WR-301 (#1720, #2561)",
+      "next_action": "WR-316 (in review, #3163), then WR-318 and WR-319. Snowflake SF-001 to SF-005 run in the three-platform parity thread."
     },
     {
       "key": "enterprise",
@@ -137,19 +143,21 @@
         "Workload management workspace"
       ],
       "active": {
-        "story": "WR-401"
+        "story": "WR-410"
       },
       "ready": [
         {
-          "story": "WR-402"
+          "story": "WR-411"
         },
         {
-          "story": "WR-403"
+          "story": "WR-412"
         }
       ],
       "backlog": [
         "PB-060",
-        "PB-092"
+        "PB-092",
+        "WR-413",
+        "WR-414"
       ],
       "dependencies": [
         "PB-057 builds on PB-056 (policy registry, In review)"
@@ -157,10 +165,10 @@
       "blockers": [
         "MSI or MSIX packaging is a new capability: decision card with Chris (MSI recommended)",
         "Email notices for requests: decision card with Chris on how to send without an app registration (Power Automate flow recommended)",
-        "#1679 Save support bundle: passed review, waits on Chris's Windows click test"
+        "Save support bundle (#1679) is merged; Chris's Windows click test isn't recorded"
       ],
-      "last_completed": "#2262 local data retention; #2236 governance follow-ups; #2279 agent start record and incident ages; #2291 install fix-forward",
-      "next_action": "WR-401 in the retention thread. #2305 audit time limit and #2258 Group Policy wait on Chris's go."
+      "last_completed": "Week of 11-16: WR-405 to WR-409 (#3125, #3126, #3158, #3159), WR-404 (PB-110 slice 2, #2910), WR-402 (#2752), #2258 Group Policy templates, audit and notices hardening (#2926, #2927, #3008, #3032, #3068, #3072, #3088). Earlier: WR-401 (#2282), WR-403 (#2336, #2339, #2426, #2427)",
+      "next_action": "WR-410, then WR-411 and WR-412; WR-413 and WR-414 after."
     },
     {
       "key": "devex",
@@ -174,27 +182,29 @@
         "Run continuous product management"
       ],
       "active": {
-        "story": "WR-501"
+        "story": "WR-130"
       },
       "ready": [
         {
-          "story": "WR-502"
+          "story": "WR-133"
         },
         {
-          "story": "WR-503"
+          "story": "WR-132"
         }
       ],
       "backlog": [
         "PB-087",
-        "PB-034"
+        "PB-034",
+        "WR-134"
       ],
       "dependencies": [],
       "blockers": [
         "EA-030 Narrator pass needs a Windows PC",
-        "#1136 Embed Studio screen held for Chris's live report test"
+        "Profile Ranks (#2245) and Home restyle (#2253) drafts wait on Chris's reaction",
+        "Embed Studio (#1136) is merged as Preview; Chris's live report test isn't recorded"
       ],
-      "last_completed": "#2286 accessibility at 200% and contrast themes; #2292 VS Code compatibility matrix; #2303, #2307 reproducible .vsix; #2309 output limits",
-      "next_action": "WR-501; WR-502 with the product check. Layout decisions in docs/ux/accessibility-zoom-contrast.md go to UX mockups."
+      "last_completed": "Week of 11-16: WR-131 Prod guard on every cell write path (#3168); WR-504 editor parity (#2908, #2956); WR-502 docs audits 22 to 25 (#2807, #2911, #3014, #3142) and the docs accuracy sweep (#3193); accessibility on every page (#3016, #3055, #3094, #3143, #3197); notebook debugger rounds 3 to 5 (#3011, #3090, #3161, #3196). Earlier: WR-501 (#2319, #2519, #2573), WR-503 (#2325)",
+      "next_action": "WR-130 in Notebook parity, then WR-133 and WR-132 (UX reviews copy). Docs audits continue every 50 merges."
     },
     {
       "key": "platform",
@@ -209,26 +219,24 @@
         "Enterprise readiness program"
       ],
       "active": {
-        "story": "WR-601"
+        "story": "WR-612"
       },
       "ready": [
         {
-          "story": "WR-602"
+          "story": "WR-615"
         },
         {
-          "story": "WR-603"
+          "story": "WR-616"
         }
       ],
-      "backlog": [
-        "PB-061"
-      ],
+      "backlog": [],
       "dependencies": [],
       "blockers": [
         "PB-001 / EA-009 code signing waits on Microsoft identity validation (Chris)",
         "#744 HD-030 waits on Chris's fail-closed decision"
       ],
-      "last_completed": "#2268 pinned runner images; #2281 reproducible engine zip; #2256 lock-hash and SBOM guard; mypy strict with an empty baseline (#2197, #2242)",
-      "next_action": "WR-601, WR-602 (PR open now), WR-603 with this review. Signing waits on Chris's identity check."
+      "last_completed": "Week of 11-16: WR-611 fullmatch in six slices (#2823, #2827, #2834, #2849, #2853, #2859, #2869); WR-602b SQL page splitting (#2943); mutation batches 60 to 260 and line and branch coverage to 100% for engines and policy packages (#3178); reader and parser fuzzing (#3026, #3030, #3089, #3176); Windows hardening (#2917, #3012, #3086); flaky-test fixes (#3124, #3130, #3148, #3149, #3166). Earlier: WR-601 to WR-610",
+      "next_action": "WR-612, then WR-615 and WR-616. Mutation and coverage lanes keep their ledger ranges; the codebase audit adds the next hardening story."
     }
   ],
   "new_stories": {
@@ -340,7 +348,7 @@
       "acceptance": [
         "A test checks each start-log reason has a runbook anchor"
       ],
-      "agent": "Workload management workspace"
+      "agent": "Finish governance follow-ups"
     },
     "WR-403": {
       "title": "Audit trail files carry a checksum IT can verify after export",
@@ -412,7 +420,890 @@
         "Test covers the count"
       ],
       "agent": "Orchestrator"
+    },
+    "WR-104": {
+      "title": "Every Delta profile refusal is covered by a data-integrity test named after its reader-matrix row",
+      "priority": "P1",
+      "problem": "The reader matrix (#2722) and named refusals (#2723) landed; a refusal reason without its own test could regress silently.",
+      "acceptance": [
+        "Each forbidden feature and version limit in delta_profile.py has a test that writes the table and checks the refusal names the feature and readers",
+        "Removing any refusal fails a test"
+      ],
+      "agent": "Local data engine"
+    },
+    "WR-204": {
+      "title": "Warehouse transactions run as one guarded script (editor parity item 13)",
+      "priority": "P2",
+      "problem": "BEGIN TRAN ... COMMIT typed in the SQL editor runs statement by statement; a failure mid-way leaves the transaction open.",
+      "acceptance": [
+        "A script with BEGIN TRAN ... COMMIT runs as one request, with Prod's typed-name guard",
+        "A failure rolls back and says which statement failed",
+        "Security read"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-205": {
+      "title": "Best Practice Analyzer drafts brought up to date and PB-115 covered (Chris's go 2026-11-13)",
+      "priority": "P1",
+      "problem": "The SQL, notebook and model best-practice drafts sat parked; Chris said go.",
+      "acceptance": [
+        "#2461 updated, reviewed and merged",
+        "PB-115 covered",
+        "The live semantic-model check is written but not run until Chris's typed yes"
+      ],
+      "agent": "Best Practice Analyzer for semantic models"
+    },
+    "WR-304": {
+      "title": "Spark DataFrame API coverage: every Fails row fixed or refused by name",
+      "priority": "P2",
+      "problem": "docs/spark-dataframe-api.md still lists rows that fail on this PC rather than refusing by name.",
+      "acceptance": [
+        "Each Fails row runs as Spark 3.5.3 does or is refused with a message naming it",
+        "The page regenerates in CI and can't go stale"
+      ],
+      "agent": "Fix Spark functions that fail locally"
+    },
+    "WR-404": {
+      "title": "TMDL to and from Apache Ossie, slice 2: the service call and folder-write hardening (PB-110, Chris's go 2026-11-13)",
+      "priority": "P1",
+      "problem": "Slice 1 (#2592) writes TMDL from TMSL; the Ossie-to-TMDL service call and safe folder writes are next.",
+      "acceptance": [
+        "An Ossie file converts to TMDL under semantic/<name>.SemanticModel/ with a round-trip test",
+        "Nothing is dropped silently: anything that can't survive is refused or warned by name",
+        "Security read on parsing model files"
+      ],
+      "agent": "TMDL and OSI semantic model conversion"
+    },
+    "WR-504": {
+      "title": "Notebook editor parity: the F-list items that need no mockup",
+      "priority": "P2",
+      "problem": "Notebook parity has ready items (F2 onward) under Chris's 2026-11-13 go for the parity program.",
+      "acceptance": [
+        "Each item one PR with its parity row moved to Have",
+        "Preview until used for real"
+      ],
+      "agent": "Build notebook parity items"
+    },
+    "WR-604": {
+      "title": "Flaky ledger: every Open row reproduced, fixed or closed with evidence",
+      "priority": "P2",
+      "problem": "Fixes like #2690 (lost interrupt) show some ledger rows had real causes.",
+      "acceptance": [
+        "Each Open row in the flaky ledger has a cause and a fix PR, or a dated note that it hasn't recurred in 7 days"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-605": {
+      "title": "Main's 6-hourly dependency audit has a drill: a simulated advisory goes from alert to merged bump within one batch",
+      "priority": "P2",
+      "problem": "#2681 audits main every 6 hours; the runbook hasn't been exercised.",
+      "acceptance": [
+        "One dry run of the runbook recorded in docs/quality",
+        "Any gap found fixed"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-206": {
+      "title": "Local T-SQL decimal arithmetic follows the warehouse's precision and scale rules, or says where it differs",
+      "priority": "P2",
+      "problem": "Local execution translates T-SQL to DuckDB, whose decimal division and multiplication results can use a different scale than a Fabric warehouse; a number that differs silently breaks trust.",
+      "acceptance": [
+        "Tests compare result precision and scale for +, -, *, / and SUM/AVG on decimal columns against the documented T-SQL rules",
+        "Each case either matches or is listed in docs/sql-compatibility.md with what differs",
+        "No silent difference: a case that can't match warns or is refused by name"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-207": {
+      "title": "Warehouse runs end with a named error on every failure path, and never report a partial batch as success",
+      "priority": "P2",
+      "problem": "Long warehouse runs can lose the connection, the sign-in can expire mid-query, or Fabric can throttle; each must end with a named error and a next step.",
+      "acceptance": [
+        "Tests with fakes cover connection drop mid-batch, sign-in expiry during a long query, throttling and cancel",
+        "Each ends with a named error and a next step; none reports success for a partial batch",
+        "Run history records the failed batch"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-606": {
+      "title": "Every failed CI test is named in the run summary",
+      "priority": "P2",
+      "problem": "The 11-16 flaky-ledger review hit a blind spot: a ui-browser failure on 11-09 whose test name fell outside the readable log tail.",
+      "acceptance": [
+        "Each test job writes a short failed-tests summary (name and first error line) to the job summary",
+        "A failing test in any job shows by name without reading the full log",
+        "The flaky ledger's how-to points at the summary"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-105": {
+      "title": "Local Spark SQL decimal arithmetic gives Spark's result types",
+      "priority": "P2",
+      "problem": "docs/parity.md: decimal division was the one mismatch in the 11-03 live comparison.",
+      "acceptance": [
+        "Tests cover decimal division, multiplication, AVG and rounding against Spark's documented rules",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Local data engine and OneLake publishing"
+    },
+    "WR-106": {
+      "title": "Local Spark SQL date and time functions value-checked against Spark",
+      "priority": "P2",
+      "problem": "Date patterns are a documented source of local differences (sql-compatibility.md).",
+      "acceptance": [
+        "Value checks for date_add, datediff, months_between, date_format patterns, to_timestamp, trunc and time zones",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Local data engine and OneLake publishing"
+    },
+    "WR-107": {
+      "title": "Local Spark SQL regular expressions and string functions value-checked against Spark",
+      "priority": "P2",
+      "problem": "Regular expressions are a documented source of local differences (Java vs RE2 syntax).",
+      "acceptance": [
+        "Value checks for rlike, regexp_extract, regexp_replace, split, and string functions with NULLs",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Local data engine and OneLake publishing"
+    },
+    "WR-208": {
+      "title": "Local T-SQL date and time functions value-checked against the warehouse",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "DATEADD/DATEDIFF boundaries, EOMONTH, DATEFROMPARTS, FORMAT, CONVERT styles",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-209": {
+      "title": "Guard test: every warehouse write path to Prod asks for the typed name and writes a fail-closed audit line",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "A new write path that isn't listed fails the test",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-210": {
+      "title": "Local T-SQL strings and case-sensitive collation match the warehouse",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "Comparisons, ORDER BY, LIKE, LEN, CHARINDEX, CONCAT, STRING_AGG",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-211": {
+      "title": "Local T-SQL arithmetic and implicit conversion match the warehouse",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "Integer division, overflow, implicit casts, ISNULL vs COALESCE, TRY_CAST, ROUND",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-212": {
+      "title": "Local T-SQL NULL ordering and window functions match the warehouse",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "NULLs first ascending, ties, LAG/LEAD, default frames, PERCENTILE_*",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-213": {
+      "title": "Local T-SQL MERGE and multi-row writes match the warehouse or are refused",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "Several matching source rows refused; OUTPUT and @@ROWCOUNT; joined UPDATE/DELETE",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-214": {
+      "title": "Local T-SQL scripts: control flow refused by name, mid-script errors name their statement",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "Running variables and control flow is a new feature and waits on Chris's go",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-215": {
+      "title": "Local T-SQL temp tables, CTAS, SELECT INTO and IDENTITY match the warehouse or are refused",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "Column types and nullability; IDENTITY per current docs",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-216": {
+      "title": "Local T-SQL names, schemas and views resolve as in the warehouse or are refused",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "Default dbo; three-part names refused by name",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-217": {
+      "title": "Local T-SQL security statements refused by name; SET options honoured or refused",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "GRANT/DENY/REVOKE/EXECUTE AS/RLS/DDM never a no-op",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-218": {
+      "title": "Warehouse live check prepared for Run 11 (not run)",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "Every case marked unverified in WR-206 to WR-217 in one read-only script for kf_tenant_test, scratch schema dropped at the end",
+        "Dry-run against fakes; running it needs Chris's typed yes",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-219": {
+      "title": "Local T-SQL JSON functions value-checked against the warehouse",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "ISJSON, JSON_VALUE/QUERY lax and strict, OPENJSON, FOR JSON, JSON_OBJECT/ARRAY",
+        "Each case matches, or is listed in docs/sql-compatibility.md and warns or is refused by name; nothing differs silently"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-305": {
+      "title": "Snowflake: value-check at least 100 Not checked functions",
+      "priority": "P2",
+      "problem": "docs/snowflake-functions.md had 227 of 495 functions Not checked.",
+      "acceptance": [
+        "Each moves to Runs, Differs or Refused on a value check, never a guess"
+      ],
+      "agent": "Fabric and Databricks unified development"
+    },
+    "WR-306": {
+      "title": "Databricks: shrink the Not checked function list",
+      "priority": "P2",
+      "problem": "Same gap as WR-305 on docs/databricks-functions.md.",
+      "acceptance": [
+        "Value checks from Databricks' SQL reference for the most-used Not checked functions",
+        "Each moves to Runs, Differs or Refused on a value check"
+      ],
+      "agent": "Fabric and Databricks unified development"
+    },
+    "WR-307": {
+      "title": "Snowflake: value-check the remaining Not checked functions",
+      "priority": "P2",
+      "problem": "WR-305 checked 119; the rest remain.",
+      "acceptance": [
+        "Each remaining function moves on a value check or is listed with why it can't be checked locally"
+      ],
+      "agent": "Fabric and Databricks unified development"
+    },
+    "WR-607": {
+      "title": "Every SQLite store commits durably through one helper",
+      "priority": "P2",
+      "problem": "findings.md QA-022: durability drift between stores.",
+      "acceptance": [
+        "Tests and a guard where the finding names one; Security read"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-608": {
+      "title": "Fake-backed tests for Fabric client writes and OneLake upload and delete",
+      "priority": "P2",
+      "problem": "findings.md QA-018.",
+      "acceptance": [
+        "Tests and a guard where the finding names one; Security read"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-609": {
+      "title": "Table URIs built in one validated place",
+      "priority": "P2",
+      "problem": "findings.md QA-025.",
+      "acceptance": [
+        "Tests and a guard where the finding names one; Security read"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-610": {
+      "title": "Date and time helpers follow one rule for naive times",
+      "priority": "P2",
+      "problem": "findings.md QA-024.",
+      "acceptance": [
+        "Tests and a guard where the finding names one; Security read"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-611": {
+      "title": "Validators match whole values (fullmatch), with a guard test",
+      "priority": "P2",
+      "problem": "A sweep found 116 $-anchored patterns used with .match(), which accept a trailing newline.",
+      "acceptance": [
+        "Tests and a guard where the finding names one; Security read"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-118": {
+      "title": "Local Spark SQL JSON functions value-checked against Spark 3.5",
+      "priority": "P2",
+      "problem": "JSON parsing modes are a documented source of local differences.",
+      "acceptance": [
+        "get_json_object, json_tuple, from_json PERMISSIVE/FAILFAST/DROPMALFORMED with the corrupt-record column, to_json, schema_of_json",
+        "Each case matches, or is listed in docs/sql-compatibility.md and refused by name"
+      ],
+      "agent": "Local data engine"
+    },
+    "WR-119": {
+      "title": "Local Spark hashing and encoding functions value-checked against Spark",
+      "priority": "P2",
+      "problem": "People bucket and join on hash values; a different value is a silent wrong answer.",
+      "acceptance": [
+        "hash (Murmur3, seed 42), xxhash64, md5, sha1, sha2 per bit length, crc32, base64/unbase64, hex/unhex, conv",
+        "hash and xxhash64 give Spark's exact values or are refused by name"
+      ],
+      "agent": "Local data engine"
+    },
+    "WR-120": {
+      "title": "Local Spark session time zone and timestamp_ntz match Spark",
+      "priority": "P2",
+      "problem": "Time zone handling can shift values silently.",
+      "acceptance": [
+        "spark.sql.session.timeZone, from_utc_timestamp/to_utc_timestamp, unix_timestamp, timestamp vs timestamp_ntz casts, DST spring-forward and fall-back hours",
+        "Each case matches, or is listed and refused by name"
+      ],
+      "agent": "Local data engine"
+    },
+    "WR-121": {
+      "title": "A local run killed mid-commit leaves the Delta table readable at its last version",
+      "priority": "P1",
+      "problem": "A crash during a write must never leave a table unreadable or half-written.",
+      "acceptance": [
+        "Kill tests at each exact write step for append, overwrite and merge",
+        "The table reads at the previous version with no partial rows; the next run succeeds without user action; leftover files never appear in a read"
+      ],
+      "agent": "Local data engine"
+    },
+    "WR-233": {
+      "title": "Local T-SQL missing column and object errors use SQL Server's 207 and 208 messages",
+      "priority": "P2",
+      "problem": "DuckDB's binder and catalog errors, with a pg_catalog hint, confuse warehouse developers.",
+      "acceptance": [
+        "Binder and catalog errors map to 207 (Invalid column name) and 208 (Invalid object name); the pg_catalog hint is gone",
+        "An error with no confident mapping keeps its text without the hint; the original DuckDB text stays in the log"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-234": {
+      "title": "Local T-SQL errors mid-batch report the warehouse's error number and severity",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "Error number and severity as the warehouse reports them",
+        "@@ERROR and ERROR_NUMBER() in TRY...CATCH refused by name until the interpreter has Chris's go"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-235": {
+      "title": "Local T-SQL very wide and very long values stay exact or are refused by name",
+      "priority": "P2",
+      "problem": "Local T-SQL must give the warehouse's answer or say it can't.",
+      "acceptance": [
+        "1,000+ columns and 1 MB text values in results and exports",
+        "No silent truncation"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-236": {
+      "title": "Fuzz test for the T-SQL splitter and translator",
+      "priority": "P2",
+      "problem": "A wrongly split statement runs the wrong SQL.",
+      "acceptance": [
+        "Random comments, GO lines, brackets, N'' strings and nested quotes",
+        "Every input runs as the warehouse would or is refused by name; no crash, no wrong split"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-237": {
+      "title": "T-SQL translator modules mutation-scored to 95% or better",
+      "priority": "P2",
+      "problem": "Untested translator branches can regress silently.",
+      "acceptance": [
+        "mutate.py on the T-SQL translator modules, with a batch number reserved with the Coverage thread",
+        "95% or better, each remaining mutant explained as equivalent"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-310": {
+      "title": "Databricks SQL: value-check the remaining Not checked functions",
+      "priority": "P2",
+      "problem": "Functions marked Not checked could give a different answer on this PC without saying so.",
+      "acceptance": [
+        "Each remaining function moves on a value check against Databricks documentation, or is listed with why it can't be checked locally",
+        "Each difference is refused by name, never silent"
+      ],
+      "agent": "Fabric and Databricks unified development"
+    },
+    "WR-311": {
+      "title": "Databricks notebook magics behave as on Databricks or are refused by name",
+      "priority": "P2",
+      "problem": "A magic that silently does something different on this PC breaks a ported notebook.",
+      "acceptance": [
+        "%run, %pip, %sql, %python, %md, %fs and %sh each match Databricks or are refused by name",
+        "A refused magic names the cell and what to use instead"
+      ],
+      "agent": "Fabric and Databricks unified development"
+    },
+    "WR-140": {
+      "title": "Spark DataFrame API: value-check the 24 Not checked rows against Spark 3.5, or refuse them by name",
+      "priority": "P2",
+      "problem": "docs/spark-dataframe-api.md still lists 24 methods as Not checked; an unchecked method can give a silent wrong answer.",
+      "acceptance": [
+        "Each Not checked row in docs/spark-dataframe-api.md is Runs, Differs (with the difference named) or Refused by name",
+        "The summary table's Not checked count is 0, kept by the docs test"
+      ],
+      "agent": "Local data engine and OneLake publishing"
+    },
+    "WR-141": {
+      "title": "Spark SQL: fix the two wrong answers pinned by strict xfails (sha2 with a decimal bit length, a shift of a shift typed bigint)",
+      "priority": "P2",
+      "problem": "Mutation testing pinned two wrong answers as xfail(strict=True): sha2('abc', 256.0) is NULL (test_spark_builtins_sql_uncapped.py) and a shift of a shift of an int is typed bigint (test_spark_complex_rescore.py).",
+      "acceptance": [
+        "Both answer as Spark 3.5 on DuckDB 1.5.6 and 2.0",
+        "The xfail marks are removed in the same PR, so the tests now pass for real"
+      ],
+      "agent": "Local data engine and OneLake publishing"
+    },
+    "WR-142": {
+      "title": "Spark DataFrame join on column names puts the join columns first, as Spark does",
+      "priority": "P2",
+      "problem": "The Local engine thread found on 2026-11-20 that df.join(df2, \"name\") puts the join column after the others; Spark puts the USING columns first. Code that reads columns by position gets a different answer.",
+      "acceptance": [
+        "join with a column name or a list of names gives Spark's column order for inner, left, right, full, semi and anti joins",
+        "A test fails on main without the change"
+      ],
+      "agent": "Local data engine and OneLake publishing"
+    },
+    "WR-238": {
+      "title": "Local T-SQL: a refused statement in a script is named by its place",
+      "priority": "P2",
+      "problem": "A script that stops on a refused statement should say which statement, so a long script is quick to fix.",
+      "acceptance": [
+        "The refusal names the statement's number and first line in the batch",
+        "Tests for a refusal in the first, middle and last statement, and after GO"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-239": {
+      "title": "Local T-SQL: a 5000-digit number literal is refused by name, not misread",
+      "priority": "P3",
+      "problem": "A very long literal is a parser edge where the local engine could crash or misread the value.",
+      "acceptance": [
+        "A literal past the warehouse's numeric limits stops with a named message",
+        "Leading zeros keep working as #3081 made them"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-241": {
+      "title": "Local T-SQL: DATETIMEOFFSET and AT TIME ZONE match a Fabric Warehouse or are refused by name",
+      "priority": "P2",
+      "problem": "docs/tsql-functions.md lists AT TIME ZONE as Not checked, and SWITCHOFFSET, SYSDATETIMEOFFSET and TODATETIMEOFFSET as Refused; time zone code ported from a warehouse needs a clear answer.",
+      "acceptance": [
+        "AT TIME ZONE gives a warehouse's documented value for UTC and named zones, or is refused by name",
+        "The datetimeoffset functions keep a named refusal with the warehouse alternative",
+        "docs/tsql-functions.md rows updated"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-242": {
+      "title": "Local T-SQL exports keep each warehouse type's value on a round trip",
+      "priority": "P3",
+      "problem": "An export that changes a type's value on the way out and back is a silent data change.",
+      "acceptance": [
+        "Each type in the local T-SQL type table exports to CSV and Parquet and reads back equal, or the export names what it couldn't keep"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-247": {
+      "title": "Local T-SQL arithmetic errors carry SQL Server's error numbers",
+      "priority": "P2",
+      "problem": "tsql_errors.py maps 207, 208, 209, 239 and 8134 with certainty; arithmetic overflow and conversion errors still come out without a number.",
+      "acceptance": [
+        "Arithmetic overflow and conversion failures show SQL Server's number and severity where certain, as WR-234 does for others",
+        "A test per mapped number; uncertain ones keep the plain message"
+      ],
+      "agent": "Build full warehouse development experience"
+    },
+    "WR-316": {
+      "title": "Unity Catalog names in Databricks SQL cells on this PC",
+      "priority": "P2",
+      "problem": "Databricks notebooks name tables as catalog.schema.table; on this PC those names should resolve or be refused by name.",
+      "acceptance": [
+        "main.default.t, USE CATALOG and USE SCHEMA and current_schema() answer as Databricks documents or are refused by name"
+      ],
+      "agent": "Fabric and Databricks unified development"
+    },
+    "WR-318": {
+      "title": "Snowflake: value-check the 16 Not checked functions against Snowflake's reference, or refuse them by name",
+      "priority": "P2",
+      "problem": "docs/snowflake-functions.md lists 16 functions as Not checked.",
+      "acceptance": [
+        "Each Not checked row becomes Runs, Differs (difference named) or Refused by name",
+        "The summary's Not checked count is 0"
+      ],
+      "agent": "Fabric and Databricks unified development"
+    },
+    "WR-319": {
+      "title": "Databricks SQL: the 10 functions that Differ match Databricks or are refused by name",
+      "priority": "P2",
+      "problem": "docs/databricks-functions.md lists 10 functions as Differs; a different answer that runs is the riskiest kind of gap.",
+      "acceptance": [
+        "Each Differs row is fixed to Runs, or refused by name where the difference can't be closed locally",
+        "Tests fail on main without the change"
+      ],
+      "agent": "Fabric and Databricks unified development"
+    },
+    "WR-410": {
+      "title": "Audit fail-closed coverage: every write that must be audited first is listed and tested",
+      "priority": "P2",
+      "problem": "Audit-first rules were added path by path (#3008, #3068); a guard test should list every such path so a new one can't skip it. (Not the earlier capacity WR-410 in publish.py, which reused the number.)",
+      "acceptance": [
+        "A guard test lists every audited-first write path and fails when a new one isn't listed",
+        "Each listed path has a test that nothing is written when the audit line can't be written"
+      ],
+      "agent": "Finish governance follow-ups"
+    },
+    "WR-411": {
+      "title": "Audit trail: Windows Event Log anchor failures say what happened and never block work silently",
+      "priority": "P2",
+      "problem": "#3088 anchors the audit trail's end in the Windows Application event log; its failure paths need the same care as the trail.",
+      "acceptance": [
+        "An unwritable or missing event source, and a mismatch, each give a named message and an audit-check result",
+        "Tests for each failure path"
+      ],
+      "agent": "Finish governance follow-ups"
+    },
+    "WR-412": {
+      "title": "Privacy: a deletion request leaves a proof of what was deleted, without the data",
+      "priority": "P2",
+      "problem": "The privacy inventory (#3159) lists the engine's stores; IT needs evidence that a deletion reached each one.",
+      "acceptance": [
+        "Deleting a person's data writes a record of each store touched and the count removed, with no personal values",
+        "A test per store in the inventory"
+      ],
+      "agent": "Finish governance follow-ups"
+    },
+    "WR-413": {
+      "title": "Fuzz the kratosforge:// link and pairing handshake readers",
+      "priority": "P2",
+      "problem": "These readers take input from outside the app; fuzzing found crashes in other readers (#3176).",
+      "acceptance": [
+        "Seeded fuzz tests for both readers; anything that crashed them is refused by name"
+      ],
+      "agent": "Finish governance follow-ups"
+    },
+    "WR-414": {
+      "title": "Governance error messages name a next step",
+      "priority": "P3",
+      "problem": "Governance refusals and failures should read like the rest of the app (#2325).",
+      "acceptance": [
+        "Each governance error string has a next step, checked by a test; UX reviews the copy"
+      ],
+      "agent": "Finish governance follow-ups"
+    },
+    "WR-130": {
+      "title": "Notebook kernel lifecycle matches Fabric: start, restart, interrupt and idle stop",
+      "priority": "P2",
+      "problem": "People expect a notebook session to start, restart and stop as in Fabric.",
+      "acceptance": [
+        "Start, restart, interrupt and idle stop behave as Fabric documents or say how they differ",
+        "Tests for each, including a restart while a cell runs"
+      ],
+      "agent": "Notebook parity"
+    },
+    "WR-132": {
+      "title": "Notebook .ipynb files round-trip without losing cells, outputs or metadata",
+      "priority": "P2",
+      "problem": "Notebooks move between this PC, Fabric and Git as .ipynb; a lossy round trip loses work. Build on test_notebook_formats_roundtrip.py: check main first and add only what it doesn't cover.",
+      "acceptance": [
+        "An .ipynb from Fabric and from Databricks saves back byte-equal apart from documented fields",
+        "What can't be kept is named on save"
+      ],
+      "agent": "Notebook parity"
+    },
+    "WR-133": {
+      "title": "Notebook display() and Spark output on this PC look as in Fabric",
+      "priority": "P2",
+      "problem": "A result that shows differently from Fabric makes people doubt the local run.",
+      "acceptance": [
+        "display() of a DataFrame, show() and a chart output match Fabric's form or the difference is documented",
+        "Browser tests for each"
+      ],
+      "agent": "Notebook parity"
+    },
+    "WR-134": {
+      "title": "A 2000-cell notebook opens, scrolls, runs and saves within set times",
+      "priority": "P3",
+      "problem": "Large notebooks are where editors fall over; #2950, #2963 and #3002 test large-notebook saves but not the editor's speed.",
+      "acceptance": [
+        "A 2000-cell notebook opens and saves within a documented bound on the CI runner",
+        "Scrolling and run-all stay responsive, measured by counts rather than wall-clock where possible"
+      ],
+      "agent": "Notebook parity"
+    },
+    "WR-612": {
+      "title": "Every strict xfail on main names the story that will fix it",
+      "priority": "P2",
+      "problem": "Nine xfail(strict=True) marks in sidecar/tests pin known wrong answers; without an owner they can stay for good.",
+      "acceptance": [
+        "A guard test fails when a strict xfail's reason doesn't name a story id or issue",
+        "Each of today's strict xfails names one"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-615": {
+      "title": "Tests bound by wall-clock time: count work instead where the time isn't the point",
+      "priority": "P2",
+      "problem": "About 80 assertions in sidecar/tests bound elapsed time; several flaky failures this week were fixed by counting instead (#3124, #3130, #3148, #3149, #3166).",
+      "acceptance": [
+        "Each wall-clock assertion is either converted to a count or kept with a comment saying why time is the point",
+        "The flaky ledger gets a row for any that failed on main in the last 14 days"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-616": {
+      "title": "Story ids stay unique: a ledger of WR ranges per thread, checked by queues.py",
+      "priority": "P3",
+      "problem": "This week WR-250 to WR-252 named both SQL translator stories and Prod typed-name fixes, and WR-410 named both a capacity stop and a governance story; reports and handoffs then point at the wrong work.",
+      "acceptance": [
+        "A ledger in docs/product/operations lists each thread's reserved WR range",
+        "queues.py check fails when a queued story's id is outside its workstream's ranges or reserved by another thread"
+      ],
+      "agent": "Codebase audit and hardening"
+    },
+    "WR-135": {
+      "title": "Present mode and the Markdown toolbar hold up on 2,000-cell notebooks and odd Markdown",
+      "priority": "P3",
+      "problem": "N23 and N49 shipped as Preview with tests on small notebooks and plain Markdown.",
+      "acceptance": [
+        "Slides start at the same headings the Outline reads, underlined ones included, and never inside code, quotes or HTML",
+        "Present opens a 2,000-cell notebook within a measured budget, and the toolbar edits a Markdown cell near its end",
+        "Toolbar edits on odd selections (spaces at the ends, backticks, fences inside) produce the Markdown they say"
+      ],
+      "agent": "Notebook parity"
+    },
+    "WR-136": {
+      "title": "Notebook metadata survives a save: a fuzzed .ipynb round-trip through merge_saved",
+      "priority": "P3",
+      "problem": "merge_saved keeps the file's own metadata, but the tests use hand-picked notebooks.",
+      "acceptance": [
+        "Generated notebooks with mixed cell, notebook and widget metadata, attachments and slide marks round-trip with only the edit changed",
+        "A failure prints the smallest notebook that shows it"
+      ],
+      "agent": "Notebook parity"
+    },
+    "WR-137": {
+      "title": "Notebook keyboard shortcuts don't collide across Present, the debugger, the Markdown toolbar and the command bar",
+      "priority": "P3",
+      "problem": "Present, the debugger and the Markdown toolbar each add keys on the notebook page.",
+      "acceptance": [
+        "A test lists every notebook key and fails on two owners for one key in the same state",
+        "Each key does one thing while presenting, debugging or editing Markdown"
+      ],
+      "agent": "Notebook parity"
     }
   },
-  "side_programs": []
+  "side_programs": [
+    {
+      "key": "semantic-engineering",
+      "name": "Semantic engineering (Ossie, Semantic Views, TMDL)",
+      "workstream": "fabric",
+      "thread": "TMDL and OSI conversion",
+      "review_cap": 2,
+      "stories": [
+        {
+          "issue": 3278,
+          "title": "OSSIE-007a One TMDL emitter for the Direct Lake model",
+          "status": "ready"
+        },
+        {
+          "issue": 3279,
+          "title": "OSSIE-012a Semantic fixture corpus per version profile",
+          "status": "ready"
+        },
+        {
+          "issue": 3280,
+          "title": "OSSIE-002a New and open Ossie files in the project",
+          "status": "blocked"
+        },
+        {
+          "issue": 3281,
+          "title": "OSSIE-006d Semantic parity L3, live DAX side",
+          "status": "blocked"
+        }
+      ]
+    },
+    {
+      "key": "control-plane",
+      "name": "Central control plane",
+      "workstream": "enterprise",
+      "thread": "Central control plane",
+      "review_cap": 2,
+      "stories": [
+        {
+          "issue": 3282,
+          "title": "CP-015 Service registry and inventory engine",
+          "status": "review",
+          "note": "PR #3214"
+        },
+        {
+          "issue": 3283,
+          "title": "CP-012 First live Create of a KratosForge Environment",
+          "status": "blocked"
+        },
+        {
+          "issue": 3284,
+          "title": "CP-011 Environment cost and inventory panels on the Environment screen",
+          "status": "blocked"
+        }
+      ]
+    },
+    {
+      "key": "academy-dp700",
+      "name": "KratosForge Academy DP-700",
+      "workstream": "devex",
+      "thread": "KratosForge Academy",
+      "review_cap": 2,
+      "stories": [
+        {
+          "issue": 3286,
+          "title": "ACD-013 Practice exam question types with partial credit",
+          "status": "review",
+          "note": "PR #3239"
+        },
+        {
+          "issue": 3287,
+          "title": "E54 Eventstream loses events after a source schema change",
+          "status": "ready"
+        },
+        {
+          "issue": 3288,
+          "title": "ACD-014 Fabric-verified exercises",
+          "status": "blocked"
+        },
+        {
+          "issue": 3289,
+          "title": "ACD-016 Real-Time Intelligence exercises with local KQL",
+          "status": "blocked"
+        }
+      ]
+    },
+    {
+      "key": "fabric-excellence",
+      "name": "Fabric Excellence Assessment",
+      "workstream": "enterprise",
+      "thread": "Fabric Excellence Assessment",
+      "review_cap": 2,
+      "stories": [
+        {
+          "issue": 3290,
+          "title": "FEA-303 Lakehouse and Warehouse excellence controls",
+          "status": "review",
+          "note": "PR #3275"
+        },
+        {
+          "issue": 3291,
+          "title": "FEA-404 Accepted risk and exceptions",
+          "status": "review",
+          "note": "PR #3264"
+        },
+        {
+          "issue": 3292,
+          "title": "FEA-106 Fabric API capability matrix for the assessment",
+          "status": "ready"
+        },
+        {
+          "issue": 3293,
+          "title": "FEA-205 Live assessment check in the test workspace",
+          "status": "blocked"
+        }
+      ]
+    },
+    {
+      "key": "savings-intelligence",
+      "name": "Enterprise Savings Intelligence",
+      "workstream": "enterprise",
+      "thread": "Enterprise Savings Intelligence",
+      "review_cap": 2,
+      "stories": [
+        {
+          "issue": 3294,
+          "title": "ESI-301 Optimization records with lifecycle and rollback",
+          "status": "ready"
+        },
+        {
+          "issue": 3295,
+          "title": "ESI-402 Capacity headroom from imported timepoints",
+          "status": "ready"
+        },
+        {
+          "issue": 3296,
+          "title": "ESI-502 Cost and savings screens mockup",
+          "status": "blocked"
+        },
+        {
+          "issue": 3297,
+          "title": "ESI-108 Live check of two installations writing at once",
+          "status": "blocked"
+        }
+      ]
+    },
+    {
+      "key": "three-platform-parity",
+      "name": "Three-platform parity",
+      "workstream": "dbx-snow",
+      "thread": "Three-platform parity",
+      "review_cap": 2,
+      "stories": [
+        {
+          "issue": 3298,
+          "title": "SF-005 Snowflake object listing and query history",
+          "status": "review",
+          "note": "PR #3215"
+        },
+        {
+          "issue": 3299,
+          "title": "PAR-002 More parity cases, including cases that expect an error",
+          "status": "review",
+          "note": "PR #3245"
+        },
+        {
+          "issue": 3300,
+          "title": "PAR-003 Unified connection check across the three platforms",
+          "status": "ready"
+        },
+        {
+          "issue": 3301,
+          "title": "SF-009 Snowflake stages and data loading",
+          "status": "ready"
+        }
+      ]
+    }
+  ]
 }

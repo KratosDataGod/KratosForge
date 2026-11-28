@@ -99,7 +99,7 @@ function homeLastRun(d, name) {
   if (!r) return h("span", { class: "muted-text" }, "Never run");
   const ok = r.status === "ok" || r.status === "Completed";
   const failed = r.status === "failed" || r.status === "Failed";
-  const word = ok ? "Succeeded" : failed ? "Failed" : r.status === "skipped" ? "Skipped" : r.status;
+  const word = ok ? "Succeeded" : failed ? "Failed" : r.status === "skipped" ? "Skipped" : r.status === "stopped" ? "Stopped" : r.status;
   const at = r.ended || r.started;
   return h("span", { class: ok ? "home-run ok" : failed ? "home-run failed" : "home-run", title: r.message || null },
     `${word}${r.source === "fabric" ? " in Fabric" : ""} ${at ? relTime(at) : ""}${ok && r.seconds ? `, ${took(r.seconds)}` : ""}`.trim());
@@ -125,8 +125,8 @@ function homeRecentList(shown) {
       onchange: (e) => { if (e.target.checked) homeRun.picked.add(name); else homeRun.picked.delete(name); draw(); } });
     const bar = several ? h("div", { class: "row wrap home-run-bar" },
       going ? [h("span", { class: "grow" }, homeBatchText(homeRun.batch)),
-        homeRun.batch.stopping ? h("span", { class: "muted-text small" }, "The rest won't start")
-          : btn("Don't start the rest", null, () => homeBatchStop(), "tool outline small")]
+        homeRun.batch.stopping ? h("span", { class: "muted-text small" }, "Stopping")
+          : btn("Stop", null, () => homeBatchStop(), "tool outline small")]
         : [h("span", { class: "grow muted-text small" }, picked.length ? `${picked.length} selected` : "Tick notebooks to run several at once."),
           picked.length ? btn("Clear", null, () => { homeRun.picked.clear(); draw(); }, "tool link small") : null,
           preview("runSeveral", btn(`Run ${picked.length || ""} notebook${picked.length === 1 ? "" : "s"}`.replace("  ", " "), "play",
@@ -173,7 +173,7 @@ function homeRecentList(shown) {
 
 function homeBatchText(b) {
   const count = (s) => b.items.filter((i) => i.status === s).length;
-  const ended = count("ok") + count("failed") + count("skipped");
+  const ended = count("ok") + count("failed") + count("skipped") + count("stopped");
   return [`Running ${b.items.length}: ${ended} done`, count("running") ? `${count("running")} running` : "",
     count("waiting") ? `${count("waiting")} waiting` : ""].filter(Boolean).join(", ");
 }
@@ -268,8 +268,9 @@ function homeFollowBatch(batch) {
       const failed = now.items.filter((i) => i.status === "failed");
       const ok = now.items.filter((i) => i.status === "ok").length;
       const skipped = now.items.filter((i) => i.status === "skipped").length;
+      const stopped = now.items.filter((i) => i.status === "stopped").length;
       const text = [`${ok} succeeded`, failed.length ? `${failed.length} failed (${failed.map((i) => i.name).join(", ")})` : "",
-        skipped ? `${skipped} not started` : ""].filter(Boolean).join(", ");
+        stopped ? `${stopped} stopped` : "", skipped ? `${skipped} not started` : ""].filter(Boolean).join(", ");
       logActivity({ id: `batch:${batch.id}`, status: failed.length ? "failed" : "ok", title, text, notice: true });
       toast(`${title}: ${text}.`, failed.length > 0);
       for (const i of now.items) homeRun.details.delete(i.name);  // their Last run changed
@@ -287,7 +288,7 @@ function homeFollowBatch(batch) {
 async function homeBatchStop() {
   const b = homeRun.batch;
   if (!b) return;
-  const out = await attempt(() => rpc("notebook_batch_stop", { id: b.id }), "Could not stop the rest");
+  const out = await attempt(() => rpc("notebook_batch_stop", { id: b.id }), "Could not stop the run");
   if (out) { homeRun.batch = out; homeRun.redraw?.(); }
 }
 

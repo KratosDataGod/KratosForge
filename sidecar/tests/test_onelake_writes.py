@@ -301,25 +301,23 @@ def test_a_cell_reports_its_upload_wait_and_what_it_uploaded(service):
 
 
 def test_a_cell_that_computes_while_it_uploads_waits_less_than_the_upload(service, monkeypatch):
-    # The cell goes on until its upload is in, as a cell computing for longer than its upload does:
-    # an event, not a sleep, so a slow CI machine can't make the upload outlast the cell.
-    # The upload takes 1.2 s here: what's left to wait for after it (recording the write) took 0.23 s
-    # on a busy Windows runner (#771), longer than half the fixture's 0.2 s upload.
-    uploaded, upload = threading.Event(), lakehouse.publish
+    # The cell goes on until its write is all done, as a cell computing for longer than its upload does,
+    # so at its end there is nothing left to wait for. It waits on the write itself, not a sleep, so a slow
+    # CI machine can't make the upload outlast the cell. Waiting only until the upload returned (#771) left
+    # recording the write still to do when the cell ended: 0.95 s of a 1.24 s upload on a busy runner.
+    # The cell waits on the write's future directly: w.result() is the cell asking for the write, which
+    # may count as waiting on it.
+    upload = lakehouse.publish
 
-    def publish_and_tell(*args, **kwargs):
-        try:
-            time.sleep(1.0)
-            return upload(*args, **kwargs)
-        finally:
-            uploaded.set()
-    monkeypatch.setattr(lakehouse, "publish", publish_and_tell)
-    monkeypatch.setattr(lakehouse, "_test_uploaded", uploaded, raising=False)
-    out = service.run_cell(WRITE + "assert lakehouse._test_uploaded.wait(30)", LH)
+    def slow_publish(*args, **kwargs):
+        time.sleep(1.0)
+        return upload(*args, **kwargs)
+    monkeypatch.setattr(lakehouse, "publish", slow_publish)
+    out = service.run_cell(WRITE + "assert w._future.exception(30) is None", LH)
     assert out["status"] == "ok", out
     onelake = out["onelake"]
     assert onelake["upload_seconds"] >= 1.2
-    # Left to wait for at the end: recording the write, not the upload, which ran while the cell went on.
+    # Nothing was left to wait for at the end: the upload ran while the cell went on.
     assert onelake["wait_seconds"] < onelake["upload_seconds"] / 2, onelake
 
 
@@ -412,3 +410,22 @@ def test_a_dropped_commit_is_not_written_again_and_says_it_may_have_gone_in(serv
     out = service.run_cell(WRITE, LH)
     assert out["status"] == "error" and len(tries) == 1
     assert "may or may not have gone in" in json.dumps(out) and "history" in json.dumps(out)
+
+
+def test_a_connection_that_stays_down_fails_after_its_tries_and_the_table_stays_as_it_was(service, monkeypatch):
+    """The PC slept, or the network went, for longer than the retries wait: each try's data file upload
+    is dropped. The write stops after UPLOAD_ATTEMPTS tries with the error, and the table is still at its
+    last version with its rows, since nothing of an upload that never finished is committed."""
+    assert service.run_cell(WRITE, LH)["status"] == "ok"
+    monkeypatch.setattr(lakehouse, "UPLOAD_RETRY_WAIT", 0.0)
+    tries = []
+
+    def always_dropped(*args, **kwargs):
+        tries.append(1)
+        raise OSError(DROPPED)
+    monkeypatch.setattr(lakehouse, "publish", always_dropped)
+    out = service.run_cell("import pyarrow as pa\nfrom fabric_desktop import lakehouse\n"
+                           "lakehouse.write_table(pa.table({'id': [7, 8, 9]}), 'sales')\n", LH)
+    assert out["status"] == "error" and len(tries) == lakehouse.UPLOAD_ATTEMPTS
+    table = DeltaTable(str(service.onelake / "sales"))
+    assert table.version() == 0 and sorted(table.to_pyarrow_table().column("id").to_pylist()) == [1, 2]

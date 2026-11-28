@@ -85,3 +85,33 @@ def test_write_test_never_touches_production():
 
 def test_rpc_methods_are_allowed():
     assert {"readiness_check", "readiness_write_test"} <= METHODS
+
+
+# ---- the data folder row (shared and virtual desktops)
+
+def test_the_data_folder_row_says_where_it_is_and_how_much_room_it_has(tmp_path):
+    row = readiness.data_folder_check(tmp_path, free=lambda p: 40 * 1024 ** 3, network=lambda p: False)
+    assert row["status"] == "ok" and str(tmp_path) in row["text"] and "40 GB free" in row["text"]
+
+
+def test_a_nearly_full_data_folder_drive_warns_before_an_update_fails(tmp_path):
+    row = readiness.data_folder_check(tmp_path, free=lambda p: 700 * 1024 ** 2, network=lambda p: False)
+    assert row["status"] == "warn" and "Only 0.7 GB is free" in row["text"] and "profile disk" in row["text"]
+
+
+def test_a_data_folder_on_a_network_share_warns(tmp_path):
+    row = readiness.data_folder_check(tmp_path, free=lambda p: 40 * 1024 ** 3, network=lambda p: True)
+    assert row["status"] == "warn" and "network share" in row["text"]
+    assert readiness._on_network(readiness.Path(r"\\server\profiles\ann\AppData\Local\FabricDesktop"))
+    assert not readiness._on_network(tmp_path)
+
+
+def test_a_drive_windows_cant_measure_still_gets_a_row(tmp_path):
+    def refused(p):
+        raise OSError("not ready")
+    assert readiness.data_folder_check(tmp_path, free=refused, network=lambda p: False)["status"] == "ok"
+
+
+def test_the_list_ends_with_the_data_folder_row_when_given_one(tmp_path):
+    rows = readiness.checks(None, list, list, {}, folder=tmp_path)
+    assert rows[-1]["key"] == "data_folder"

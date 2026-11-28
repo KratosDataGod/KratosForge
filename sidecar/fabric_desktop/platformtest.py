@@ -122,8 +122,8 @@ class PlatformTest:
                  "check it holds no platform, then run Finish or repair once from empty: it creates "
                  + ", ".join(ITEMS))
         return [
-            f"Flows 11-12: in workspace {self.workspace_id}, {start}; then run it again, which must keep everything. "
-            "Creating items and calling UDF_Platform uses capacity.",
+            (f"Flows 11-12: in workspace {self.workspace_id}, {start}; then run it again, which must keep everything. "
+            "Creating items and calling UDF_Platform uses capacity."),
             f"If {setup_mod.FUNCTIONS} has no connection to {setup_mod.SQL} yet, stop and ask a person to add it in Fabric.",
             f"Flow 13: register project {self.name} and data product {self.name}_product.",
             f"Flow 14: create key table {self.name}, issue keys for two business keys, look one up and issue them again.",

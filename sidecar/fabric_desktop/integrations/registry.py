@@ -34,7 +34,7 @@ from urllib.parse import quote, unquote
 
 from ..redact import describe
 from . import scope
-from .core import CallContext, IntegrationError, error_from, redact_result, run_call, validate
+from .core import CallContext, IntegrationError, error_from, redact_result, redact_secrets, redacted, run_call, validate
 
 _log = logging.getLogger(__name__)
 
@@ -158,6 +158,28 @@ def _check_schema(schema: Any, what: str, cap_id: str) -> None:
         raise ValueError(f"{cap_id}: {what} properties must be an object")
 
 
+MAX_AUDITED_NAME = 200  # characters of a name that names no tool, on its audit line
+_EXECUTION_ID = re.compile(r"ex_[0-9a-f]{20}")
+
+
+def _is_execution_record(result: Any) -> bool:
+    """True for an execution's own record as a start-run tool returns it (Execution.view)."""
+    return (isinstance(result, dict) and isinstance(result.get("id"), str) and bool(_EXECUTION_ID.fullmatch(result["id"]))
+            and {"kind", "state", "title"} <= set(result))
+
+
+def _execution_of(cap: Any, result: Any, arguments: Any) -> str:
+    """The execution a call is about, for its audit line: an ``execution_id`` in the result, or in
+    the arguments of a tool that takes one. Only a value in the execution id format counts, so a
+    tool whose result or arguments are someone's data with that key isn't recorded under it."""
+    takes = cap is not None and "execution_id" in cap.input_schema.get("properties", {})
+    for source, allowed in ((result, True), (arguments, takes)):
+        value = source.get("execution_id") if allowed and isinstance(source, dict) else None
+        if isinstance(value, str) and _EXECUTION_ID.fullmatch(value):
+            return value
+    return ""
+
+
 class Registry:
     def __init__(self, authorizer: Authorizer | None = None):
         self._caps: dict[str, Capability] = {}
@@ -174,9 +196,9 @@ class Registry:
     def register(self, cap: Capability, replace: bool = False) -> Capability:
         """Add ``cap`` after checking it is well formed. Raises ValueError otherwise, so a broken
         extension fails when it loads rather than when a client calls it."""
-        if not ID_PATTERN.match(cap.id):
+        if not ID_PATTERN.fullmatch(cap.id):
             raise ValueError(f"capability id {cap.id!r} must be lower case letters, digits and _ (3-64)")
-        if not SOURCE_PATTERN.match(cap.source):
+        if not SOURCE_PATTERN.fullmatch(cap.source):
             raise ValueError(f"{cap.id}: source {cap.source!r} isn't a valid extension id")
         if cap.permission not in PERMISSIONS:
             raise ValueError(f"{cap.id}: permission must be one of {', '.join(PERMISSIONS)}")
@@ -320,23 +342,34 @@ class Registry:
             result = self._invoke(service, cap, cap_id, arguments, ctx)
             return result
         except IntegrationError as exc:
-            error = exc
+            # Secrets out of every refusal, whoever raised it: a handler's or an authorizer's message
+            # may carry the engine's text.
+            error = redacted(exc)
             raise
         except Exception as exc:  # handlers raise IntegrationError via run_call; anything else is ours
             error = IntegrationError("internal", f"{type(exc).__name__}: {exc}")
             raise
         finally:
-            execution = ""
-            for source in (result, arguments):
-                if isinstance(source, dict) and isinstance(source.get("execution_id"), str):
-                    execution = source["execution_id"]
-                    break
+            execution = _execution_of(cap, result, arguments)
+            # A call that starts one returns the execution's own record (Execution.view), whose id is
+            # "id". Only that shape counts: a tool whose result is someone's data with an "id" isn't one.
+            if not execution and _is_execution_record(result):
+                execution = result["id"]
             self._audit(ctx, cap_id, cap.permission if cap else "", arguments, arrived, time.monotonic() - clock,
                         error, execution)
+
+    def refused(self, ctx: CallContext, cap_id: str, arguments: Any, error: IntegrationError) -> None:
+        """The audit line for a call a transport refused before it could reach ``invoke`` (a body
+        that isn't JSON, a resource URI that names nothing, a busy server), so it is recorded like
+        a call ``invoke`` refuses."""
+        cap = self.get(cap_id)
+        self._audit(ctx, cap_id, cap.permission if cap else "", arguments, time.time(), 0.0, error, "")
 
     def _audit(self, ctx: CallContext, cap_id: str, *line: Any, stage: str = "") -> None:
         if self.audit is None:
             return
+        # The name is the caller's text when it names no tool (an unknown id, a refused request).
+        cap_id = redact_secrets(cap_id)[:MAX_AUDITED_NAME] if cap_id not in self._caps else cap_id
         try:
             if stage:
                 self.audit(ctx, cap_id, *line, stage=stage)

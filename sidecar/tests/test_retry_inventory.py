@@ -79,7 +79,7 @@ def test_the_check_finds_a_hand_written_retry(tmp_path):
 # ---- every request is sent through a retry helper, or says why it's sent once
 
 _VERBS = {"get", "post", "put", "patch", "delete", "head", "request"}
-_WRAPPED = ("send_with_retry", "send_remote", "self._change(")
+_HELPERS = {"send_with_retry", "send_remote", "_change"}
 
 # "module.py:function" -> why its request isn't sent through send_with_retry or send_remote.
 SENT_ONCE: dict[str, str] = {
@@ -110,28 +110,54 @@ def _outermost_functions(node: ast.AST) -> list[ast.FunctionDef | ast.AsyncFunct
     return out
 
 
+def _helper_call(node: ast.AST) -> bool:
+    return isinstance(node, ast.Call) and (getattr(node.func, "id", None) or getattr(node.func, "attr", None)) in _HELPERS
+
+
+def _handed_names(outer: ast.AST) -> set[str]:
+    return {n.id for h in ast.walk(outer) if _helper_call(h) for n in ast.walk(h) if isinstance(n, ast.Name)}
+
+
+def _handed_to_a_helper(call: ast.Call, outer: ast.AST, parents: dict[ast.AST, ast.AST], handed: set[str]) -> bool:
+    """Whether this one request is sent by a retry helper: it sits in a lambda that is an argument of
+    send_with_retry, send_remote or _change, or in a nested def whose name is passed to one of them in
+    ``outer``. A request made right there in the helper's arguments (``send_with_retry(http.get(url),
+    ...)``) is sent once, before the helper sees it, so it doesn't count."""
+    node: ast.AST = call
+    while node is not outer and node in parents:
+        parent = parents[node]
+        if _helper_call(parent) and isinstance(node, ast.Lambda):
+            return True
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in handed:
+            return True
+        node = parent
+    return False
+
+
 def unretried_requests(package: Path = PACKAGE) -> set[str]:
-    """Functions that send an HTTP request outside send_with_retry, send_remote or leases' _change.
-    It knows the names this package gives a session (http_session.session(), http, self._http, session):
-    a session under another name isn't seen."""
+    """Functions with an HTTP request that isn't handed to send_with_retry, send_remote or leases' _change,
+    each request judged on its own. It knows the names this package gives a session
+    (http_session.session(), http, self._http, session): a session under another name isn't seen."""
     found = set()
     for path in sorted(package.rglob("*.py")):
         if path.name == "retrying.py":
             continue
-        src = path.read_text(encoding="utf-8")
-        for fn in _outermost_functions(ast.parse(src)):
-            if any(isinstance(n, ast.Call) and _a_request(n) for n in ast.walk(fn)):
-                body = ast.get_source_segment(src, fn) or ""
-                if not any(w in body for w in _WRAPPED):
-                    found.add(f"{path.relative_to(package).as_posix()}:{fn.name}")
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        for fn in _outermost_functions(tree):
+            requests = [n for n in ast.walk(fn) if isinstance(n, ast.Call) and _a_request(n)]
+            handed = _handed_names(fn) if requests else set()
+            if any(not _handed_to_a_helper(n, fn, parents, handed) for n in requests):
+                found.add(f"{path.relative_to(package).as_posix()}:{fn.name}")
     return found
 
 
 def test_every_request_retries_or_says_why_it_is_sent_once():
-    new = sorted(unretried_requests() - set(SENT_ONCE))
+    found = unretried_requests()
+    new = sorted(found - set(SENT_ONCE))
     assert not new, (f"{new} send a request with no retry for throttling or a 5xx: send it through "
                      "retrying.send_with_retry, or add it to SENT_ONCE with the reason")
-    gone = sorted(set(SENT_ONCE) - unretried_requests())
+    gone = sorted(set(SENT_ONCE) - found)
     assert not gone, f"{gone} no longer send a request outside a retry helper: take them out of SENT_ONCE"
 
 
@@ -142,5 +168,24 @@ def test_the_request_check_finds_an_unretried_get(tmp_path):
         "    return http_session.session().get(url, timeout=30)\n"
         "def fine(url):\n"
         "    http = http_session.session()\n"
-        "    return send_with_retry(lambda: http.get(url, timeout=30), 'GET')\n", encoding="utf-8")
-    assert unretried_requests(tmp_path) == {"client.py:read"}
+        "    return send_with_retry(lambda: http.get(url, timeout=30), 'GET')\n"
+        "def nested(url):\n"
+        "    http = http_session.session()\n"
+        "    def page():\n"
+        "        return http.get(url, timeout=30)\n"
+        "    return send_with_retry(page, 'GET')\n"
+        "def half(url):\n"
+        "    http = http_session.session()\n"
+        "    first = send_with_retry(lambda: http.get(url, timeout=30), 'GET')\n"
+        "    return first, http.get(url + '/more', timeout=30)\n"
+        "def unused_helper(url):\n"
+        "    http = http_session.session()\n"
+        "    def page():\n"
+        "        return http.get(url, timeout=30)\n"
+        "    send_with_retry(lambda: None, 'GET')\n"
+        "    return page()\n"
+        "def eager(url):\n"
+        "    http = http_session.session()\n"
+        "    return send_with_retry(http.get(url, timeout=30), 'GET')\n", encoding="utf-8")
+    assert unretried_requests(tmp_path) == {"client.py:read", "client.py:half", "client.py:unused_helper",
+                                            "client.py:eager"}

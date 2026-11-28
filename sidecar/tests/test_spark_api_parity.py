@@ -85,7 +85,7 @@ def test_table_exists_finds_a_temp_view_and_nothing_without_a_lakehouse(k):
 def test_create_temp_view_refuses_a_name_already_used(k):
     k.run("df = spark.range(2)\ndf.createTempView('once')")
     e = error(k, "df.createTempView('once')")
-    assert e["ename"] == "ValueError" and "createOrReplaceTempView" in e["evalue"]
+    assert e["ename"] == "AnalysisException" and "TEMP_TABLE_OR_VIEW_ALREADY_EXISTS" in e["evalue"]
 
 
 def test_empty_tail_offset_and_iteration(k):
@@ -117,14 +117,14 @@ def test_a_dataframe_says_it_is_local_and_knows_its_session(k):
     assert "".join(o.get("text", "") for o in k.run("df.explain()")["outputs"]).strip()  # DuckDB's plan, printed
 
 
-@pytest.mark.parametrize("code", ["df.rdd", "df.foreach(print)", "df.foreachPartition(print)",
-                                  "df.mapInPandas(lambda x: x, 'id long')"])
-def test_row_by_row_python_runs_in_fabric(k, code):
+def test_the_rdd_runs_in_fabric(k):
+    # foreach, foreachPartition and mapInPandas run here (test_spark_map.py); the RDD API doesn't.
     k.run("df = spark.range(1)")
-    e = error(k, code)
+    e = error(k, "df.rdd")
     assert e["ename"] == "NotImplementedError" and "run in Fabric" in e["evalue"]
 
 
 def test_register_temp_table_and_global_views_are_temp_views(k):
     k.run("spark.range(2).registerTempTable('old')\nspark.range(3).createOrReplaceGlobalTempView('g')")
-    assert last(k, "(spark.table('old').count(), spark.table('g').count())") == "(2, 3)"
+    # A global temp view is read as global_temp.g, as in Spark.
+    assert last(k, "(spark.table('old').count(), spark.table('global_temp.g').count())") == "(2, 3)"

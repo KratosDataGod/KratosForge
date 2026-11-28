@@ -82,6 +82,40 @@ def test_every_rule_has_an_importance_principle_impact_and_check():
     assert got["NB001"]["importance"] == "Critical" and got["SQ010"]["importance"] == "Critical"
 
 
+def test_every_model_rule_and_pipeline_gotcha_has_a_guide_in_the_same_format():
+    """GD-07: the semantic model rules and the pipeline gotchas have guides like the notebook and SQL rules."""
+    from fabric_desktop import model_practices
+    from fabric_desktop.orchestration import gotchas
+
+    got = guides.load()
+    for rule in model_practices.RULES:
+        g = got[rule.id]
+        assert g["importance"] in guides.IMPORTANCE and g["area"] == rule.category, rule.id
+        assert g["why"] and g["principle"] and g["impact"] and g["check"] and g["fine"], rule.id
+        assert "codes" not in g, rule.id
+    for gotcha in gotchas.GOTCHAS:
+        g = got[gotcha.id]
+        assert g["importance"] in guides.IMPORTANCE and g["area"] == "Pipelines", gotcha.id
+        assert g["why"] and g["instead"] and g["principle"] and g["impact"] and g["check"], gotcha.id
+        assert g["codes"] == list(gotcha.codes), f"{gotcha.id}: its Warnings line must name the codes gotchas.py gives"
+        assert all(guides.for_code(c, got) == gotcha.id for c in gotcha.codes)
+    assert got["SM001"]["importance"] == "Critical" and got["PG8"]["importance"] == "Critical"
+    assert guides.for_code("missing_property", got) is None, "a registry error that isn't a gotcha has no guide"
+
+
+def test_a_gotcha_section_reads_its_warning_codes():
+    md = """### PG99
+
+**Thing** · Warning · Pipelines · Recommended
+
+Why: it differs.
+
+Warnings: `one_code`, `two_code`
+"""
+    g = guides.parse(md)["PG99"]
+    assert g["codes"] == ["one_code", "two_code"] and g["why"] == "It differs." and g["area"] == "Pipelines"
+
+
 def test_importance_only_explains_and_never_changes_a_rule():
     """Importance is a label in the guide; the rules' severities stay what the checkers say."""
     sev = {r.id: r.severity for r in notebook_practices.RULES} | {r.id: r.severity for r in practices.RULES}

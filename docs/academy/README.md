@@ -17,7 +17,7 @@ The second path, **Databricks Certified Data Engineer Associate**, is planned in
 
 ## Status
 
-Planning (2026-11-03). Nothing in this folder is a shipped feature yet.
+Planning (2026-11-03). Academy now ships as Preview: [Academy](../academy-guide.md) says what it does today. This folder is the plan behind it.
 
 The DP-700 objective registry (ACD-001) is data in
 `sidecar/fabric_desktop/academy/packs/dp-700/certification.json`, read and checked by
@@ -33,7 +33,7 @@ a mockup Chris has reacted to; the engine and content work goes first, as small 
 | 2 | Existing-feature reuse matrix | [Capability audit and reuse](capability-audit.md#reuse-matrix) |
 | 3 | Complete DP-700 objective coverage matrix | [DP-700 coverage](dp-700-coverage.md) |
 | 4 | Backlog for ACD-001 to ACD-020 | [Backlog](backlog.md) |
-| 5 | Initial exercise curriculum (64 exercises, 12 broken environments, 3 capstones) | [Curriculum](curriculum.md) |
+| 5 | Initial exercise curriculum (68 exercises, 14 broken environments, 3 capstones) | [Curriculum](curriculum.md) |
 | 6 | Data and content architecture | [Architecture](architecture.md) |
 | 7 | Ownership and thread assignments | [Delivery plan](delivery-plan.md#ownership) |
 | 8 | PR dependency graph | [Delivery plan](delivery-plan.md#pr-dependency-graph) |

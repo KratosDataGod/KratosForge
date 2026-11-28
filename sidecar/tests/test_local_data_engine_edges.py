@@ -104,14 +104,14 @@ def test_a_file_named_like_a_project_delta_table_is_left_out_and_says_so(local, 
     assert engine.execute("SELECT id FROM sales")["rows"] == [[1]]  # the project's table is still the one read
 
 
-# ---- Delta tables this engine can't read
+# ---- Delta tables with column mapping
 
 
-def test_a_delta_table_with_column_mapping_isnt_queryable_here(tmp_path):
+def test_a_delta_table_with_column_mapping_is_read_by_its_column_names(tmp_path):
     folder = str(tmp_path / "mapped")
     write_deltalake(folder, pa.table({"a": [1]}), configuration={"delta.columnMapping.mode": "name"})
-    with pytest.raises(ValueError, match="uses column mapping, which a local read can't apply yet"):
-        eng.delta_select(folder)
+    sql, _ = eng.delta_select(folder)
+    assert duckdb.connect().sql(sql).fetchall() == [(1,)] and duckdb.connect().sql(sql).columns == ["a"]
 
 
 def test_a_timestamp_before_a_tables_first_version_says_when_that_was(engine):

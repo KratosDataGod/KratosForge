@@ -22,13 +22,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 import base64
-import binascii
 import copy
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .. import b64
 from .expressions import key_path
 
 # Version of this reader. Recorded with every import so a compatibility report (ORCH-002) can tell
@@ -264,8 +264,8 @@ def _decode(part: dict[str, Any], index: int, prefix: str) -> str:
     if not isinstance(payload, str):
         raise DefinitionError(f"The {part.get('path')} part has no payload.", "missing_payload", f"{where}.payload")
     try:
-        return base64.b64decode(payload, validate=True).decode("utf-8-sig")
-    except (binascii.Error, ValueError) as exc:
+        return b64.decode_exact(payload).decode("utf-8-sig")
+    except ValueError as exc:
         raise DefinitionError(f"The {part.get('path')} part's payload isn't base64 UTF-8 text ({exc}).",
                               "invalid_payload", f"{where}.payload") from None
 

@@ -377,4 +377,50 @@ $s.TargetPath = $env:KF_FROM; $s.IconLocation = $env:KF_FROM + ',0'; $s.Save()"#
         assert_eq!(Windows.shortcuts_to(&dir.join(LEGACY_FILE)).unwrap(), Vec::<PathBuf>::new());
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// A script that fails comes back as its error text, so a shortcut that can't be changed says why.
+    #[cfg(windows)]
+    #[test]
+    fn a_failing_powershell_script_returns_its_error() {
+        let err = powershell("$ErrorActionPreference = 'Stop'; throw 'kf-test refused'", &[]).unwrap_err();
+        assert!(err.contains("kf-test refused"), "{err}");
+        assert!(err.chars().count() <= 500, "the error is cut to 500 characters");
+        // Paths reach the script only through the environment.
+        let out = powershell("[Console]::Out.Write($env:KF_X)", &[("KF_X", "C:\\a b\\'quoted'.exe".into())]).unwrap();
+        assert_eq!(out, "C:\\a b\\'quoted'.exe");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn retargeting_no_links_runs_nothing_and_a_link_to_another_program_is_left_alone() {
+        assert_eq!(Windows.retarget(&[], Path::new(r"C:\nowhere\a.exe"), Path::new(r"C:\nowhere\b.exe")), Ok(()));
+        let dir = scratch("winother");
+        let exe = dir.join(LEGACY_FILE);
+        let other = dir.join("other.exe");
+        std::fs::write(&exe, "app").unwrap();
+        std::fs::write(&other, "someone else's program").unwrap();
+        let link = dir.join("Other.lnk");
+        let make = "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:KF_LINK); $s.TargetPath = $env:KF_T; $s.Save()";
+        powershell(make, &[("KF_LINK", plain(&link)), ("KF_T", plain(&other))]).unwrap();
+        Windows.retarget(std::slice::from_ref(&link), &exe, &dir.join(APP_FILE)).unwrap();
+        let read = "(New-Object -ComObject WScript.Shell).CreateShortcut($env:KF_LINK).TargetPath";
+        let target = powershell(read, &[("KF_LINK", plain(&link))]).unwrap();
+        assert!(target.trim().to_ascii_lowercase().ends_with("other.exe"), "{target}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_path_is_matched_as_shortcuts_store_it() {
+        assert_eq!(plain(Path::new(r"\\?\C:\Apps\fabric-desktop.exe")), r"C:\Apps\fabric-desktop.exe");
+        assert_eq!(plain(Path::new(r"C:\Apps\fabric-desktop.exe")), r"C:\Apps\fabric-desktop.exe");
+        // A long path already in full is listed once; a folder that isn't there leaves the path as given.
+        let dir = scratch("winspell");
+        let full = std::fs::canonicalize(&dir).unwrap();
+        let exe = Path::new(&plain(&full)).join(LEGACY_FILE);
+        assert_eq!(spellings(&exe), plain(&exe));
+        let gone = dir.join("missing").join(LEGACY_FILE);
+        assert_eq!(spellings(&gone), plain(&gone));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import datetime as dt
 import json
 import logging
@@ -17,7 +16,7 @@ from deltalake import DeltaTable
 
 from . import app_settings, http_session, jsonfile, maintenance, redact, risk, xray
 from .auth import FABRIC_SCOPES, POWERBI_DATAFLOW_SCOPES
-from .fabric_api import FabricClient
+from .fabric_api import FabricClient, definition_parts
 from .fabric_run import TERMINAL
 from .meta_service import NoMetadataProject
 from .meta.templates import _columns_toml, _dtype_name
@@ -272,7 +271,28 @@ class XRayMixin:
             return maintenance.kept_days(DeltaTable(uri, storage_options=options).metadata().configuration)
         except Exception as exc:  # its own retention setting may be longer than the layer's: don't guess
             raise RuntimeError(f"Couldn't read the table's retention setting ({type(exc).__name__}: {exc}), so the days "
-                               "of history it keeps aren't known. Nothing was started; try again when the table can be read.") from exc
+                               "of history it keeps aren't known. Nothing was started. Try again when the table can be read.") from exc
+
+    def _xray_skew_days(self, uri: str, options: dict[str, str], days: int, why: str) -> tuple[int, str]:
+        """More days than ``days`` when a commit dated out of step with the one before it (a writer's clock)
+        would let Fabric's VACUUM delete files a version inside them still reads: that job keeps by days only."""
+        try:
+            safe = maintenance.skew_safe_days(DeltaTable(uri, storage_options=options), days)
+        except Exception as exc:  # the dates can't be read: which files a version still reads isn't known
+            raise RuntimeError(f"Couldn't read the table's history ({type(exc).__name__}: {exc}), so whether its "
+                               "commits' dates can be trusted isn't known. Nothing was started. Try again when the "
+                               "table can be read.") from exc
+        # Refused only when the skew is what raised the days: a table's own long retention (or a layer's
+        # Keep history) past the bound, with its dates in order, is kept as asked.
+        if safe > days and safe > maintenance.MAX_SKEW_DAYS:
+            raise RuntimeError("A commit in this table's history is dated much earlier than the one before it, "
+                               "because a writer's clock was out of step. To keep the files its versions read, "
+                               f"Fabric's VACUUM would have to keep {safe:,} days of history, so it would remove "
+                               "nothing. Nothing was started. Run VACUUM from a notebook on this PC instead, which "
+                               "keeps exactly the files those versions read.")
+        if safe > days:
+            return safe, "a commit dated earlier than the one before it (a writer's clock out of step)"
+        return days, why
 
     def _xray_mark_submitted(self, finding_id: str, job_id: str, workspace_id: str, item_id: str) -> None:
         """The fix's Fabric job, so the finding shows "submitted" until the job finishes."""
@@ -314,6 +334,7 @@ class XRayMixin:
         risk_acknowledge records it, before the job is submitted. A pass or an unknown result records nothing."""
         uri, options = self._xray_table(workspace_id, lakehouse_id, schema, table)
         days, _why = self._xray_keep_days(workspace_id, lakehouse_name, self._xray_table_days(uri, options))
+        days, _why = self._xray_skew_days(uri, options, days, _why)
         self._xray_risk_gate(self._xray_optimize_risk(workspace_id, lakehouse_id, table, schema, lakehouse_name,
                                                       workspace_name, False), risk_id)
         job_id = self.fabric_jobs.run_table_maintenance(  # type: ignore[attr-defined]
@@ -330,6 +351,7 @@ class XRayMixin:
         Fabric: the policy, the sign-in and the workspace's capacity. Read only."""
         uri, options = self._xray_table(workspace_id, lakehouse_id, schema, table)
         days, why = self._xray_keep_days(workspace_id, lakehouse_name, self._xray_table_days(uri, options))
+        days, why = self._xray_skew_days(uri, options, days, why)
         return {"keep_days": days, "why": why,
                 "risk": self._xray_optimize_risk(workspace_id, lakehouse_id, table, schema, lakehouse_name,
                                                  workspace_name, refresh)}
@@ -378,6 +400,7 @@ class XRayMixin:
         risk check (FINOPS-004) for starting it in Fabric, as Optimize's check has. Read only."""
         uri, options = self._xray_table(workspace_id, lakehouse_id, schema, table)
         days, why = self._xray_keep_days(workspace_id, lakehouse_name, self._xray_table_days(uri, options))
+        days, why = self._xray_skew_days(uri, options, days, why)
         doomed = maintenance.vacuum_preview(uri, days, options)
         folder = f"Tables/{schema}/{table}" if schema else f"Tables/{table}"
         size = None
@@ -400,6 +423,7 @@ class XRayMixin:
         warnings needs ``risk_id`` (from xray_vacuum_preview) and is recorded before the job is submitted."""
         uri, options = self._xray_table(workspace_id, lakehouse_id, schema, table)
         days, why = self._xray_keep_days(workspace_id, lakehouse_name, self._xray_table_days(uri, options))
+        days, why = self._xray_skew_days(uri, options, days, why)
         self._xray_risk_gate(self._xray_optimize_risk(workspace_id, lakehouse_id, table, schema, lakehouse_name,
                                                       workspace_name, False, vacuum=True), risk_id)
         job_id = self.fabric_jobs.run_table_maintenance(  # type: ignore[attr-defined]
@@ -461,7 +485,8 @@ class XRayMixin:
             out["why"][-1] += f", less than {xray.STAGING_QUIET_DAYS} days, so a dataflow may still be using it."
         out["dataflows"] = self._staging_dataflows(workspace_id, lakehouse_id, name, _when(last), out["why"])
         if not out["allowed"]:
-            out["why"].append("Your organization turned off removing staging lakehouses (allow_staging_cleanup in its policy file).")
+            out["why"].append("Your organization has turned off removing staging lakehouses. "
+                              + app_settings.ask_it("allow_staging_cleanup"))
         out["ok"] = not out["why"]
         return out
 
@@ -648,19 +673,13 @@ def _when(iso: Any) -> dt.datetime | None:
 
 def _definition_text(definition: dict[str, Any]) -> str:
     """Every part of an item definition, decoded, as one text to search. A definition with no
-    parts is unreadable, not proof of anything."""
-    parts = (definition.get("definition") or definition).get("parts") or []
-    out = []
-    for part in parts:
-        payload = part.get("payload") or ""
-        try:
-            out.append(base64.b64decode(payload).decode("utf-8", "replace") if part.get("payloadType", "InlineBase64") == "InlineBase64" else str(payload))
-        except ValueError:
-            out.append(str(payload))
-        out.append(str(part.get("path") or ""))
+    parts, or a part that isn't whole base64 (FabricError BadDefinitionPart), is unreadable, not
+    proof of anything: read short, it could miss the lakehouse's name."""
+    parts = definition_parts(definition)
     if not parts:
-        raise ValueError("Fabric returned no definition parts")
-    return "\n".join(out)
+        raise ValueError("Fabric's definition couldn't be read, because Fabric returned no parts. Open the item in Fabric "
+                         "to check it still loads.")
+    return "\n".join(f"{data.decode('utf-8', 'replace')}\n{path}" for path, data in parts.items())
 
 
 def _finding_id(f: dict[str, Any]) -> str:

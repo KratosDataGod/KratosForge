@@ -1084,8 +1084,9 @@ def install(show: Callable[[Any], None], capture: Callable[[Any], Any]) -> None:
     if _finder not in sys.meta_path:
         sys.meta_path.insert(0, _finder)
     for name in ("ipywidgets", "ipywidgets.widgets"):
-        if not getattr(sys.modules.get(name), "__kratosforge__", True):
-            del sys.modules[name]  # a real ipywidgets a library imported: cells get this one
+        loaded = sys.modules.get(name)
+        if loaded is not None and not getattr(loaded, "__kratosforge__", False):
+            del sys.modules[name]  # a real ipywidgets a library imported (it has no marker): cells get this one
 
 
 @contextlib.contextmanager

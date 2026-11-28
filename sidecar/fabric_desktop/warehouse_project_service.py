@@ -117,7 +117,7 @@ def _key(kind: str, schema: str, name: str) -> tuple[str, str, str]:
 
 
 def _segment_ok(s: str) -> bool:
-    return (bool(_SEGMENT.match(s)) and s not in (".", "..") and not s.startswith(".") and not s.endswith((" ", "."))
+    return (bool(_SEGMENT.fullmatch(s)) and s not in (".", "..") and not s.startswith(".") and not s.endswith((" ", "."))
             and not _RESERVED.match(s.split(".")[0].strip()))
 
 
@@ -206,10 +206,15 @@ class WarehouseProjectMixin:
             root = Path(r["path"]).resolve()
             for d in self._wh_find(root)[:50]:
                 name = d.name[: -len(SUFFIX)]
+                platform = d / ".platform"
                 try:
-                    meta = json.loads((d / ".platform").read_text(encoding="utf-8")).get("metadata") or {}
-                    name = str(meta.get("displayName") or name)
-                except (OSError, ValueError, AttributeError):
+                    # Only a regular file in the repository: a link, a device or a pipe could hang the read.
+                    if not platform.is_symlink() and platform.is_file() and platform.stat().st_size <= MAX_FILE:
+                        meta = json.loads(platform.read_text(encoding="utf-8-sig")).get("metadata") or {}
+                        shown = meta.get("displayName")
+                        if isinstance(shown, str) and shown.strip() and shown.isprintable():
+                            name = shown
+                except (OSError, ValueError, AttributeError, RecursionError):  # not readable: the folder's name
                     pass
                 projects.append({"repo": r["path"], "repo_label": label, "folder": d.relative_to(root).as_posix(), "name": name})
         return {"repos": repos, "projects": projects}

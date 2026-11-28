@@ -65,7 +65,7 @@ def test_lakehouse_defaults_to_the_attached_one_and_explains_without_it(k, monke
     assert out["outputs"][-1]["ename"] == "LookupError"
 
 
-@pytest.mark.parametrize("call", ["create('x')", "update('x', 'y')", "delete('x')", "loadTable({}, 't')"])
+@pytest.mark.parametrize("call", ["create('x')", "update('x', 'y')", "delete('x')"])
 def test_lakehouse_changes_run_in_fabric(k, call):
     out = k.run(f"notebookutils.lakehouse.{call}")
     assert out["outputs"][-1]["ename"] == "NotImplementedError"
@@ -109,7 +109,7 @@ class FakeNotebooks(FakeClient):
     def get_item_definition(self, ws, item, fmt=None):
         FakeClient.calls.append(("definition", ws, item, fmt))
         payload = base64.b64encode(b'{"cells": [], "nbformat": 4}').decode()
-        return {"definition": {"parts": [{"path": "notebook-content.ipynb", "payload": payload}, {"path": ".platform"}]}}
+        return {"definition": {"parts": [{"path": "notebook-content.ipynb", "payload": payload}, {"path": ".platform", "payload": ""}]}}
 
 
 def test_notebook_items_read_as_you(k, monkeypatch):

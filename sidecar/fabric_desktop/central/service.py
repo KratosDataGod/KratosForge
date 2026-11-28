@@ -162,7 +162,8 @@ class PlatformMixin:
 
     def _check_can_share(self) -> dict[str, Any]:
         if self._platform_source() == "policy":
-            raise PermissionError("Your organization sets the platform, so keys can't be moved from this PC")
+            raise PermissionError("Your organization sets the platform, so keys can't be moved from this PC. "
+                                  "Ask IT to change platform in the policy file.")
         cfg = self._keys_config()
         if not cfg.get("functions_id") and any(c.get("functions_id") for c in self._platform_config().values()):
             # Fabric can't reach a database on this PC, so keys already in Fabric never move here.
@@ -267,7 +268,8 @@ class PlatformMixin:
 
     def _save_platform(self, env: str, cfg: dict[str, Any]) -> None:
         if self._platform_source() == "policy":
-            raise PermissionError("Your organization sets the platform, so it can't be changed here")
+            raise PermissionError("Your organization sets the platform, so it can't be changed here. "
+                                  "Ask IT to change platform in the policy file.")
         mine = dict(self._settings().get("platform", {}))  # type: ignore[attr-defined]
         if cfg:
             mine[env] = cfg
@@ -696,8 +698,8 @@ class PlatformMixin:
         where they are: nothing is copied or deleted. Platform admins only."""
         self._require_platform_admin("set up the landing workspace")
         if self._platform_source() == "policy" and not self._central_landing():
-            raise PermissionError("Your organization sets the platform, so the landing workspace is added to its policy "
-                                  "(platform.landing), not here")
+            raise PermissionError("Your organization sets the platform, so the landing workspace is added to its policy, "
+                                  "not here. Ask IT to add it to platform.landing in the policy file.")
         out = setup_mod.landing_setup(self.fabric, workspace_name, capacity_id, self._landing_config())  # type: ignore[attr-defined]
         cfg = out["config"]
         if cfg.get("lakehouse_id"):
@@ -1169,24 +1171,27 @@ class PlatformMixin:
 
     def mesh_save_product(self, product: dict[str, Any], original: str = "") -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
-        path = project.root / "metadata" / "products" / f"{product.get('name', '')}.toml"
+        name = mesh.product_name(product.get("name", ""))  # before its file is read: it names the file
+        if original:
+            mesh.file_name(original, "product name")  # before anything is written: it names a file to remove
+        path = project.root / "metadata" / "products" / f"{name}.toml"
         old = path.read_text(encoding="utf-8") if path.exists() else None
         new_path = mesh.write_product(project.root, product)
         project.reload()
-        problems = [e for e in mesh.validate(project) if e.startswith(f"products/{product.get('name')}")]
+        problems = [e for e in mesh.validate(project) if e.startswith(f"products/{name}")]
         if problems:
             if old is None:
                 new_path.unlink()
             else:
                 jsonfile.write_text(new_path, old)
             raise GateError("save", problems)
-        if original and original != product.get("name"):
+        if original and original != name:
             (project.root / "metadata" / "products" / f"{original}.toml").unlink(missing_ok=True)
         return self.mesh_overview()
 
     def mesh_delete_product(self, name: str) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
-        (project.root / "metadata" / "products" / f"{name}.toml").unlink(missing_ok=True)
+        (project.root / "metadata" / "products" / f"{mesh.file_name(name, 'product name')}.toml").unlink(missing_ok=True)
         return self.mesh_overview()
 
     def _port_location(self, project: Any, env: str, entity: str) -> dict[str, Any]:
@@ -1302,7 +1307,8 @@ class PlatformMixin:
         product's current version, so a later breaking version doesn't reach it unnoticed."""
         project = self._project()  # type: ignore[attr-defined]
         reads = {env: (link.get("reads") or {}).get(env, env) for env in ENVIRONMENTS}
-        alias = link.get("alias", "")
+        alias = mesh.link_alias(link.get("alias", ""))  # before the catalog hears of it
+        link = link | {"alias": alias}
         kept = project.links.get(alias)
         if kept is not None and kept.product != link.get("product", ""):
             kept = None  # the alias now names another product: its versions and columns don't carry over
@@ -1394,8 +1400,11 @@ class PlatformMixin:
         project = self._project()  # type: ignore[attr-defined]
         users = [e.name for e in project.entities.values() if e.spec.get("source", {}).get("link") == alias]
         if users:
-            raise GateError("save", [f"can't delete link {alias}: {', '.join(users)} read it"])
-        (project.root / "metadata" / "links" / f"{alias}.toml").unlink(missing_ok=True)
+            names = users[0] if len(users) == 1 else ", ".join(users[:-1]) + " and " + users[-1]
+            verb, them = ("reads", "it") if len(users) == 1 else ("read", "them")
+            raise GateError("save", [(f"Link {alias} can't be removed, because {names} {verb} it. "
+                                     f"Point {them} at another source first, then remove the link.")])
+        (project.root / "metadata" / "links" / f"{mesh.file_name(alias, 'link name')}.toml").unlink(missing_ok=True)
         return self.mesh_overview()
 
     def _link_table(self, project: Any, env: str) -> Callable[[str], str]:
@@ -1525,9 +1534,9 @@ class PlatformMixin:
                 if top.get("next", 1) > have.get("next", 1):
                     newer.append(f"{kt.name} (keys {have['next']} to {top['next'] - 1})")
             if newer:
-                raise GateError("save", [f"The platform issued keys after the move that LH_Keys doesn't have: "
+                raise GateError("save", [(f"The platform issued keys after the move that LH_Keys doesn't have: "
                                          f"{', '.join(newer)}. Going back would reuse those numbers, so keys stay "
-                                         "in the platform."])
+                                         "in the platform.")])
         envs = {k: dict(v) for k, v in project.environments.items()}
         envs.setdefault(env, {})["keys"] = "lakehouse"
         envs[env].pop("keys_moved_at", None)

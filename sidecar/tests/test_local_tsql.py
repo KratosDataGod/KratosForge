@@ -34,7 +34,8 @@ def test_everyday_tsql_runs_and_gives_tsql_answers(engine):
 
 def test_integers_divide_and_average_as_integers(engine):
     r = tsql(engine, "SELECT qty / boxes AS per, 7 / 2 AS lit, price / boxes AS dec FROM dbo.orders ORDER BY id")
-    assert r["rows"] == [[3, 3, 1.25], [-3, 3, 2.0]]  # truncated toward zero, as T-SQL does
+    # Integers truncate toward zero; decimal(2,1) / int is decimal(13,12), as in a Warehouse.
+    assert r["rows"] == [[3, 3, "1.250000000000"], [-3, 3, "2.000000000000"]]
     assert tsql(engine, "SELECT AVG(boxes + id) AS a FROM dbo.orders")["rows"] == [[3]]  # (3 + 4) / 2
 
 
@@ -42,7 +43,8 @@ def test_an_integer_average_over_a_window_is_an_integer(engine):
     # The whole AVG(...) OVER (...) is cut, not the AVG inside it (that was a parser error).
     r = tsql(engine, "SELECT AVG(id) OVER () AS a, AVG(qty - id) OVER (ORDER BY id ROWS BETWEEN 1 PRECEDING "
                      "AND CURRENT ROW) AS b, AVG(price) OVER () AS c FROM dbo.orders ORDER BY id")
-    assert r["rows"] == [[1, 6, 3.25], [1, -1, 3.25]]  # 1.5 and -1.5 toward zero; non-integers are not cut
+    # 1.5 and -1.5 toward zero; a decimal average is decimal(38, 6), as in a Warehouse.
+    assert r["rows"] == [[1, 6, "3.250000"], [1, -1, "3.250000"]]
 
 
 def test_len_weekday_week_and_plus_on_text(engine):
@@ -107,8 +109,8 @@ def test_a_cast_to_an_integer_of_an_unknown_type_is_reported():
     texts, notes = translate("SELECT CAST(x AS INT), CAST(y AS BIT), CAST(z AS DECIMAL(5, 0)) FROM nowhere")
     # BIT is a boolean here (DuckDB's BIT is a bit string).
     assert texts == ["SELECT CAST(x AS INT), CAST(y AS BOOLEAN), CAST(z AS DECIMAL(5, 0)) FROM nowhere"]
-    assert notes == ["Couldn't tell the type in CAST(x AS INTEGER): it converts as DuckDB does, and T-SQL cuts a "
-                     "decimal toward zero and refuses text that isn't a whole number."]
+    assert notes == [("Couldn't tell the type in CAST(x AS INTEGER): it converts as DuckDB does, and T-SQL cuts a "
+                     "decimal toward zero and refuses text that isn't a whole number.")]
     # A literal's type is known, so it gets no note.
     assert translate("SELECT CAST(3.7 AS INT)")[1] == []
 
@@ -142,7 +144,7 @@ def test_outer_apply_keeps_rows_with_no_match(engine):
 def test_plus_with_a_number_adds_as_numbers(engine):
     r = tsql(engine, "SELECT '1' + 1 AS a, qty + '7' AS b, name + '!' AS c FROM dbo.orders WHERE id = 1")
     assert r["rows"] == [[2, 14, "Ann  !"]]
-    with pytest.raises(Exception, match="Conversion failed when converting the text to data type INT"):
+    with pytest.raises(Exception, match="Conversion failed when converting the varchar value 'x' to data type int"):
         tsql(engine, "SELECT 'x' + 1")  # T-SQL can't convert 'x' to a number either
 
 
@@ -297,8 +299,8 @@ def test_like_with_ranges_keeps_its_escape_character(engine):
 def test_a_like_pattern_that_isnt_text_is_reported():
     texts, notes = translate("SELECT 1 FROM dbo.t WHERE a LIKE b")
     assert texts == ["SELECT 1 FROM dbo.t WHERE a LIKE b"]
-    assert notes == ["A LIKE pattern that isn't written in the query (such as LIKE other_column) matches as DuckDB's "
-                     "LIKE does, which takes no [a-c] character ranges."]
+    assert notes == [("A LIKE pattern that isn't written in the query (such as LIKE other_column) matches as DuckDB's "
+                     "LIKE does, which takes no [a-c] character ranges.")]
 
 
 def test_several_like_patterns_that_arent_text_make_one_note():
@@ -450,7 +452,7 @@ def test_text_added_to_a_number_follows_tsql(engine):
     engine.execute("CREATE TABLE dbo.f AS SELECT * FROM (VALUES (1, CAST(1.5 AS DOUBLE), ''), (2, NULL, ' 2 ')) v(id, d, s)")
     assert tsql(engine, "SELECT d + '' AS a, '' + 7 AS b, s + 1 AS c, s + d AS e FROM dbo.f ORDER BY id")["rows"] == [
         [1.5, 7, 1, 1.5], [None, 7, 3, None]]
-    with pytest.raises(Exception, match="Conversion failed when converting the text to data type INT"):
+    with pytest.raises(Exception, match=r"Conversion failed when converting the varchar value '1\.5' to data type int"):
         tsql(engine, "SELECT '1.5' + 1 AS a")
 
 
@@ -483,10 +485,11 @@ def test_format_of_a_date_follows_dotnets_formats(engine):
 
 
 def test_format_of_a_number_rounds_half_away_from_zero(engine):
-    r = tsql(engine, "SELECT FORMAT(1234.5, 'N2') AS a, FORMAT(-1234.5, 'N0') AS b, FORMAT(-0.004, 'N2') AS c, "
+    # FORMAT(-0.004, 'N2') rounds to zero, which .NET's versions write as 0.00 or -0.00: refused (test_tsql_formatting)
+    r = tsql(engine, "SELECT FORMAT(1234.5, 'N2') AS a, FORMAT(-1234.5, 'N0') AS b, "
                      "FORMAT(-0.005, 'N2') AS d, FORMAT(1234567, 'N') AS e, FORMAT(2.5, 'F0') AS f, "
                      "FORMAT(-1234.5, 'f3') AS g, FORMAT(-42, 'D5') AS h, FORMAT(123456, 'D3') AS i, FORMAT(42, 'd') AS j")
-    assert r["rows"] == [["1,234.50", "-1,235", "0.00", "-0.01", "1,234,567.00", "3", "-1234.500", "-00042",
+    assert r["rows"] == [["1,234.50", "-1,235", "-0.01", "1,234,567.00", "3", "-1234.500", "-00042",
                           "123456", "42"]]
     r = tsql(engine, "SELECT FORMAT(price, 'N1') AS p, FORMAT(qty, 'N0') AS q, FORMAT(CAST(NULL AS INT), 'N') AS n "
                      "FROM dbo.orders ORDER BY id")
@@ -498,10 +501,12 @@ def test_format_of_a_number_rounds_half_away_from_zero(engine):
     ("SELECT FORMAT(CAST(1 AS MONEY), 'N2')", "MONEY and SMALLMONEY aren't carried yet"),
     ("SELECT FORMAT(CAST('10:00' AS TIME), 'hh')", "FORMAT of a TIME value"),
     ("SELECT FORMAT('2024-01-01', 'yyyy')", "FORMAT of text"),
-    ("SELECT FORMAT(5, '0000')", "number format '0000'"),
-    ("SELECT FORMAT(5, 'C')", "number format 'C'"),
+    ("SELECT FORMAT(5, '0;0;0')", "third section"),
+    ("SELECT FORMAT(5, 'P')", "'P' (percent)"),
+    ("SELECT FORMAT(5, 'C', 'de-DE')", "'C' (currency) outside 'en-US'"),
     ("SELECT FORMAT(1.5, 'D')", "'D' format is for integers"),
-    ("SELECT FORMAT(day, 'D', 'de-DE') FROM dbo.orders", "'en-US' culture"),
+    ("SELECT FORMAT(day, 'D', 'de-DE') FROM dbo.orders", "date format 'D' in 'de-DE'"),
+    ("SELECT FORMAT(day, 'd', 'fr-FR') FROM dbo.orders", "the culture 'fr-FR' isn't carried yet"),
     ("SELECT FORMAT(day, name) FROM dbo.orders", "text written in the query"),
     ("SELECT FORMAT(day, 'U') FROM dbo.orders", "date format 'U'"),
     ("SELECT FORMAT(day, 'yyyy K') FROM dbo.orders", "K (the time zone)"),
@@ -543,7 +548,7 @@ def test_a_text_column_compares_without_trailing_spaces(engine):
 
 def test_an_equality_on_a_text_column_keeps_a_range_for_skipping_row_groups():
     texts, _ = translate("SELECT id FROM dbo.orders WHERE name = 'Ann '", {"dbo": {"orders": {"id": "INTEGER", "name": "VARCHAR"}}})
-    assert texts == ["SELECT id FROM dbo.orders WHERE (name >= 'Ann' AND name <= 'Ann \U0010ffff' AND RTRIM(name) = 'Ann')"]
+    assert texts == ["SELECT id FROM dbo.orders WHERE (name >= 'Ann' AND name <= 'Ann \U0010ffff' AND RTRIM(name, ' ') = 'Ann')"]
 
 
 def test_numbers_compare_as_before_and_unknown_text_comparisons_are_noted():
@@ -551,8 +556,8 @@ def test_numbers_compare_as_before_and_unknown_text_comparisons_are_noted():
     assert texts == ["SELECT 1 FROM q WHERE n = 3 AND m < 2.5"] and notes == []
     texts, notes = translate("SELECT 1 FROM q WHERE a = 'x' OR b = 'y'")
     assert texts == ["SELECT 1 FROM q WHERE a = 'x' OR b = 'y'"]
-    assert notes == ["Couldn't tell the types in some comparisons, so they are done as DuckDB does them: T-SQL "
-                     "ignores trailing spaces when it compares text ('a' = 'a  '), and here they count."]
+    assert notes == [("Couldn't tell the types in some comparisons, so they are done as DuckDB does them: T-SQL "
+                     "ignores trailing spaces when it compares text ('a' = 'a  ', and 'a  ' LIKE 'a'), and here they count.")]
 
 
 def test_the_function_list_is_read_only_when_a_query_calls_an_unknown_function(engine, monkeypatch):

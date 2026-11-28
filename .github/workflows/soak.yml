@@ -51,9 +51,14 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
-            sidecar/constraints.txt
-            sidecar/pyproject.toml
-      - run: python -m pip install -e ".[dev]" -c constraints.txt
+            .github/requirements/test-linux.txt
+            .github/requirements/test-windows.txt
+      # Every package checked against its hash (test-<os>.txt, constraints.txt's versions); then the engine
+      # itself, built by the hashed setuptools (see ci.yml's sidecar job).
+      - run: |
+          if [ "$RUNNER_OS" = Windows ]; then lock=test-windows.txt; else lock=test-linux.txt; fi
+          python -m pip install --only-binary=:all: --require-hashes -r "../.github/requirements/$lock"
+          python -m pip install --no-deps --no-build-isolation -e .
       - name: Soak
         run: python ../examples/benchmark/memory_soak.py --minutes ${{ matrix.minutes }} --warmup ${{ matrix.warmup }} --json "$RUNNER_TEMP/soak.json" --summary "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

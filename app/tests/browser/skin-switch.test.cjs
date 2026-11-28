@@ -69,6 +69,31 @@ test("the skin cards have no serious axe findings", { skip: skip || (!axeSource 
   assert.deepStrictEqual(await axeFindings(page(), ".skin-chooser"), []);
 });
 
+test("each skin card's picture draws that skin's own look: header, rail, corners, tabs, cells and type", { skip }, async () => {
+  const thumbs = () => page().evaluate(() => Object.fromEntries([...document.querySelectorAll(".skin-card")].map((card) => {
+    const t = card.querySelector(".skin-thumb");
+    const cs = (sel) => getComputedStyle(t.querySelector(sel));
+    return [card.querySelector("input").value, { ...t.dataset, head: cs(".skin-thumb-head").backgroundColor,
+      railW: Math.round(t.querySelector(".skin-thumb-rail").getBoundingClientRect().width), type: cs(".skin-thumb-type").fontFamily.split(",")[0].replace(/"/g, "") }];
+  })));
+  await page().evaluate(() => go("settings"));
+  await chooser().getByRole("radio", { name: "KratosForge" }).waitFor();
+  const all = await thumbs();
+  const look = (id) => { const { font, header, rail, corners, tabs, cells } = all[id]; return [font, header, rail, corners, tabs, cells]; };
+  assert.deepStrictEqual(look("kratosforge"), ["segoe-variable", "light", "stacked", "soft", "underline", "bordered"]);
+  assert.deepStrictEqual(look("databricks"), ["dm-sans", "light", "inline", "square", "boxed", "flat"]);
+  assert.deepStrictEqual(look("snowflake"), ["inter", "none", "inline", "round", "pill", "rounded"]);
+  assert.deepStrictEqual(look("fabric"), ["segoe", "brand", "stacked", "soft", "underline", "card"]);
+  // Drawn, not only marked: Fabric's brand header is its accent, a wide rail is wider, and the type is the skin's.
+  assert.strictEqual(all.fabric.head, "rgb(15, 108, 92)");
+  assert.strictEqual(all.kratosforge.head, "rgb(255, 255, 255)");
+  assert.ok(all.databricks.railW > all.kratosforge.railW * 2, `${all.databricks.railW} vs ${all.kratosforge.railW}`);
+  assert.strictEqual(all.databricks.type, "DM Sans");
+  assert.strictEqual(all.snowflake.type, "Inter");
+  if (SHOTS) await page().locator(".skin-chooser").screenshot({ path: path.join(SHOTS, "skin-picker.png") });
+  assert.deepStrictEqual(app.errors, []);
+});
+
 test("a save that fails leaves the skin in force checked", { skip }, async () => {
   await page().evaluate(() => { window.__realSave = saveSettings; saveSettings = async () => false; });
   await chooser().getByRole("radio", { name: "KratosForge" }).click();
@@ -110,5 +135,114 @@ test("switching back to KratosForge removes the skin's colors and restores the r
   assert.strictEqual(await accent(), "#1b3664");
   assert.deepStrictEqual((await railIds()).slice(0, 3), ["home", "create", "workspaces"]);
   assert.strictEqual(await page().locator(".rail-group-label").count(), 0);  // the KratosForge skin needs no label
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("with Preview features hidden, a skin's look falls back to the app's own", { skip }, async () => {
+  const look = (shown) => page().evaluate((shown) => {
+    state.settings.show_preview = { ...(state.settings.show_preview || {}), value: shown };
+    state.settings.ui_skin = { ...(state.settings.ui_skin || {}), value: "databricks" };
+    applySkin();
+    return [document.body.dataset.skinFont, document.body.dataset.skinRail];
+  }, shown);
+  assert.deepStrictEqual(await look(false), ["segoe-variable", "stacked"]);
+  assert.deepStrictEqual(await look(true), ["dm-sans", "inline"]);
+});
+
+test("each skin marks the page with its look, part by part, and KratosForge keeps its own", { skip }, async () => {
+  const look = (skin) => page().evaluate((skin) => {
+    state.settings.ui_skin = { ...(state.settings.ui_skin || {}), value: skin };
+    applySkin();
+    const d = document.body.dataset;
+    return [d.skinFont, d.skinHeader, d.skinRail, d.skinCorners, d.skinTabs, d.skinCells, d.skinIcons];
+  }, skin);
+  assert.deepStrictEqual(await look("databricks"), ["dm-sans", "light", "inline", "square", "boxed", "flat", "bold"]);
+  assert.deepStrictEqual(await look("snowflake"), ["inter", "none", "inline", "round", "pill", "rounded", "regular"]);
+  assert.deepStrictEqual(await look("fabric"), ["segoe", "brand", "stacked", "soft", "underline", "card", "light"]);
+  // Back to KratosForge, every part is its own again: nothing from the last skin stays.
+  assert.deepStrictEqual(await look("kratosforge"), ["segoe-variable", "light", "stacked", "soft", "underline", "bordered", "regular"]);
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("a skin's typeface loads from the app's own fonts and its corners change, under the app's CSP", { skip }, async () => {
+  const drawn = (skin, family) => page().evaluate(async ({ skin, family }) => {
+    state.settings.ui_skin = { ...(state.settings.ui_skin || {}), value: skin };
+    applySkin();
+    if (family) await document.fonts.load(`600 14px "${family}"`);
+    const cs = getComputedStyle(document.body);
+    return { font: cs.fontFamily.split(",")[0].replace(/"/g, "").trim(), loaded: family ? document.fonts.check(`600 14px "${family}"`) : true,
+      corner: cs.getPropertyValue("--r-sm").trim() };
+  }, { skin, family });
+  assert.deepStrictEqual(await drawn("databricks", "DM Sans"), { font: "DM Sans", loaded: true, corner: "2px" });
+  assert.deepStrictEqual(await drawn("snowflake", "Inter"), { font: "Inter", loaded: true, corner: "6px" });
+  assert.deepStrictEqual(await drawn("fabric"), { font: "Segoe UI", loaded: true, corner: "4px" });
+  assert.deepStrictEqual(await drawn("kratosforge"), { font: "Segoe UI Variable Text", loaded: true, corner: "4px" });
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("a wide rail puts each label beside its icon, and gives its room back in a narrow window", { skip }, async () => {
+  // The page settles its layout a frame or two after a skin or window change, so wait for the width asked.
+  const railAt = (w) => page().waitForFunction((w) => Math.round(document.getElementById("rail").getBoundingClientRect().width) === w, w, { timeout: 3000 }).catch(() => {});
+  const rail = () => page().evaluate(() => {
+    const r = document.getElementById("rail").getBoundingClientRect();
+    const item = getComputedStyle(document.querySelector(".rail-item"));
+    return { width: Math.round(r.width), direction: item.flexDirection };
+  });
+  await page().evaluate(() => { state.settings.ui_skin = { ...(state.settings.ui_skin || {}), value: "databricks" }; applySkin(); });
+  await railAt(208);
+  assert.deepStrictEqual(await rail(), { width: 208, direction: "row" });
+  await page().setViewportSize({ width: 900, height: 900 });
+  await railAt(72);
+  assert.deepStrictEqual(await rail(), { width: 72, direction: "column" });
+  // A short window (200% zoom on a laptop): like the app's own rail, it shows icons only.
+  await page().setViewportSize({ width: 1280, height: 600 });
+  await railAt(52);
+  assert.deepStrictEqual(await rail(), { width: 52, direction: "column" });
+  await page().setViewportSize({ width: 1440, height: 900 });
+  await page().evaluate(() => { state.settings.ui_skin.value = "kratosforge"; applySkin(); });
+  await railAt(72);
+  assert.deepStrictEqual(await rail(), { width: 72, direction: "column" });
+});
+
+test("a brand header fills the bar with the skin's accent and keeps its text readable", { skip }, async () => {
+  const bar = () => page().evaluate(() => {
+    const cs = (sel) => getComputedStyle(document.querySelector(sel));
+    return { bg: cs("body > header.topbar").backgroundColor, search: cs("body > header.topbar .search input").color, n: document.querySelectorAll(".topbar").length };
+  });
+  await page().evaluate(() => { state.settings.ui_skin = { ...(state.settings.ui_skin || {}), value: "fabric" }; applySkin(); });
+  await page().waitForFunction(() => getComputedStyle(document.querySelector("body > header.topbar")).backgroundColor === "rgb(15, 108, 92)", null, { timeout: 3000 }).catch(() => {});
+  assert.deepStrictEqual(await bar(), { bg: "rgb(15, 108, 92)", search: "rgb(255, 255, 255)", n: 1 });
+  if (axeSource) assert.deepStrictEqual(await axeFindings(page(), ".topbar"), []);
+  // The brand lettering is never recolored: on the brand bar the name shows as text instead.
+  const name = () => page().evaluate(() => [".brand-name", ".brand-text"].map((s) => getComputedStyle(document.querySelector(s)).display !== "none"));
+  assert.deepStrictEqual(await name(), [false, true]);
+  assert.strictEqual(await page().evaluate(() => getComputedStyle(document.querySelector(".brand-name")).filter), "none");
+  await page().evaluate(() => { state.settings.ui_skin.value = "kratosforge"; applySkin(); });
+  await page().waitForFunction(() => getComputedStyle(document.querySelector("body > header.topbar")).backgroundColor === "rgb(255, 255, 255)", null, { timeout: 3000 }).catch(() => {});
+  assert.strictEqual((await bar()).bg, "rgb(255, 255, 255)");
+  assert.deepStrictEqual(await name(), [true, false]);
+});
+
+test("a skin draws its tabs and notebook cells, and an edited cell keeps its orange edge", { skip }, async () => {
+  const look = (skin) => page().evaluate(async (skin) => {
+    state.settings.ui_skin = { ...(state.settings.ui_skin || {}), value: skin };
+    applySkin();
+    loadIntoState({ name: "Orders", cells: [{ type: "code", cell_id: "c1", source: "a = 1", meta: {} }] });
+    state.ribbonTab = "home"; go("notebook");
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const tab = getComputedStyle(document.querySelector(".ribbon-tabs .tab.active"));
+    const box = getComputedStyle(document.querySelector(".cell .cell-box"));
+    return { tabRadius: tab.borderTopLeftRadius, cellRadius: box.borderTopLeftRadius };
+  }, skin);
+  // Round corners make --r-lg 12 px; rounded cells use it.
+  assert.deepStrictEqual(await look("snowflake"), { tabRadius: "999px", cellRadius: "12px" });
+  assert.deepStrictEqual(await look("databricks"), { tabRadius: "2px", cellRadius: "2px" });
+  assert.deepStrictEqual(await look("kratosforge"), { tabRadius: "0px", cellRadius: "6px" });
+  const edge = await page().evaluate(async () => {
+    state.settings.ui_skin.value = "fabric"; applySkin();
+    document.querySelector(".cell").classList.add("selected"); document.querySelector(".cells").classList.add("editing");
+    return getComputedStyle(document.querySelector(".cell .cell-box")).boxShadow;
+  });
+  assert.match(edge, /inset/, "the edited cell keeps its orange edge in a card skin");
   assert.deepStrictEqual(app.errors, []);
 });

@@ -82,18 +82,26 @@ class Backend(Protocol):
 
 
 @contextmanager
-def _file_lock(path: Path) -> Iterator[None]:
-    """An exclusive lock on ``path`` held across processes (the app, scheduled runs, agents)."""
+def _file_lock(path: Path, timeout: float | None = None) -> Iterator[None]:
+    """An exclusive lock on ``path`` held across processes (the app, scheduled runs, agents). With
+    ``timeout``, TimeoutError (an OSError) once that many seconds pass without it: another process
+    that hangs while holding it can't stop this one for good."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = None if timeout is None else time.monotonic() + timeout
     with open(path, "a+b") as f:
         if os.name == "nt":
             import msvcrt
             f.seek(0)
             while True:
                 try:
-                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]  # Windows-only; retries for about 10 s, then raises
+                    # Windows-only; LK_LOCK retries for about 10 s, LK_NBLCK once
+                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK if deadline is None else msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
                     break
                 except OSError:
+                    if deadline is not None:
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError(f"{path.name} is held by another process") from None
+                        time.sleep(0.05)
                     continue
             try:
                 yield
@@ -102,7 +110,14 @@ def _file_lock(path: Path) -> Iterator[None]:
                 msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]  # Windows-only
         else:
             import fcntl
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            while True:
+                try:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX if deadline is None else fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if deadline is None or time.monotonic() >= deadline:
+                        raise TimeoutError(f"{path.name} is held by another process") from None
+                    time.sleep(0.05)
             try:
                 yield
             finally:
@@ -143,7 +158,7 @@ class LocalBackend:
 
     @staticmethod
     def _etag(data: bytes) -> str:
-        return hashlib.sha1(data).hexdigest()
+        return hashlib.sha1(data, usedforsecurity=False).hexdigest()
 
     def create(self, key: str, data: bytes) -> str | None:
         path = self._path(key)
@@ -217,6 +232,8 @@ THROTTLE_WAIT_CAP = 5.0
 class OneLakeBackend:
     """Lease files in a lakehouse's Files area, changed only with ADLS Gen2 conditional requests."""
 
+    WHAT = "the lease for"  # how errors name a file; a subclass storing other files says what they are
+
     def __init__(self, workspace_id: str, lakehouse_id: str, token: Callable[[], str],
                  session: requests.Session | None = None, sleep: Callable[[float], None] = time.sleep,
                  timeout: float = 60, clock: Callable[[], float] = time.monotonic):
@@ -248,7 +265,7 @@ class OneLakeBackend:
 
     def _write(self, key: str, data: bytes, condition: dict[str, str]) -> str | None:
         url = self._url(key)
-        what = f"write the lease for {key}"
+        what = f"write {self.WHAT} {key}"
         deadline = self._deadline()
         resp = self._change(lambda: self._http.put(url, params={"resource": "file"},
                                                           headers=self._headers(**condition), timeout=self.timeout), deadline)
@@ -280,7 +297,7 @@ class OneLakeBackend:
         if resp.status_code == 404:
             return None
         if resp.status_code >= 400:
-            raise _onelake_error(resp, f"read the lease for {key}")
+            raise _onelake_error(resp, f"read {self.WHAT} {key}")
         try:
             modified = parsedate_to_datetime(resp.headers["Last-Modified"]).timestamp()
         except (KeyError, TypeError, ValueError):
@@ -300,8 +317,13 @@ class OneLakeBackend:
         if resp.status_code in (404, 409, 412):
             return False
         if resp.status_code >= 400:
-            raise _onelake_error(resp, f"release the lease for {key}")
+            raise _onelake_error(resp, f"release {self.WHAT} {key}")
         return True
+
+
+# The longest a lease body may say it runs from each write. Holders renew every few minutes at most,
+# so a body that says more is damaged, and runs no longer than this.
+MAX_LEASE_LENGTH = 24 * 3600
 
 
 class Leases:
@@ -322,9 +344,13 @@ class Leases:
     def _expires(self, stored: Stored) -> tuple[float, str]:
         try:
             body = json.loads(stored.data)
-            return float(body["expires"]), str(body.get("owner", "?"))
-        except (ValueError, KeyError, TypeError):
-            # Empty while its writer is between create and flush: treat it as fresh.
+            expires = float(body["expires"])
+            if not math.isfinite(expires):
+                raise ValueError("not a time")  # NaN or infinite would hold the table for good
+            return expires, str(body.get("owner", "?"))
+        except (ValueError, KeyError, TypeError, AttributeError, OverflowError, RecursionError):
+            # Empty while its writer is between create and flush: treat it as fresh. A damaged body
+            # (too deep, a number too big to count with) runs out the same way.
             return stored.modified + self.ttl, "?"
 
     def try_acquire(self, key: str, now: float | None = None) -> str | None:
@@ -347,7 +373,12 @@ class Leases:
         its holder gave it: PCs' clocks differ, so the expiry one PC wrote can't be compared with
         another's clock (EA-025). Elsewhere (a folder on this PC: one clock) the body's expiry."""
         if stored.store_now is None:
-            return self._expires(stored)[0] < self.clock()
+            now, expires = self.clock(), self._expires(stored)[0]
+            if expires > now + self._length(stored) + 1:
+                # No holder writes an expiry further ahead than its length: a damaged body (a year far
+                # off) runs out as an empty one does, so it can't hold the table for good.
+                expires = stored.modified + self.ttl
+            return expires < now
         # Both times are whole seconds (HTTP dates), so a second more before taking it over.
         return stored.store_now - stored.modified > self._length(stored) + 1
 
@@ -360,11 +391,13 @@ class Leases:
                 length = float(body["ttl"])
             else:
                 length = float(body["expires"]) - dt.datetime.fromisoformat(body["acquired_at"]).timestamp()
-        except (ValueError, KeyError, TypeError, OverflowError):
+        except (ValueError, KeyError, TypeError, AttributeError, OverflowError, RecursionError):
             return self.ttl
         # A damaged or hostile body (NaN, infinite, zero or less) can't make a lease last forever or
         # end at once: this writer's own length stands in.
-        return length if math.isfinite(length) and length > 0 else self.ttl
+        if not (math.isfinite(length) and length > 0):
+            return self.ttl
+        return min(length, max(self.ttl, MAX_LEASE_LENGTH))  # nor can a body's own very long length
 
     def holder(self, key: str) -> str:
         stored = self.backend.read(key)
@@ -378,7 +411,7 @@ class Leases:
         owner = self._expires(stored)[1]
         try:
             host = json.loads(stored.data).get("host")
-        except (ValueError, AttributeError):
+        except (ValueError, AttributeError, RecursionError):
             host = None
         return f"{owner} on {host}" if host else owner
 
@@ -457,6 +490,18 @@ def check_held() -> None:
     its own (Held.check). Outside any lease it does nothing."""
     for held in _HELD.get():
         held.check()
+
+
+def holding(key: str) -> bool:
+    """Whether the caller is inside its lease on ``key`` and the lease is still its own (Held.check)."""
+    for held in _HELD.get():
+        if held.key == key:
+            try:
+                held.check()
+            except LeaseLost:  # silent-ok: the answer is no
+                return False
+            return True
+    return False
 
 
 def table_key(lakehouse: str, schema: str, table: str) -> str:

@@ -13,7 +13,7 @@ the session side:
 - ``spark.catalog.tableExists`` against the attached lakehouse (and temp views).
 - DataFrame: isEmpty, tail, explain, createTempView, toLocalIterator, offset, corr / cov /
   approxQuantile / stat, randomSplit, sortWithinPartitions, rdd / isLocal / sparkSession.
-- RDDs, foreach and row-by-row Python raise with a pointer to Fabric.
+- RDDs raise with a pointer to Fabric.
 
 COVERAGE lists PySpark 3.5's DataFrame and SparkSession methods and whether each works here;
 docs/notebook-spark-on-this-pc.md is generated from it (tests keep the two in step).
@@ -29,7 +29,7 @@ from typing import Any, cast
 
 import sqlglot
 from duckdb.experimental.spark.sql.dataframe import DataFrame
-from . import spark_builtins_sql
+from . import spark_builtins_sql, spark_time_zone
 from .duckdb_rows import first_row, one_row
 
 SPARK_VERSION = "3.5.0"  # the PySpark API this emulates, as in Fabric runtime 1.3
@@ -47,9 +47,18 @@ KNOWN_CONF: dict[str, tuple[str, str]] = {
     "spark.microsoft.delta.optimizeWrite.enabled": ("true", "fabric"),
     "spark.databricks.delta.optimizeWrite.enabled": ("true", "fabric"),
     "spark.databricks.delta.autoCompact.enabled": ("false", "fabric"),
-    "spark.sql.sources.partitionOverwriteMode": ("static", "fabric"),
+    "spark.sql.sources.partitionOverwriteMode": ("static", "honored"),
     "spark.app.name": ("KratosForge", "honored"),
 }
+
+
+# Spark SQL on this PC runs with ANSI mode off, as Fabric does: Runtime 1.3 (Spark 3.5) by Spark's default,
+# and Runtime 2.0 (Spark 4.1) by Microsoft's override of Spark 4's (Runtime 2.0 migration guide). A
+# notebook that turns it on would stop in Fabric where it gives NULL here, so it is told by name.
+ANSI_NOTE = ("Note: spark.sql.ansi.enabled = true is kept for Fabric, but this PC runs Spark SQL with ANSI mode "
+             "off, as Fabric does by default. Here a CAST that fails and a division by zero give NULL, and an int "
+             "or bigint that overflows a CAST wraps around; with ANSI mode on, Fabric stops on each. Run the "
+             "notebook in Fabric to see ANSI mode's answers.")
 
 
 class LocalRuntimeConfig:
@@ -61,13 +70,16 @@ class LocalRuntimeConfig:
 
     def set(self, key: str, value: Any) -> None:
         text = str(value).lower() if isinstance(value, bool) else str(value)
-        if key.lower() == "spark.sql.sources.partitionoverwritemode" and text.strip().lower() == "dynamic":
-            # Kept and ignored, an overwrite with partitionBy would replace the whole table, where
-            # Fabric replaces only the partitions it writes.
-            raise ValueError("partitionOverwriteMode=dynamic isn't supported on this PC, and ignoring it would "
-                             "replace the whole table. Run the cell in Fabric.")
+        if key.lower() == "spark.sql.sources.partitionoverwritemode" and text.strip().lower() not in ("static", "dynamic"):
+            raise ValueError(f"partitionOverwriteMode is static or dynamic, not {text!r}.")
         if key == "spark.sql.session.timeZone":
-            self._session.conn.execute("SET TimeZone = ?", [text])  # fails, with DuckDB's reason, for an unknown zone
+            # fails, with DuckDB's reason, for an unknown zone; current_timezone() gives the id as it was set
+            zone = spark_time_zone.zone_id(text)
+            self._session.conn.execute("SET TimeZone = ?", [zone])
+            self._session.conn.execute("SET VARIABLE kf_spark_time_zone = ?", [text])
+            spark_time_zone.session_zone(self._session, zone)
+        if key.lower() == "spark.sql.ansi.enabled" and text.strip().lower() == "true":
+            print(ANSI_NOTE)
         self._set[key] = text
 
     def get(self, key: str, default: Any = ...) -> str | None:
@@ -82,6 +94,8 @@ class LocalRuntimeConfig:
     def unset(self, key: str) -> None:
         if key == "spark.sql.session.timeZone" and key in self._set:
             self._session.conn.execute("SET TimeZone = 'UTC'")
+            self._session.conn.execute("RESET VARIABLE kf_spark_time_zone")
+            spark_time_zone.session_zone(self._session, None)
         self._set.pop(key, None)
 
     @property
@@ -177,6 +191,8 @@ def table_exists(session: Any, tableName: str, dbName: str | None = None) -> boo
     name = f"{dbName}.{tableName}" if dbName else tableName
     if "." not in name and session._is_local(name):
         return True
+    if dbName is not None and dbName.lower() == GLOBAL_TEMP and "." not in tableName:
+        return bool(session._is_view(GLOBAL_PREFIX + tableName))
     return lakehouse._attached is not None and lakehouse.table_exists(name)
 
 
@@ -209,10 +225,54 @@ def explain(self: DataFrame, extended: Any = None, mode: str | None = None) -> N
     print(self.relation.explain())
 
 
+# A global temp view (global_temp.name in Spark SQL) is a temp view of this name on the connection.
+GLOBAL_TEMP = "global_temp"
+GLOBAL_PREFIX = "__kf_global_temp_"
+
+
+def _view_name(name: str) -> str:
+    """``name`` as a temp view's name, refused as Spark refuses one with more than one part."""
+    from duckdb.experimental.spark.errors import AnalysisException
+    if not isinstance(name, str) or "." in name:
+        raise AnalysisException(message="[TEMP_VIEW_NAME_TOO_MANY_NAME_PARTS] CREATE TEMPORARY VIEW or the "
+                                        "corresponding Dataset APIs only accept single-part view names, but got: "
+                                        f"{name}.")
+    return name
+
+
+def _create_view(self: DataFrame, name: str, replace: bool, shown: str) -> None:
+    from duckdb.experimental.spark.errors import AnalysisException
+    if not replace and self.session._is_view(name):  # type: ignore[attr-defined]  # LocalSparkSession's own
+        raise AnalysisException(message=f"[TEMP_TABLE_OR_VIEW_ALREADY_EXISTS] Cannot create the temporary view "
+                                        f"{shown} because it already exists.")
+    self.relation.create_view(name, replace=True)
+
+
 def createTempView(self: DataFrame, name: str) -> None:  # noqa: N802
-    if self.session._is_local(name):  # type: ignore[attr-defined]  # LocalSparkSession's own
-        raise ValueError(f"Temporary view {name!r} already exists. Use createOrReplaceTempView.")
-    self.createOrReplaceTempView(name)
+    """``createTempView``: Spark's error when the name has a view already, whatever its case."""
+    _create_view(self, _view_name(name), False, f"`{name}`")
+
+
+def createOrReplaceTempView(self: DataFrame, name: str) -> None:  # noqa: N802
+    _create_view(self, _view_name(name), True, f"`{name}`")
+
+
+def createGlobalTempView(self: DataFrame, name: str) -> None:  # noqa: N802
+    """``createGlobalTempView``: read as global_temp.name in Spark SQL and spark.table."""
+    _create_view(self, GLOBAL_PREFIX + _view_name(name), False, f"`{name}`")
+
+
+def createOrReplaceGlobalTempView(self: DataFrame, name: str) -> None:  # noqa: N802
+    _create_view(self, GLOBAL_PREFIX + _view_name(name), True, f"`{name}`")
+
+
+def drop_view(session: Any, name: str) -> bool:
+    """``spark.catalog.dropTempView`` and ``dropGlobalTempView``: whether a view was there to drop. Only
+    a view a DataFrame made counts, never a lakehouse table's."""
+    if not isinstance(name, str) or not session._is_view(name) or name.lower().startswith("__lakehouse_table_"):
+        return False
+    session.conn.execute(f"DROP VIEW {_q(name)}")
+    return True
 
 
 def toLocalIterator(self: DataFrame, prefetchPartitions: bool = False) -> Any:  # noqa: N802, N803, ARG001
@@ -409,24 +469,32 @@ class _Stat:
 
 
 def _rdd(self: DataFrame, *_a: Any, **_kw: Any) -> Any:
-    raise NotImplementedError("RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in "
-                              "Fabric. On this PC, use DataFrame methods, SQL or toPandas().")
+    raise NotImplementedError("RDDs run in Fabric. On this PC, use DataFrame methods, SQL, toPandas(), "
+                              "or foreach, foreachPartition and mapInPandas, which run here.")
 
 
 ADDED: dict[str, Any] = {
-    "isEmpty": isEmpty, "tail": tail, "explain": explain, "createTempView": createTempView,
-    "registerTempTable": DataFrame.createOrReplaceTempView, "toLocalIterator": toLocalIterator, "offset": offset,
+    "isEmpty": isEmpty, "tail": tail, "explain": explain,
+    "createTempView": createTempView,
+    "createOrReplaceTempView": createOrReplaceTempView,
+    "registerTempTable": createOrReplaceTempView,
+    "createGlobalTempView": createGlobalTempView,
+    "createOrReplaceGlobalTempView": createOrReplaceGlobalTempView, "toLocalIterator": toLocalIterator, "offset": offset,
     "corr": corr, "cov": cov, "approxQuantile": approxQuantile, "randomSplit": randomSplit,
-    "createOrReplaceGlobalTempView": DataFrame.createOrReplaceTempView, "sortWithinPartitions": DataFrame.orderBy,
+    "sortWithinPartitions": DataFrame.orderBy,
     "foreach": _rdd, "foreachPartition": _rdd, "mapInPandas": _rdd, "mapInArrow": _rdd,
     "crosstab": crosstab, "colRegex": colRegex, "toJSON": toJSON, "sampleBy": sampleBy,
 }
 
 
+# DuckDB's own, which these replace: Spark's errors for a name with a dot, and global temp views.
+_REPLACED = ("createOrReplaceTempView", "createGlobalTempView", "createOrReplaceGlobalTempView")
+
+
 def install() -> None:
     """Add the methods to DuckDB's DataFrame (once; spark_local calls it), after spark_compat's."""
     for name, fn in ADDED.items():
-        if name not in DataFrame.__dict__:
+        if name not in DataFrame.__dict__ or name in _REPLACED:
             setattr(DataFrame, name, fn)
     if "stat" not in DataFrame.__dict__:
         DataFrame.stat = property(lambda self: _Stat(self))  # type: ignore[attr-defined]
@@ -458,11 +526,10 @@ PYSPARK_SESSION = (
 
 # Why a method isn't here, when it isn't.
 NOT_HERE = {
-    "rdd": "RDDs run in Fabric", "foreach": "row-by-row Python runs in Fabric", "foreachPartition": "runs in Fabric",
-    "mapInPandas": "runs in Fabric", "mapInArrow": "runs in Fabric",
+    "rdd": "RDDs run in Fabric",
     "withWatermark": "streaming runs in Fabric", "dropDuplicatesWithinWatermark": "streaming runs in Fabric",
     "streams": "streaming runs in Fabric",
-    "udf": "Python UDFs run in Fabric", "udtf": "Python UDTFs run in Fabric", "pandas_api": "pandas-on-Spark runs in Fabric; use toPandas()",
+    "udtf": "Python UDTFs run in Fabric", "pandas_api": "pandas-on-Spark runs in Fabric; use toPandas()",
 }
 
 # Fabric-only until this PC's streaming (spark_stream.py) adds them; then they're counted as they work.
@@ -478,10 +545,15 @@ def coverage() -> list[dict[str, str]]:
     (raises, with why). A method is "works" only if calling it doesn't raise DuckDB's not-implemented error."""
     from duckdb.experimental.spark.exception import ContributionsAcceptedError
 
-    from . import spark_stream
+    from . import spark_df_extras, spark_stream
     from .spark_local import LocalSparkSession
     install()
     spark_stream.install()  # readStream, writeStream and isStreaming, as a notebook has them
+    spark_df_extras.install()  # persist, storageLevel, sameSemantics, observe
+    from . import spark_map
+    spark_map.install()  # mapInPandas, mapInArrow, foreach, foreachPartition
+    from . import spark_df_more
+    spark_df_more.install()  # freqItems, inputFiles, to, withMetadata, writeTo
     rows = []
     for area, names, owner in (("DataFrame", PYSPARK_DATAFRAME, DataFrame), ("SparkSession", PYSPARK_SESSION, LocalSparkSession)):
         for name in names:

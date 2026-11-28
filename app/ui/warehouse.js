@@ -162,7 +162,7 @@ function warehouseSqlProvider(ref) {
 
 // The explorer box. actions: load() lists the objects (asking first, since it runs in Fabric),
 // query(name) opens SELECT TOP (100) on a table or view, insert(text) types a name in the editor,
-// open(title, text) opens a script in a new tab without running it. Each object's ⋯ button (or a
+// open(title, text) opens a script in a new tab without running it, diagram() opens the Diagram. Each object's ⋯ button (or a
 // right-click, or Shift+F10) has Script as. The objects are a tree: one row takes Tab, the arrow keys
 // move and open, Home and End jump, and Enter does what a click does.
 function whExplorer(ref, actions) {
@@ -275,7 +275,10 @@ function whExplorer(ref, actions) {
     if (cur) cur.tabIndex = 0;
     box.replaceChildren(...(empty ? [empty] : [tree]),
       h("div", { class: "muted-text wh-note" }, `Listed from the warehouse catalog at ${timeText(cat.at)}. `,
-        h("a", { href: "#", onclick: (e) => { e.preventDefault(); actions.load(); } }, "Refresh")));
+        h("a", { href: "#", onclick: (e) => { e.preventDefault(); actions.load(); } }, "Refresh")),
+      previewShown() && cat.objects.some((o) => o.type === "U") && actions.diagram ? h("div", { class: "sql-explorer-actions" },
+        btn("Diagram", "flowchart", actions.diagram, "tool outline small",
+          { title: "The tables of a schema and how they link, from the warehouse's keys and from names. Reads the keys with one catalog query in Fabric. Read only." })) : null);
     if (cur && hadFocus) cur.focus();  // after the tree is back in the page, or the focus is lost
   }
   draw();

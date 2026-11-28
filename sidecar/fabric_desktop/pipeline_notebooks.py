@@ -30,6 +30,7 @@ import time
 from typing import Any, Callable
 
 from . import notebook_cells, redact, validate
+from .awake_timer import awake_monotonic
 from .orchestration.adapters import ActivityFailed, notebook_key
 from .orchestration.definition import Activity
 from .proof_runtime import PROOF_ROOT
@@ -219,7 +220,7 @@ class LocalNotebooks:
 
         def stop() -> bool:
             stopped[0] = "cancelled" if cancelled() else (
-                "timeout" if deadline is not None and time.monotonic() > deadline else "")
+                "timeout" if deadline is not None and awake_monotonic() > deadline else "")
             return bool(stopped[0])
         snap, outputs = notebook_cells.wait(kernel, kernel.start(source), stop)
         if stopped[0] == "cancelled":
@@ -279,10 +280,10 @@ class LocalNotebooks:
         if not ran and not lakes:
             return list(self._after)
         if not lakes:
-            return [f"Ran on this PC; {ran} notebook step{'s' if ran != 1 else ''} ran in a fresh local kernel with no "
-                    "lakehouse. No Fabric call was made."] + self._after
+            return [(f"Ran on this PC; {ran} notebook step{'s' if ran != 1 else ''} ran in a fresh local kernel with no "
+                    "lakehouse. No Fabric call was made.")] + self._after
         names = ", ".join(sorted(lake["ref"].get("name") or lake["ref"]["lakehouse_id"] for lake in lakes))
         where = (f"kept in {self.folder}" if self.keep_outputs else f"in {self.folder}, deleted when the run ended")
-        return [f"Ran on this PC; no Fabric job was started. Notebook steps read tables in {names} at the versions they "
+        return [(f"Ran on this PC; no Fabric job was started. Notebook steps read tables in {names} at the versions they "
                 "had when the first step started, which uses some capacity, and wrote only to the run's own folder "
-                f"({where}), never to the lakehouse's tables."] + self._after
+                f"({where}), never to the lakehouse's tables.")] + self._after

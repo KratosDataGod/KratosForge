@@ -28,10 +28,10 @@ matter.
 
 A second set of tokens on `:root` (`--border-warm`, `--warn-border`, `--warn-soft-4`, `--warn-soft-5`, `--warn-soft-7` to `--warn-soft-9`, `--warn-ink-2`,
 `--ok-ink`, `--danger-ink`, `--code-ref`, the syntax colors (`--code-keyword`, `--code-string`, `--code-function`, `--code-comment`, `--code-number`, `--code-builtin`), `--text-disabled`, `--bar-neutral` and others) holds shades that more than one rule shared. They
-are not in the table above, so a skin can't set them yet; dark mode will need them added once the
-near-duplicates among them are merged.
+are not in the table above, so a skin can't set them yet. Dark mode sets its own values for them in
+`styles.css`.
 
-50 colors are still written straight into rules (shades used once, the splash screen and the
+28 colors are still written straight into rules (shades used once, the splash screen and the
 celebration effects). A test in `app/tests/ui.test.cjs` lets that number only go down: a new rule uses a
 token, or adds one to `:root`.
 
@@ -40,7 +40,8 @@ token, or adds one to `:root`.
 A skin is a small JSON file, checked by `fabric_desktop/skins.py` whether it ships with the app or someone
 imports it. It holds two things:
 
-- **appearance**: the color mode it starts in, its density, and colors for the tokens above, for light and dark.
+- **appearance**: the color mode it starts in, its density, colors for the tokens above, for light and
+  dark, and its look (see [Look](#look-preview)).
 - **workflow**: the order of the left rail's pages, by page id, and short labels for them, and which
   notebook commands go on the Home ribbon (see [Notebook commands](#notebook-commands-preview)).
 
@@ -70,9 +71,82 @@ What a skin file can't do, because the check refuses it:
 - Make text unreadable. Text colors must reach 4.5:1 contrast on the surfaces they sit on.
 - Be larger than 64 KB.
 
+## Look (Preview)
+
+`appearance.style` sets how the app is drawn, part by part, with fixed choices only. The app draws each
+choice with its own styles and the fonts it ships with, so a skin never carries CSS, fonts or images. A
+part the skin leaves out keeps KratosForge's own look (the first choice listed).
+
+| Part | Choices |
+| --- | --- |
+| `font` | `segoe-variable`, `segoe`, `dm-sans`, `inter` |
+| `header` | `light`, `brand`, `none` |
+| `rail` | `stacked` (icon above label), `inline` (icon beside label) |
+| `corners` | `soft`, `square`, `round` |
+| `tabs` | `underline`, `boxed`, `pill` |
+| `cells` | `bordered`, `card`, `flat`, `rounded` |
+| `icons` | `regular`, `light`, `bold` |
+
+The app marks the page with one attribute per part, such as `data-skin-rail="inline"`. The built-in
+platform skins set these, as drawn in the "skin look and feel" mockup:
+
+| Skin | Font | Header | Rail | Corners | Tabs | Cells | Icons |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Fabric-familiar | Segoe UI | brand | stacked | soft | underline | card | light |
+| Databricks-familiar | DM Sans | light | inline | square | boxed | flat | bold |
+| Snowflake-familiar | Inter | none | inline | round | pill | rounded | regular |
+
+What each choice draws so far:
+
+- **font:** `segoe-variable` and `segoe` use Windows' own Segoe UI. `dm-sans` and `inter` use open-licence
+  fonts the app ships in `app/ui/vendor/fonts` (SIL Open Font License 1.1). They load from the app itself,
+  never from the internet: the app's content security policy allows fonts from its own files only.
+- **corners:** `soft` keeps KratosForge's 4, 6 and 8 px corners (`--r-sm`, `--r-md`, `--r-lg`). `square`
+  makes them 2, 3 and 4 px, and `round` makes them 6, 8 and 12 px. Pills stay pills.
+- **icons:** the app's icons are filled shapes. `bold` traces their edge so they read heavier. `regular`
+  and `light` draw them as they are.
+- **rail:** `stacked` is KratosForge's narrow rail. `inline` is a wide rail, 208 px, with each label beside
+  its icon. In a window narrower than 1000 px, such as when zoomed in, it draws as stacked so the page keeps
+  its room, and in a window shorter than 640 px it shows icons only, like the app's own rail.
+- **header:** `light` is KratosForge's white bar. `brand` fills the bar with the skin's accent. The bar's
+  text and buttons turn to `--on-accent`, and the search box sits on `--accent-dark`. The brand lettering
+  image is never recolored, so the bar shows the name as text instead. `none` blends the bar into the
+  canvas, without its line. The bar keeps search, the breadcrumb, Activity and
+  the account in every skin.
+- **tabs:** `underline` is KratosForge's. `boxed` raises the chosen tab like a file tab on the line below
+  it. `pill` fills the chosen tab as a pill, with no line under the row.
+- **cells:** `bordered` is KratosForge's, with an accent edge on the chosen cell. `card` gives cells a
+  soft border, larger corners and an accent ring when chosen. `flat` uses the skin's smallest corners and
+  always shows the header bar. `rounded` uses large corners and a soft ring. In every style, a cell being edited
+  keeps KratosForge's orange edge, so edit and command mode still look different.
+
+In Settings > Appearance, each skin's card shows a small picture of its look: its colors, header, rail,
+corners, tabs, cells and typeface, drawn from the same choices.
+
+The look is Preview: with Preview features hidden in Settings, every skin draws the app's own look.
+
+The choices are plain platform looks. None adds art or game styling to controls, the rail, the app bar,
+type or data panels; the KratosForge skin keeps its light shell.
+
 Two settings choose the skin: `ui_skin` (its id, `kratosforge` by default) and `ui_color_mode`
-(`skin` follows the skin's own mode, or `light` or `dark`). See
-[the settings file](azure-setup.md).
+(`skin` follows the skin's own mode, or `light` or `dark`). See [the settings file](azure-setup.md).
+
+### Color mode (Preview)
+
+Settings > Appearance > Color mode chooses Follow the skin, Light or Dark. Follow the skin is the default,
+and KratosForge's own mode is light, so nothing changes for anyone who doesn't choose. The choice is
+Preview: with Preview features hidden, the app is light.
+
+Your organization can set `ui_color_mode` in policy.json. Then it applies for everyone, even with Preview
+features hidden, and Settings shows the choice locked with "Set by your organization's policy".
+
+Dark is a neutral charcoal, never navy, with the same layout and no art. Its colors are the tokens under
+`html[data-color-mode="dark"]` in styles.css, and the KratosForge skin's `dark` tokens in `skins.py` (a
+test keeps the two equal). The accent turns a light blue, so links on a surface and the primary button's
+dark text both pass 4.5:1. A skin with its own `dark` tokens (Databricks-familiar) draws with them; a
+skin without them draws with KratosForge's dark. Every skin's accent must also reach 4.5:1 on its surface,
+because the accent is link text too. The code editors, charts and notebook output follow the mode. The
+Power BI embed shows Power BI's own colors.
 
 ## Notebook commands (Preview)
 
@@ -137,7 +211,7 @@ Preview features are shown, and an administrator's policy can lock it.
 |---|---|
 | KratosForge | Nothing: the app's own look. Every engine and platform side by side, local runs up front. |
 | Fabric-familiar | A teal accent and lighter surfaces, and Create, Workspaces, OneLake and Monitor at the top of the rail, as Fabric developers expect. It follows Fabric's documented workspace-first layout, not its branding: no Microsoft logos or assets. |
-| Databricks-familiar | A blue accent, with the active rail item's stripe in the same blue, and Workspace, Recents, New, Catalog and Jobs and pipelines at the top of the rail, with those names, as Databricks developers expect. A dark version follows the mockup and shows once dark mode lands. It follows Databricks' documented layout, not its branding: no Databricks logos or assets. |
+| Databricks-familiar | A blue accent, with the active rail item's stripe in the same blue, and Workspace, Recents, New, Catalog and Jobs and pipelines at the top of the rail, with those names, as Databricks developers expect. In Dark color mode it draws with its own dark colors. It follows Databricks' documented layout, not its branding: no Databricks logos or assets. |
 | Snowflake-familiar | A blue accent and light surfaces, with the active rail item's stripe in the same blue, and Worksheets, Data, Load and create and Monitoring at the top of the rail, in that order, with those names, as Snowflake developers expect. It follows Snowflake's documented layout, not its branding: no Snowflake logos or assets. |
 
 Every skin keeps all of KratosForge's pages (local runs, compare local vs cloud, Optimize, shared
@@ -146,6 +220,5 @@ pages (Platform, Optimize and Data mesh) sit together under a "KratosForge" labe
 see what the app adds to the platform you know. Every skin also keeps the same "where it runs" chip
 beside the notebook's engine, such as "This PC · no Fabric job" (reading or writing OneLake from this PC still uses Fabric
 capacity), and a skin can't hide or change it.
-Dark versions of the
-skins come once the rest of the app's colors are on tokens. A skin renames rail entries only: the pages
+A skin renames rail entries only: the pages
 themselves, and where code runs, stay KratosForge's.

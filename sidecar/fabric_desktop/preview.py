@@ -17,6 +17,7 @@ import pyarrow.json as pa_json
 import pyarrow.parquet as pq
 from deltalake import DeltaTable
 
+from . import delta_read
 from .redact import describe
 
 _log = logging.getLogger(__name__)
@@ -47,8 +48,7 @@ def _rows(table: pa.Table, limit: int) -> dict[str, Any]:
 
 def table_preview(dt: DeltaTable, limit: int = ROWS) -> dict[str, Any]:
     """The first rows, Delta's own column types and the row count from the log (no full scan)."""
-    dataset = dt.to_pyarrow_dataset()
-    head = dataset.head(limit)
+    head = delta_read.head(dt, limit)
     out = _rows(head, limit)
     # Delta's type names (string, long, timestamp), as Fabric shows them.
     out["columns"] = [{"name": f.name, "type": f.type.type if isinstance(f.type.type, str) else str(f.type)}
@@ -67,7 +67,9 @@ def row_count(dt: DeltaTable) -> int | None:
     except Exception as exc:  # noqa: BLE001 - an older writer without stats, or a log this reader can't flatten
         _log.info("No row count from the Delta log's file stats: %s", describe(exc))
         return None
-    return None if any(c is None for c in counts) else int(sum(counts))
+    if any(c is None for c in counts):
+        return None
+    return int(sum(counts)) - delta_read.deleted_rows(dt)  # the stats count rows a deletion vector removed
 
 
 def file_kind(path: str) -> str:
@@ -77,6 +79,36 @@ def file_kind(path: str) -> str:
     if ext in TEXT_FILES:
         return "text"
     return "other"
+
+
+def _starts_with_an_object(path: Path) -> bool:
+    """Whether the file's first value is a JSON object, as each line of JSON Lines is. pyarrow's JSON Lines
+    reader stops the whole process (a segmentation fault, pyarrow 26) on a file whose first value is
+    null, so it is given only files that start with an object; json.loads reads the rest."""
+    with path.open("rb") as f:
+        head = f.read(4096)
+    return head.removeprefix(b"\xef\xbb\xbf").lstrip(b" \t\r\n").startswith(b"{")
+
+
+def _json_values(text: str) -> list[Any]:
+    """The records of a JSON file: one document (a list is its records), or JSON Lines, one value a line.
+    A file that is neither is refused with the first line that isn't JSON."""
+    try:
+        data = json.loads(text)
+        return data if isinstance(data, list) else [data]
+    except json.JSONDecodeError as whole:
+        values = []
+        for n, line in enumerate(text.splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                values.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                if n == 1:  # not JSON Lines either: the error for the file as one document
+                    raise ValueError(f"The file isn't JSON: {whole.msg} (line {whole.lineno}, column "
+                                     f"{whole.colno}).") from None
+                raise ValueError(f"Line {n} of the file isn't JSON: {exc.msg} (column {exc.colno}).") from None
+        return values
 
 
 def file_preview(path: Path, name: str, limit: int = ROWS) -> dict[str, Any]:
@@ -99,12 +131,20 @@ def file_preview(path: Path, name: str, limit: int = ROWS) -> dict[str, Any]:
         table = pa.Table.from_batches(batches, schema=reader.schema)
         return {"kind": "table", **_rows(table, limit), "row_count": None}
     if ext in ("json", "jsonl"):
-        try:
-            table = pa_json.read_json(path)  # newline-delimited
-        except pa.ArrowInvalid:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            data = data if isinstance(data, list) else [data]
-            table = pa.Table.from_pylist([r if isinstance(r, dict) else {"value": r} for r in data[:limit]])
+        table = None
+        if _starts_with_an_object(path):
+            try:
+                table = pa_json.read_json(path)  # newline-delimited
+            except pa.ArrowInvalid:
+                table = None
+        if table is None:
+            data = _json_values(path.read_text(encoding="utf-8-sig"))
+            records = [r if isinstance(r, dict) else {"value": r} for r in data[:limit]]
+            # Every record's keys, in the order they first appear: from_pylist takes only the first record's,
+            # so a key only later records have (or a value beside objects) wasn't shown.
+            names = list(dict.fromkeys(k for r in records for k in r))
+            table = pa.Table.from_pydict({n: [r.get(n) for r in records] for n in names})
+            return {"kind": "table", **_rows(table, limit), "row_count": len(data)}
         return {"kind": "table", **_rows(table, limit), "row_count": table.num_rows}
     with path.open("rb") as f:
         raw = f.read(TEXT_BYTES + 1)

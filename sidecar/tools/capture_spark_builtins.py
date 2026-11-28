@@ -52,6 +52,21 @@ OWN_EXAMPLES = {
     "timestamp": "SELECT timestamp('2026-01-31 10:30:00'), timestamp(DATE '2026-01-31')",
     "tinyint": "SELECT tinyint('12'), tinyint(3.9)",
     "||": "SELECT 'Spark' || 'SQL', 'a' || NULL",
+    # The clock, random numbers and the session, checked by what doesn't vary (spark_coverage.VARYING).
+    "curdate": "SELECT curdate() = current_date(), typeof(curdate())",
+    "current_catalog": "SELECT current_catalog()",
+    "current_date": "SELECT current_date() = to_date(current_timestamp()), typeof(current_date())",
+    "current_timestamp": "SELECT current_timestamp() = now(), typeof(current_timestamp())",
+    "current_timezone": "SELECT current_timezone()",
+    "localtimestamp": "SELECT typeof(localtimestamp())",
+    "now": "SELECT now() = current_timestamp(), typeof(now())",
+    "rand": "SELECT rand() >= 0 AND rand() < 1, typeof(rand())",
+    "randn": "SELECT typeof(randn()), randn() IS NOT NULL",
+    "random": "SELECT random() >= 0 AND random() < 1, typeof(random())",
+    "shuffle": "SELECT array_sort(shuffle(array(1, 20, 3, 5))), size(shuffle(array(1, 20, NULL, 5))), shuffle(NULL)",
+    "unix_timestamp": "SELECT unix_timestamp('2016-04-08', 'yyyy-MM-dd'), unix_timestamp(TIMESTAMP '2016-04-08 10:00:00')",
+    "uuid": "SELECT length(uuid()), uuid() RLIKE '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', "
+            "uuid() = uuid()",
 }
 
 spark = (SparkSession.builder.master("local[1]").config("spark.ui.enabled", "false")

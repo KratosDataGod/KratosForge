@@ -6,15 +6,15 @@ file; delete removes one file. Nothing here reaches Fabric or OneLake.
 
 from __future__ import annotations
 
-import base64
-import binascii
 import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
+from . import b64
 from .notebook_resources import Resources
+from .winexe import windows_exe
 
 METHODS = {"notebook_resources", "notebook_resource_add", "notebook_resource_rename",
            "notebook_resource_delete", "notebook_resource_reveal"}
@@ -43,8 +43,8 @@ class NotebookResourcesMixin:
         """Copies one file (``content`` is its bytes in base64) into the notebook's resources. When a
         file of that name is there, nothing is written and the answer suggests a free name."""
         try:
-            data = base64.b64decode(content, validate=True)
-        except (binascii.Error, ValueError):
+            data = b64.decode_exact(content)
+        except ValueError:
             raise ValueError("The file didn't arrive whole. Add it again.") from None
         return self._resources(name).add(file_name, data)
 
@@ -69,10 +69,12 @@ class NotebookResourcesMixin:
 
 def _reveal(path: Path, select: bool) -> None:
     if sys.platform == "win32":
-        args = ["explorer", f"/select,{path}"] if select else ["explorer", str(path)]
+        explorer = windows_exe("explorer.exe")
+        args = [explorer, f"/select,{path}"] if select else [explorer, str(path)]
     elif sys.platform == "darwin":
-        args = ["open", "-R", str(path)] if select else ["open", str(path)]
+        args = ["/usr/bin/open", "-R", str(path)] if select else ["/usr/bin/open", str(path)]
     else:
+        # xdg-open's folder differs by distribution. POSIX looks for it only on PATH, never in the current folder.
         args = ["xdg-open", str(path.parent if select else path)]
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,  # noqa: S603

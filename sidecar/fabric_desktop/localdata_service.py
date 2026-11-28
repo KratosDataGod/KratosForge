@@ -6,6 +6,7 @@ from typing import Any
 
 from . import sql_exec
 from .localdata import LocalData
+from .localdata.engine import MAX_QUERY_ROWS, shown_rows_note
 from .localdata.transform import Transforms
 
 # Every call here works offline and never reaches Fabric or OneLake.
@@ -110,7 +111,7 @@ class LocalDataMixin:
         without WHERE run only with ``confirm`` (sql_policy.py)."""
         status = self.sql_runs.start(query, None, dialect, target="local", project=project, confirm=confirm,
                                      timeout=timeout)
-        self._local_query_limits[status["id"]] = max(0, min(int(limit), 100_000))
+        self._local_query_limits[status["id"]] = int(limit)
         return {"query_id": status["id"], "state": "running"}
 
     def local_query_status(self, query_id: str) -> dict[str, Any]:
@@ -120,16 +121,29 @@ class LocalDataMixin:
         out: dict[str, Any] = {"query_id": query_id, "project": status["project"], "elapsed": status["seconds"],
                                "state": _LEGACY_STATES[status["state"]]}
         if status["state"] == "completed":
-            limit = self._local_query_limits.get(query_id, 1000)
-            page = self.sql_runs.page(query_id, 0, limit) if limit else {"rows": []}
-            out["result"] = {"columns": status["columns"], "rows": page["rows"][:limit], "row_count": status["rows"],
-                             "truncated": status["rows"] > limit, "query_id": query_id, "engine": "local",
-                             "dialect": status["dialect"], "project": status["project"], "seconds": status["seconds"]}
+            asked = self._local_query_limits.get(query_id, 1000)
+            limit = max(0, min(asked, MAX_QUERY_ROWS))
+            rows = self._first_rows(query_id, min(limit, status["rows"]))
+            truncated = status["rows"] > len(rows)
+            out["result"] = {"columns": status["columns"], "rows": rows, "row_count": status["rows"],
+                             "truncated": truncated, "query_id": query_id, "engine": "local",
+                             "dialect": status["dialect"], "project": status["project"], "seconds": status["seconds"],
+                             **({"note": shown_rows_note(len(rows), status["rows"], True, asked)} if truncated else {})}
         elif status["state"] in ("failed", "timed_out", "cancelled"):
             out["error"] = status["error"]
             if status["refused"]:
                 out["refused"] = status["refused"]
         return out
+
+    def _first_rows(self, query_id: str, n: int) -> list[list[Any]]:
+        """The run's first ``n`` rows, a page at a time: one sql_page holds at most the page-size range's top."""
+        rows: list[list[Any]] = []
+        while len(rows) < n:
+            page = self.sql_runs.page(query_id, len(rows), n - len(rows))
+            if not page["rows"]:
+                break
+            rows.extend(page["rows"])
+        return rows[:n]
 
     def local_query_cancel(self, query_id: str) -> dict[str, Any]:
         """Deprecated: use ``sql_cancel``."""
@@ -148,12 +162,16 @@ class LocalDataMixin:
     def local_write_delta(self, project: str, table: str, query: str, mode: str = "create",
                           dialect: str = "duckdb", partition_by: list[str] | None = None,
                           schema_mode: str | None = None, dry_run: bool = False,
-                          timeout: float | None = None) -> dict[str, Any]:
+                          timeout: float | None = None, confirm: bool = False) -> dict[str, Any]:
         """Write a query's rows to a Delta table in the project, in one commit. ``dry_run`` runs the
         query and says what would be written, writing nothing. The query gets local_query's
-        statement checks first."""
+        statement checks first. ``mode`` overwrite replaces every row, so like INSERT OVERWRITE in
+        local_query it runs only with ``confirm`` (a dry run needs none)."""
         engine = self.local_data.engine(project)
         _check_local(query, dialect)
+        if mode == "overwrite" and not dry_run and not confirm:
+            raise PermissionError(f"Overwriting {table} replaces every row, so it runs only when confirmed. "
+                                  "Run it again with confirm, or with dry_run to see what it would write.")
         return engine.write_delta(table, query, mode=mode, dialect=dialect,
                                                            partition_by=partition_by, schema_mode=schema_mode,
                                                            dry_run=dry_run, timeout=timeout)

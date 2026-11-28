@@ -12,11 +12,16 @@ const skip = !playwright && "Playwright is not installed";
 const ENGINE = ["app_settings", "save_app_settings", "pipeline_run_start", "pipeline_run_status"];
 
 const apps = [];
-async function open({ reducedMotion = "no-preference" } = {}) {
+// heroic: start at Heroic, where everyday effects play (Subtle, the default, plays only achievements).
+async function open({ reducedMotion = "no-preference", heroic = true } = {}) {
   const app = await openApp({ engine: ENGINE });
   apps.push(app);
   await app.page.emulateMedia({ reducedMotion });
-  await app.page.evaluate(async () => { await loadSettings(); go("settings"); });
+  await app.page.evaluate(async (heroic) => {
+    await loadSettings();
+    if (heroic) await saveSettings({ motion_level: 2 });
+    go("settings");
+  }, heroic);
   await app.page.getByRole("radiogroup", { name: "Experience mode" }).waitFor();
   await app.page.evaluate(() => {
     window.__fx = [];
@@ -29,11 +34,29 @@ async function open({ reducedMotion = "no-preference" } = {}) {
 
 after(async () => { for (const app of apps) await app.close(); });
 
-test("Settings > Appearance > Living Experience: Heroic by default, each level kept and applied at once", { skip }, async () => {
-  const app = await open();
+// Settings fills in late parts (Usage, Notifications, Optimize) after it opens, which moves Living
+// Experience down the page. Wait until it stops moving, so an effect's anchor stays where the test
+// scrolled it: an effect off the screen is skipped, not held.
+async function settled(page) {
+  let last = null;
+  for (let i = 0; i < 50; i++) {
+    const top = await page.evaluate(() => {
+      const el = document.querySelector(".motion-settings h2");
+      const scroller = el.closest(".page");
+      return Math.round(el.getBoundingClientRect().top + (scroller?.scrollTop || 0));
+    });
+    if (top === last) return;
+    last = top;
+    await page.waitForTimeout(300);
+  }
+}
+const onScreen = (page) => page.evaluate(() => document.querySelector(".motion-settings h2").scrollIntoView({ block: "center" }));
+
+test("Settings > Appearance > Living Experience: Subtle by default, each level kept and applied at once", { skip }, async () => {
+  const app = await open({ heroic: false });
   const { page } = app;
-  assert.strictEqual(await page.getByRole("radio", { name: /^Heroic \(default\)/ }).isChecked(), true);
-  assert.strictEqual(await page.evaluate(() => document.documentElement.dataset.motionLevel), "2");
+  assert.strictEqual(await page.getByRole("radio", { name: /^Subtle \(default\)/ }).isChecked(), true);
+  assert.strictEqual(await page.evaluate(() => document.documentElement.dataset.motionLevel), "1");
   await page.evaluate(() => { document.getElementById("toast").hidden = true; });
   if (SHOTS) await page.locator(".motion-settings").screenshot({ path: path.join(SHOTS, "motion-settings.png") });
   await page.getByRole("radio", { name: /^Legendary/ }).check();
@@ -123,6 +146,7 @@ test("Changing page slides the new page in only at Subtle and above, and never o
 test("While you type, celebrations hold off; small effects still play; after a pause they play again", { skip }, async () => {
   const app = await open();
   const { page } = app;
+  await settled(page);
   await page.evaluate(() => {
     motionLoadWatch?.disconnect();
     loadTasks = [];
@@ -133,6 +157,7 @@ test("While you type, celebrations hold off; small effects still play; after a p
     box.setAttribute("aria-label", "Deep work");
     document.querySelector(".motion-settings").prepend(box);
   });
+  await onScreen(page);
   const box = page.getByRole("textbox", { name: "Deep work" });
   await box.click();
   await box.pressSequentially("sel", { delay: 20 });  // fewer than 8 keys, so a 2 s pause ends deep work
@@ -144,6 +169,7 @@ test("While you type, celebrations hold off; small effects still play; after a p
   assert.ok(await page.evaluate(() => typedAt.every((t) => typeof t === "number")));
   assert.strictEqual(await box.evaluate((el) => el === document.activeElement), true, "focus moved");
   await page.waitForTimeout(2200);
+  await onScreen(page);
   assert.strictEqual(await page.evaluate((a) => !!forgeEvent("deploy.succeeded", eval(a)()), anchor.toString()), true, "the strike didn't play after the pause");
   assert.deepStrictEqual(app.errors, []);
 });
@@ -151,6 +177,7 @@ test("While you type, celebrations hold off; small effects still play; after a p
 test("An achievement unlocked while you type is held and revealed once you pause", { skip }, async () => {
   const app = await open();
   const { page } = app;
+  await settled(page);
   await page.evaluate(() => {
     motionLoadWatch?.disconnect();
     loadTasks = [];
@@ -160,6 +187,7 @@ test("An achievement unlocked while you type is held and revealed once you pause
     box.setAttribute("aria-label", "Deep work");
     document.querySelector(".motion-settings").prepend(box);
   });
+  await onScreen(page);
   const box = page.getByRole("textbox", { name: "Deep work" });
   await box.click();
   await box.pressSequentially("sel", { delay: 20 });

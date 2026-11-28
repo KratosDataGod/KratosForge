@@ -22,9 +22,19 @@ VS Code has to be installed. KratosForge asks Windows to open a `vscode://file/â
 
 ## Editing in both
 
-When you come back to KratosForge and the open notebook has no unsaved edits here, it shows the file as VS Code saved it. Cells whose code didn't change keep their outputs, because the session that made them is still running.
+When you come back to KratosForge and the open notebook has no unsaved edits here, it shows the file as VS Code saved it. A change to a cell's code counts, and so does a change to the cell settings KratosForge reads, such as a `parameters` tag; outputs VS Code saved don't, and stay in the file. Cells whose code didn't change keep their outputs, because the session that made them is still running.
 
 When both sides have changes, KratosForge doesn't save over the other one: it asks **Keep mine** or **Load its version**, and keeps both under **Versions**. See [Edit the same notebook in VS Code or another program](notebook-files.md#edit-the-same-notebook-in-vs-code-or-another-program).
+
+### When both sides changed
+
+With Preview features shown, KratosForge merges the two by cell instead of asking for the whole notebook, when it knows the cells both sides started from (what it last opened or saved).
+
+- A cell changed on one side only is taken as it is, and so is a cell added on one side. If nothing else differs, KratosForge saves the merge and says so.
+- A cell edited on both sides, a cell deleted on one side and edited on the other, and cells moved on both sides each need a pick. They're shown side by side. An edited cell takes **Keep mine**, **Use VS Code's** or **Keep both** (both keeps yours, with VS Code's below it titled "From VS Code"). A deleted cell takes **Keep the cell** or **Delete it**. Cell order takes one pick for the whole notebook. Nothing is picked for you, and **Save** stays off until every difference has a pick.
+- **Cancel** changes nothing, and your edits stay on screen, unsaved. Both full versions are kept under **Versions** whatever you pick.
+
+When KratosForge doesn't know where both started, for example after its own version history was cleared, it asks **Keep mine** or **Load its version** as before. Hide preview features in Settings to always get that question.
 
 ## Set up a repository for VS Code
 
@@ -67,9 +77,10 @@ A `kratosforge://` link shows a notebook or a page in KratosForge, from VS Code,
 | `kratosforge://` | Brings the open window to the front. |
 
 - If KratosForge is open, the link goes to that window and brings it to the front. If it isn't open, the link starts it. Only one copy of KratosForge runs at a time; starting it again brings the open window forward.
+- A link can't name a notebook or path that has right-to-left or other text-direction marks in it, though a notebook's name may have them. Open that notebook from KratosForge itself.
 - A link only shows something. Nothing in it runs, publishes or changes anything. Unsaved edits in the open notebook are saved first, as when you open another notebook yourself. A link that isn't one of the forms above opens nothing: KratosForge only says it didn't open the link, and why.
 - `kratosforge nb open <file>` opens the link for a file, and `--print` prints it instead. The **Open notebook in KratosForge** task runs this command.
-- KratosForge registers `kratosforge://` for your Windows user (under `HKCU\Software\Classes`) each time it starts. Your organization can turn that off with `register_link_scheme` in its policy file ([the key](azure-setup.md#4-push-settings-to-everyone)).
+- KratosForge registers `kratosforge://` for your Windows user (under `HKCU\Software\Classes`) each time it starts. Your organization can turn that off with `register_link_scheme`, which IT changes in Group Policy or the policy file ([how](azure-setup.md#4-push-settings-to-everyone)).
 - A copy started for a link hands it to the open window over `127.0.0.1`, with a random token the open window wrote to your own data folder, and then closes. Without the token, nothing is shown.
 - With `register_link_scheme` set to `false`, the open window doesn't listen for links at all, and a link given on the command line only says links are turned off. Starting the app again while it's open then doesn't bring its window to the front: use the taskbar.
 
@@ -85,7 +96,7 @@ Preview. This needs the KratosForge extension for VS Code, which adds **KratosFo
 2. In VS Code, pick KratosForge as the notebook's kernel. KratosForge asks **Let VS Code run notebooks on this PC?** with the window's folder and a pairing code. Check VS Code shows the same code, choose how long to keep the pairing, and **Pair this window**.
 ![Let VS Code run notebooks on this PC?, with the window's folder, the pairing code and what it may do](images/editor-pairing.png)
 
-3. Cells you run in that window run in the notebook's own session here: the same variables, `spark`, default lakehouse and limits as running them in KratosForge. Stop in VS Code stops the cell.
+3. Cells you run in that window run in the notebook's own session here: the same variables, `spark`, default lakehouse and limits as running them in KratosForge. Stop in VS Code stops the cell, even one pressed before the cell reached KratosForge: a cell stopped while the window is still pairing isn't sent at all, and says it was stopped before it ran.
 
 What a paired window can and can't do:
 
@@ -98,8 +109,8 @@ What a paired window can and can't do:
 - A pairing is bound to the folder it paired from (the workspace folder holding the notebook, or the notebook's own folder): that window can't reach a notebook outside it, even with its token. A whole drive, or no folder, can't be paired.
 - A pairing lasts until KratosForge closes (kept in memory only), 8 hours or 7 days, as you choose. Settings lists paired windows; **End** stops one at once, and turning the switch off ends them all. When the organization sets `integrations_editors` to `false`, the next call from any window is refused, every pairing ends and the engine stops listening.
 - Every run, Stop, pairing and OneLake answer is in the [audit trail](user-guide.md#audit-trail).
-- HTML a cell displays is shown as it is in VS Code's notebook output, as Jupyter kernels' is; tables KratosForge renders are escaped. The extension opens no web views of its own: every output goes to VS Code's own renderers. One output item over 16 MB (an image, HTML, a chart or text), or JSON nested too deeply to write, shows a line saying so instead; an answer from the app over 64 MB is refused. Control characters other than tab, newline, carriage return, backspace and color codes are dropped from printed text and tracebacks.
-- If KratosForge restarts while a cell runs, the cell ends with "the notebook's session ended" rather than looking finished; run it again. A pairing kept for 8 hours or 7 days carries on after a restart; one kept until KratosForge closes asks to pair again. When the app has too many editor connections open, the window tries again a few times before saying so.
+- HTML a cell displays is shown as it is in VS Code's notebook output, as Jupyter kernels' is; tables KratosForge renders are escaped. The extension opens no web views of its own: every output goes to VS Code's own renderers. One output item over 16 MB (an image, HTML, a chart or text), or JSON nested too deeply to write, shows a line saying so instead; an answer from the app over 64 MB is refused. A cell over 1 MB isn't sent: the window says so, and to split it or run it in KratosForge. Control characters other than tab, newline, carriage return, backspace and color codes are dropped from printed text and tracebacks.
+- If KratosForge restarts while a cell runs, the cell ends with "the notebook's session ended" rather than looking finished; run it again. A pairing kept for 8 hours or 7 days carries on after a restart; one kept until KratosForge closes asks to pair again. Everything that can go wrong in the window (KratosForge not running, a version that doesn't match, a pairing that ran out or was ended, a pairing request nobody answered) says what happened and what to do next. When the app has too many editor connections open, the window tries again a few times before saying so. While a cell runs, a check on it that drops or gets no answer is asked again a few times, so a brief hiccup doesn't fail the cell; starting a cell is never sent twice. A connection that fails any other way says so in plain words.
 - AI tools such as Copilot never pair: they keep asking before every run ([External AI tools](user-guide.md#external-ai-tools)).
 - The OneLake question is a guard rail, not a security control. It covers KratosForge's own write paths in the cell's thread; code that starts its own threads or processes, or calls OneLake directly with your sign-in, isn't asked about. A cell runs as you, as your own cells here do. To stop VS Code running cells at all, turn the switch off, or set `integrations_editors` to `false` in the policy file: that is the control.
 

@@ -29,7 +29,7 @@ so it changes when a call is added or refused.
 | `dbutils.credentials.showCurrentRole` | Refused | AWS role credentials are a Databricks on AWS feature; this PC signs in to Microsoft as you. |
 | `dbutils.credentials.showRoles` | Refused | AWS role credentials are a Databricks on AWS feature; this PC signs in to Microsoft as you. |
 | `dbutils.data.summarize` | Differs | Shows a summary table of the DataFrame; the precise flag is ignored. |
-| `dbutils.fs.cp` | Differs | Paths are the attached lakehouse (Files/...) or file: paths on this PC. dbfs:/, /Volumes/ and other bare absolute paths are Databricks storage and are refused by name. |
+| `dbutils.fs.cp` | Differs | Paths are the attached lakehouse (Files/...), file: paths on this PC, or /Volumes/main/<schema>/<volume>/... (a Unity Catalog volume's folder on this PC, Preview). Other dbfs:/ and bare absolute paths are Databricks storage and are refused by name. |
 | `dbutils.fs.head` | Differs | Same paths as fs.cp. |
 | `dbutils.fs.ls` | Differs | Same paths as fs.cp. |
 | `dbutils.fs.mkdirs` | Differs | Same paths as fs.cp. |
@@ -43,12 +43,12 @@ so it changes when a call is added or refused.
 | `dbutils.fs.updateMount` | Refused | Mounting storage runs in Databricks. On this PC, read the attached lakehouse. |
 | `dbutils.jobs.taskValues.get` | Runs |  |
 | `dbutils.jobs.taskValues.set` | Runs |  |
-| `dbutils.library.install` | Refused | Installing libraries runs in Databricks. On this PC the engine's packages are fixed. |
+| `dbutils.library.install` | Refused | Installing libraries runs in Databricks. On this PC, install packages with %pip install in a cell. |
 | `dbutils.library.restartPython` | Runs |  |
 | `dbutils.notebook.entry_point.getDbutils` | Differs | Gives the notebook's path and your user name for getContext(); the run id is empty. |
 | `dbutils.notebook.exit` | Runs |  |
 | `dbutils.notebook.run` | Differs | Runs a notebook from this PC's notebooks folder. The timeout and arguments are taken; arguments arrive as widget values. |
-| `dbutils.secrets.get` | Differs | A secret scope is an Azure Key Vault name, read with your own sign-in. Databricks-backed scopes are not reachable. |
+| `dbutils.secrets.get` | Differs | A secret scope is an Azure Key Vault name, read with your own sign-in. Databricks-backed scopes are not reachable. The value shows as [REDACTED] in the notebook's output, as in Databricks. |
 | `dbutils.secrets.getBytes` | Differs | Same scopes as secrets.get. |
 | `dbutils.secrets.list` | Differs | Same scopes as secrets.get. You need the Key Vault Secrets User role. |
 | `dbutils.secrets.listScopes` | Differs | Returns an empty list and says that a scope is a Key Vault name: this PC can't list your vaults. |
@@ -67,19 +67,19 @@ so it changes when a call is added or refused.
 | Helper | Status | Note |
 | --- | --- | --- |
 | `%python` | Runs |  |
-| `%sql` | Differs | Runs on this PC's Spark SQL (DuckDB with Spark's functions). |
+| `%sql` | Differs | Runs on this PC's Spark SQL (DuckDB with Spark's functions). A query's result is the cell's result and _sqldf, which later Python and SQL cells read. |
 | `%md` | Runs |  |
-| `%sh` | Differs | Runs as a script on this PC, not on a cluster driver. |
-| `%scala` | Refused | Scala and R cells need Fabric's Spark. Switch Runs on to Fabric to run them. |
-| `%r` | Refused | Scala and R cells need Fabric's Spark. Switch Runs on to Fabric to run them. |
+| `%sh` | Differs | Runs as a script on this PC, not on a cluster driver. As in Databricks, a non-zero exit code fails the cell only when it starts with %sh -e. |
+| `%scala` | Refused | This %scala cell needs Fabric's Spark, which this PC doesn't have, so nothing ran. Switch Runs on to Fabric to run it, or write the cell in Python or SQL. |
+| `%r` | Refused | This %r cell needs Fabric's Spark, which this PC doesn't have, so nothing ran. Switch Runs on to Fabric to run it, or write the cell in Python or SQL. |
 
 ## Line magics
 
 | Helper | Status | Note |
 | --- | --- | --- |
-| `%run` | Differs | Runs a notebook from this PC's notebooks folder in the same session. |
-| `%fs` | Differs | ls, head, cp, mv, rm, mkdirs and put, with the same paths as dbutils.fs. A drive path (C:\data) is also taken. |
-| `%pip` | Differs | Installs into the notebook's own environment on this PC, never the engine's. Your organization's policy can turn installs off. |
+| `%run` | Differs | Runs a notebook from this PC's notebooks folder in the same session, so its variables and functions are shared. A ./ or ../ path finds the notebook by its name. A failure names the notebook and its cell. |
+| `%fs` | Differs | ls, head, cp, mv, rm, mkdirs and put, with the same paths as dbutils.fs. A drive path (C:\data) is also taken. mounts and refreshMounts answer as dbutils.fs does here. mount, unmount, updateMount and other commands are refused by name. |
+| `%pip` | Differs | Installs into the notebook's own environment on this PC, never the engine's. Python isn't restarted, as in Databricks. Your organization's policy can turn installs off. |
 | `%sh` | Differs | Runs on this PC. |
 
 Source: Databricks Utilities reference (docs.databricks.com/dev-tools/databricks-utils) and the notebook magic commands Databricks notebooks take (%python, %sql, %scala, %r, %md, %sh, %fs, %run, %pip).

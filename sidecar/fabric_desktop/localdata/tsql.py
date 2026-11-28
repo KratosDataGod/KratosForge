@@ -55,7 +55,7 @@ from sqlglot.helper import seq_get
 from sqlglot.tokens import Token, TokenType
 
 from ..sql import KfDuckDB, duckdb_sql
-from . import tsql_ctes, tsql_format, tsql_hints, tsql_merge, tsql_routines, tsql_tables, tsql_types
+from . import tsql_ctes, tsql_format, tsql_hints, tsql_merge, tsql_routines, tsql_tables, tsql_types, tsql_windows
 from .. import sql_dialects, tsql_clone
 
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?\r?$", re.IGNORECASE | re.MULTILINE)
@@ -258,6 +258,7 @@ def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str
     notes += _converts(tree)
     _big_integers(tree)
     _regexps(tree)
+    tsql_windows.check(tree)  # WR-281: before TOP's rewrite and the types, which read the counts and windows
     notes += _types(tree, schema)
     _percentiles(tree)
     notes += _likes(tree)
@@ -1114,7 +1115,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
              exp.Extract, exp.Pow,
              exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
              tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup,
-             exp.Case, exp.If)
+             exp.Case, exp.If, exp.Min, exp.Max, exp.Sum, exp.Lag, exp.Lead, exp.GroupConcat)
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
     sized_ints = _sized_ints(tree)
@@ -1199,7 +1200,14 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             elif _unknown(a) or _unknown(b):
                 notes.append(f"Couldn't tell the types in {node.sql(dialect='tsql')}: it divides as DuckDB does, "
                              "and T-SQL divides two integers as integers.")
+        elif isinstance(node, (exp.Min, exp.Max, exp.Sum)):
+            _aggregate_operand(node, info)
+        elif isinstance(node, (exp.Lag, exp.Lead)):
+            _lag_types(node, info)
+        elif isinstance(node, exp.GroupConcat):
+            _string_agg_text(node, info)
         elif isinstance(node, exp.Avg):
+            _aggregate_operand(node, info)
             if _is(info.this.type, _INTEGERS):
                 # AVG(x) OVER (...) is a Window around the AVG: the whole window is what gets cut.
                 whole = node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
@@ -2670,6 +2678,12 @@ def _percentiles(tree: exp.Expression) -> None:
       integers in a wider type, so the smallest one doesn't overflow, then returned to their own type."""
     for group in list(tree.find_all(exp.WithinGroup)):
         window = group.parent
+        order_kind: exp.DataType | None = group.meta.get(_ORDER_TYPE)
+        if isinstance(group.this, exp.PercentileCont) and not _unknown(order_kind) \
+                and not _is(order_kind, _NUMBERS | _BITS):
+            # WR-281: "The expression must evaluate to an exact or approximate numeric type" (percentile-cont-...)
+            raise ValueError("PERCENTILE_CONT takes numbers only in its WITHIN GROUP (ORDER BY ...), as in T-SQL. "
+                             "Use PERCENTILE_DISC for text or dates.")
         if not (isinstance(group.this, (exp.PercentileCont, exp.PercentileDisc)) and isinstance(window, exp.Window)
                 and window.this is group and isinstance(group.expression, exp.Order)
                 and len(group.expression.expressions) == 1):
@@ -2695,6 +2709,77 @@ def _percentiles(tree: exp.Expression) -> None:
             assert kind is not None
             answer = exp.Cast(this=answer, to=kind.copy())
         window.replace(answer)
+
+
+_OPERATORS: dict[type[exp.Expression], str] = {exp.Min: "min", exp.Max: "max", exp.Sum: "sum", exp.Avg: "avg"}
+
+
+def _operand(info: exp.Expression) -> exp.Expression:
+    """An aggregate's value, inside its DISTINCT or a WITHIN GROUP's ORDER BY."""
+    value = info.this
+    if isinstance(value, exp.Distinct) and value.expressions:
+        return value.expressions[0]
+    return value.this if isinstance(value, exp.Order) else value
+
+
+def _aggregate_operand(node: exp.Expression, info: exp.Expression) -> None:
+    """WR-281: MIN, MAX, SUM and AVG of a bit are T-SQL's error 8117 (min-transact-sql: "not with bit columns"),
+    where DuckDB gave False and True, and SUM a text '2'; SUM and AVG take numbers only (sum-transact-sql,
+    avg-transact-sql), where DuckDB stopped with its own binder error."""
+    kind = _operand(info).type
+    operator = _OPERATORS[type(node)]
+    if _is(kind, _BITS):
+        raise ValueError(f"Operand data type bit is invalid for {operator} operator.")
+    if operator in ("sum", "avg") and (_is(kind, _TEXT) or _is(kind, _TEMPORAL)):
+        what = "text" if _is(kind, _TEXT) else "a date or time"
+        raise ValueError(f"{operator.upper()} takes numbers only, as in T-SQL, and here its value is {what}. "
+                         "CAST it to a number first.")
+
+
+_TEMPORAL = set(exp.DataType.TEMPORAL_TYPES)
+_LAG_NEGATIVE = "The offset of {} can't be a negative value, as in T-SQL."
+
+
+def _lag_types(node: exp.Lag | exp.Lead, info: exp.Expression) -> None:
+    """WR-281: LAG and LEAD as lag-transact-sql has them.
+
+    - The answer has the type of the value, so a default is converted to it: LAG(int_column, 1, 2.5) is 2, cut toward
+      zero as T-SQL converts a decimal to an int. DuckDB rounded it to 3.
+    - The offset is converted to bigint (1.7 is 1; DuckDB rounded it to 2), and can't be negative: a negative
+      offset worked out as the query runs is an error, where DuckDB looked the other way."""
+    kind, default = info.this.type, node.args.get("default")
+    typed_default = info.args.get("default")
+    if default is not None and typed_default is not None and _is(kind, _INTEGERS - _BITS) \
+            and _is(typed_default.type, _NUMBERS) and not _is(typed_default.type, _INTEGERS):
+        assert kind is not None
+        node.set("default", exp.Cast(this=exp.Trunc(this=default.copy()), to=kind.copy()))
+    offset, typed_offset = node.args.get("offset"), info.args.get("offset")
+    if offset is None or typed_offset is None or tsql_windows.written_number(offset):
+        return
+    if _is(typed_offset.type, _NUMBERS) and not _is(typed_offset.type, _INTEGERS):
+        offset = exp.Cast(this=exp.Trunc(this=offset.copy()), to=exp.DataType.build("BIGINT"))
+    message = _LAG_NEGATIVE.format("LAG" if isinstance(node, exp.Lag) else "LEAD")
+
+    def build(v: exp.Expression) -> exp.Expression:
+        return exp.Case(ifs=[exp.If(this=exp.LT(this=v, expression=exp.Literal.number(0)),
+                                    true=exp.Anonymous(this="ERROR", expressions=[exp.Literal.string(message)]))],
+                        default=v.copy())
+    node.set("offset", _once([offset], build))
+
+
+def _string_agg_text(node: exp.GroupConcat, info: exp.Expression) -> None:
+    """WR-281: STRING_AGG converts each value to text as T-SQL converts it (string-agg-transact-sql): a float in
+    style 0 (3, not DuckDB's 3.0) and a bit as 1 or 0 (not true). A date and time's text is refused by name, since
+    datetime and datetime2 write it differently and a column's type here doesn't tell them apart."""
+    value = node.this.this if isinstance(node.this, exp.Order) else node.this
+    kind = _operand(info).type
+    if _is(kind, _FLOATS) and not _written_decimal(value):
+        value.replace(_float_text(value.copy()))
+    elif _is(kind, _BITS):
+        value.replace(_bit_text(value.copy()))
+    elif _is(kind, _TEMPORAL) and not _is(kind, {exp.DataType.Type.DATE}):
+        raise ValueError(_NOT_YET + "STRING_AGG of a time or a date with a time isn't mapped yet. CONVERT each "
+                         "value to text with a style first, as in STRING_AGG(CONVERT(VARCHAR(30), d, 126), ',').")
 
 
 _SPREADS = {"VAR": exp.Variance, "VARP": exp.VariancePop, "STDEVP": exp.StddevPop}

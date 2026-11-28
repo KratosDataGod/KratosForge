@@ -266,8 +266,38 @@ def cases(prefix: str) -> list[tuple[str, str, object]]:
         # MAX of an int column is the larger number; of a text column, the later text ('9' after '10').
         out.append(("UNION_TEXT", f"(SELECT MAX(a) FROM (SELECT {n} AS a UNION ALL SELECT {q(t)}) AS u)", max(n, whole)))
         out.append(("EXCEPT_TEXT", f"(SELECT COUNT(*) FROM (SELECT {whole} AS a EXCEPT SELECT {q(t)}) AS u)", 0))
-    return out + _regex_cases(random.Random(SEED + 3), q) + _null_cases(random.Random(SEED + 5), q)
+    return (out + _regex_cases(random.Random(SEED + 3), q) + _null_cases(random.Random(SEED + 5), q)
+            + _window_cases(random.Random(SEED + 6)))
 
+
+
+def _window_cases(r: random.Random) -> list[tuple[str, str, object]]:
+    """WR-281: window functions, aggregates and TOP on generated rows."""
+    out: list[tuple[str, str, object]] = []
+    for _ in range(40):
+        m, k = r.randint(1, 9), r.randint(1, 6)
+        rows = ", ".join(f"({i})" for i in range(1, m + 1))
+        # functions/ntile-transact-sql: "groups of two sizes that differ by one member. Larger groups come
+        # before smaller groups".
+        sizes = [m // k + (1 if g < m % k else 0) for g in range(k)]
+        tiles = [str(g + 1) for g, size in enumerate(sizes) for _ in range(size)]
+        # '|' + keeps one group's text from reading back as a number
+        out.append(("NTILE", (f"(SELECT '|' + STRING_AGG(n, ',') WITHIN GROUP (ORDER BY i) FROM (SELECT i, "
+                             f"NTILE({k}) OVER (ORDER BY i) AS n FROM (VALUES {rows}) AS v(i)) AS a)"),
+                    "|" + ",".join(tiles)))
+        # functions/lag-transact-sql: the answer has the value's type, so a decimal default is an int, toward zero.
+        d = Decimal(r.randint(-999, 999)) / 10
+        out.append(("LAG_DEFAULT", (f"(SELECT TOP 1 LAG(i, {m + 1}, {d}) OVER (ORDER BY i) FROM (VALUES {rows}) "
+                                   "AS v(i))"), int(d)))
+        # queries/top-transact-sql: "expression is converted to bigint" without PERCENT; with it, a fraction of
+        # a row is rounded up.
+        top = Decimal(r.randint(0, 120)) / 10
+        out.append(("TOP_DECIMAL", (f"(SELECT COUNT(*) FROM (SELECT TOP ({top}) i FROM (VALUES {rows}) AS v(i) "
+                                   "ORDER BY i) AS a)"), min(int(top), m)))
+        share = r.randint(0, 100)
+        out.append(("TOP_PERCENT", (f"(SELECT COUNT(*) FROM (SELECT TOP ({share}) PERCENT i FROM (VALUES {rows}) "
+                                   "AS v(i) ORDER BY i) AS a)"), -(-m * share // 100)))
+    return out
 
 def _regex(pattern: str, flags: str) -> re.Pattern[str]:
     # functions/regexp-like-transact-sql: "m Multi-line mode: ^ and $ match begin/end line in addition to

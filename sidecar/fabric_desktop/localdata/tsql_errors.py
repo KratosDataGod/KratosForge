@@ -59,6 +59,10 @@ _NUMBERS = [
     (re.compile(r"^Ambiguous column name '"), 209),
     (re.compile(r"^Duplicate common table expression name '.*' was specified\.$"), 239),
     (re.compile(r"^Divide by zero error encountered\.$"), 8134),
+    # WR-281: the translator's own words for these (tsql.py, tsql_windows.py)
+    (re.compile(r"^Operand data type bit is invalid for (?:min|max|sum|avg) operator\.$"), 8117),
+    (re.compile(r"^The function '[A-Z_]+' must have an OVER clause with ORDER BY\.$"), 4112),
+    (re.compile(r"^Use of DISTINCT is not allowed with the OVER clause\.$"), 10759),
     (re.compile(r"^Arithmetic overflow error converting expression to data type \w+\.$"), 8115),
     (re.compile(r"^Arithmetic overflow error for type int, value = -?\d+\.\d{6}\.$"), 232),
     (re.compile(r"^Conversion failed when converting the n?varchar value '.*' to data type \w+\.$", re.DOTALL), 245),

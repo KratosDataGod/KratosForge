@@ -514,9 +514,22 @@ When a project runs T-SQL on this PC, NULLs, ties and window functions give a wa
 | `PERCENTILE_CONT` | A `float`, with `NULL`s left out, for a decimal column too: 0.25 of `1.25`, `2.50` and `4.00` is `1.875` |
 | `PERCENTILE_CONT` and `PERCENTILE_DISC` with `ORDER BY ... DESC` | p counts from the largest value: 0.25 of 1 to 5 descending is `4`. `PERCENTILE_DISC` keeps its value's type |
 
+| `NTILE(n)` | Groups that differ by one row, the larger ones first: `NTILE(2)` of 5 rows is 1, 1, 1, 2, 2. `NTILE(0)`, a negative `n` and `NTILE(2.5)` stop, as T-SQL takes a positive `int` or `bigint` (WR-281) |
+| `LAG` and `LEAD` of a value of another type than the default | The answer has the value's type, so `LAG(int_column, 1, 2.5)` gives `2`, cut toward zero as T-SQL converts it. An offset of `1.7` is `1` (a `bigint`), and a negative offset stops, written or worked out as the query runs, where the local engine looked the other way |
+| A ranking or analytic function without `ORDER BY` in `OVER`: `ROW_NUMBER() OVER ()` | `Msg 4112, Level 16: The function 'ROW_NUMBER' must have an OVER clause with ORDER BY.` For `RANK`, `DENSE_RANK`, `NTILE`, `CUME_DIST`, `PERCENT_RANK`, `LAG`, `LEAD`, `FIRST_VALUE` and `LAST_VALUE` too |
+| `COUNT(DISTINCT x) OVER ()` | `Msg 10759, Level 16: Use of DISTINCT is not allowed with the OVER clause.` |
+| `PERCENTILE_CONT` and `PERCENTILE_DISC` checks | The percentile must be from `0.0` to `1.0` (the local engine read `-0.5` as counted from the other end), `PERCENTILE_CONT` takes numbers (a `bit` too) in its `ORDER BY`, and the `OVER` takes only `PARTITION BY`. Without `OVER` each is an aggregate, as in a Fabric Warehouse |
+| `MIN`, `MAX`, `SUM`, `AVG` of a `bit` | `Msg 8117, Level 16: Operand data type bit is invalid for min operator.` (`max`, `sum`, `avg`). `SUM` and `AVG` of text or a date stop too |
+| `STRING_AGG` of a number, a `float` or a `bit` | Each value as T-SQL's text: a float in style 0 (`3`, `1e+007`), a bit as `1` or `0`, and `NULL`s left out with their separator |
+| `TOP (2.7)` | 2 rows, as the count is a `bigint`. A negative count, `OFFSET -1 ROWS`, `FETCH NEXT 0 ROWS` and `OFFSET 1.5 ROWS` stop, and `OFFSET` without `ORDER BY` stops, as in T-SQL. `TOP (n) PERCENT` rounds a fraction of a row up |
+| `GROUP BY g WITH ROLLUP`, `WITH CUBE` | Stopped, as a Fabric Warehouse takes only `GROUP BY ROLLUP (g)` and `CUBE (g)` |
+
 What can still differ:
 
 - `PERCENTILE_DISC` with `ORDER BY ... DESC` on a date or text column is refused by name. Run it in a Fabric Warehouse.
+- `LAG` with a `NULL` offset, `NTILE (NULL)`, `PERCENTILE_CONT (NULL)`, `TOP (NULL)`, `OFFSET NULL ROWS`, `GROUP BY ALL` and `STRING_AGG` of a time or a date with a time are refused by name. Give a number, group by the columns, or `CONVERT` the time to text with a style first.
+- `STRING_AGG` of text that isn't `VARCHAR(MAX)` or `NVARCHAR(MAX)` stops in a warehouse past 8,000 bytes; here the whole text comes back.
+- `GROUPING(x)` of a column that isn't grouped, and an `NTILE` count worked out as the query runs that isn't positive, stop with the local engine's own words.
 - Rows that tie in an `ORDER BY` can come back in any order, in a warehouse as here. Add a column that tells them apart when the order matters.
 
 ## Local T-SQL dates and times
@@ -874,7 +887,7 @@ When a T-SQL statement on this PC names a column or table that isn't there, the 
 
 Any other error from the local engine keeps its own words, without a "Did you mean" that names one of DuckDB's system tables (such as `pg_catalog.pg_settings`), which a warehouse project never has. `DROP TABLE` of a table that isn't there, and a column prefixed by a table alias that isn't in `FROM` (`x.id`), keep the local engine's words too, because a warehouse answers those with other errors (3701 and 4104) whose text the local engine can't give in full.
 
-Where SQL Server's number is certain, the error shows it and its severity as SQL Server prints them, such as `Msg 207, Level 16: Invalid column name 'x'.` That covers 207, 208 and 209 above, `Msg 239` for two CTEs of one name, `Msg 8134` for `Divide by zero error encountered.` (`/` and `%`, for integers, decimals and floats), and the arithmetic and conversion errors below. In a script, the error also names the statement and what ran before it: `Statement 2 of 3 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run.` No number is guessed for any other error. SQL Server's state and line aren't shown, and the statement number takes the line's place.
+Where SQL Server's number is certain, the error shows it and its severity as SQL Server prints them, such as `Msg 207, Level 16: Invalid column name 'x'.` That covers 207, 208 and 209 above, `Msg 239` for two CTEs of one name, `Msg 8134` for `Divide by zero error encountered.` (`/` and `%`, for integers, decimals and floats), `Msg 8117`, `Msg 4112` and `Msg 10759` for a `bit` in `MIN`, `MAX`, `SUM` or `AVG`, a ranking function without `ORDER BY` and `DISTINCT` in a window (see Local T-SQL ordering and window functions), and the arithmetic and conversion errors below. In a script, the error also names the statement and what ran before it: `Statement 2 of 3 (SELECT) failed: Msg 8134, Level 16: Divide by zero error encountered. Statement 1 ran, and what it changed is kept; the last statement didn't run.` No number is guessed for any other error. SQL Server's state and line aren't shown, and the statement number takes the line's place.
 
 Arithmetic and conversion errors (WR-247), with SQL Server's words as Microsoft Learn's T-SQL pages and SQL Server's message list give them:
 

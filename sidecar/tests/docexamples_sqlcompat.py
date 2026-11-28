@@ -89,6 +89,11 @@ CLAIMS: list[Claim] = [
     # Local T-SQL ordering and window functions
     _ts("4.00", query="SELECT TOP 1 PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY x) OVER () "
                       "FROM (VALUES (1.25), (2.50), (4.00)) AS t(x)"),
+    # WR-281: lag-transact-sql, the answer has the value's type; the offset is a bigint
+    _ts("LAG(int_column, 1, 2.5)", query="SELECT TOP 1 LAG(int_column, 1, 2.5) OVER (ORDER BY int_column) "
+                                         "FROM (VALUES (7)) AS t(int_column)"),
+    _ts("1.7", query="SELECT COUNT(*) FROM (SELECT LAG(x, 1.7) OVER (ORDER BY x) AS v "
+                     "FROM (VALUES (1), (2)) AS t(x)) AS a WHERE v = 1"),
     # Local T-SQL dates and times
     _ts("DATEADD(month, 1, '2024-01-31')"),
     _ts("DATEADD(year, 1, '2024-02-29')"),

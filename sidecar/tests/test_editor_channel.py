@@ -686,3 +686,33 @@ def test_a_folder_that_would_show_as_another_is_refused(paired, odd):
     status, res = window.call("POST", "/v1/pair", {"window": folder, "client": "t"}, {"X-KratosForge-Hello": window.hello})
     assert status == 403 and f"U+{ord(odd):04X}" in res["error"]["message"]
     assert call(svc, "editor_pending")["pairing"] == []
+
+
+def test_a_cell_is_only_ever_in_a_status_the_extension_reads_and_both_name_the_same_ones(paired):
+    import re
+    from pathlib import Path
+
+    from fabric_desktop.editor_channel import RUN_STATUSES
+
+    svc, window, path = paired
+    window.pair(svc)
+    seen = {window.call("GET", f"/v1/run?path={_q(path)}")[1]["result"]["status"]}  # nothing run yet: idle
+    seen.add(window.run(path, "print(1)")["status"])
+    seen.add(window.run(path, "1/0")["status"])
+    status, started = window.call("POST", "/v1/run", {"path": path, "code": "import time\nwhile True: time.sleep(0.05)"})
+    assert status == 200, started
+    seen.add(started["result"]["status"])
+    window.call("POST", "/v1/interrupt", {"path": path})
+    seen.add(_settle(window, path))  # stopped: cancelled
+    assert seen == set(RUN_STATUSES), seen
+    ts = (Path(__file__).parents[2] / "vscode" / "src" / "channel.ts").read_text(encoding="utf-8")
+    [names] = re.findall(r"export const STATUSES = \[([^\]]*)\];", ts)
+    assert tuple(re.findall(r'"([a-z]+)"', names)) == RUN_STATUSES
+
+
+def _settle(window, path, timeout=30):
+    deadline = time.monotonic() + timeout
+    snap = window.call("GET", f"/v1/run?path={_q(path)}&wait=0.5")[1]["result"]
+    while snap["status"] == "running" and time.monotonic() < deadline:
+        snap = window.call("GET", f"/v1/run?path={_q(path)}&wait=0.5")[1]["result"]
+    return snap["status"]

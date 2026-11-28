@@ -132,7 +132,14 @@ def health(uri: str, options: dict[str, str] | None = None, local: bool = False,
         try:
             table = DeltaTable(uri, storage_options=options)
         except TableNotFoundError:
-            return {"exists": False, "advice": [], "status": "missing"}
+            left = uncommitted_leftovers(uri, STALE_STAGED_HOURS) if local else None
+            if not left:
+                return {"exists": False, "advice": [], "status": "missing"}
+            n = len(left)
+            return {"exists": False, "advice": [], "status": "missing", "leftover_files": n,
+                    "message": f"Not written yet: {n} file{'' if n == 1 else 's'} ({_mb(_size(uri, left))}) left by a "
+                               "first write that stopped part way. Compact removes the unfinished ones, and the rest "
+                               "once they're as old as the history its layer keeps"}
     actions = table.get_add_actions(flatten=True)
     sizes = cast(list[int], actions.column("size_bytes").to_pylist()) if actions.num_rows else []
     files, total = len(sizes), sum(sizes)
@@ -531,7 +538,18 @@ def compact_local(uri: str, days: int = 7, allow_shorter: bool = False) -> dict[
     All of it under the table's compaction_lock, so no other OPTIMIZE, VACUUM or RESTORE of it on this PC overlaps."""
     check_retention(days, allow_shorter)
     with compaction_lock(uri):
-        first = DeltaTable(uri)
+        try:
+            first = DeltaTable(uri)
+        except TableNotFoundError:
+            # No write ever committed here: only the files first writes that stopped part way left, which
+            # go by the same ages as below. No folder, or one that has (or may have) a commit: as before.
+            left = uncommitted_leftovers(uri, retention_hours(days))
+            if left is None:
+                raise
+            staged = set(_stale_staged(uri))
+            return {"files_added": 0, "files_removed": 0, "files_before": 0, "files_after": 0, "vacuumed": 0,
+                    "unnamed_removed": _remove(uri, [p for p in left if p not in staged]),
+                    "staged_removed": _remove(uri, sorted(staged & set(left)))}
         before, files_before = first.version(), len(first.file_uris())
         days = _with_own(first, days)
         set_retention(uri, days, allow_shorter=allow_shorter)
@@ -685,6 +703,27 @@ def leftovers(uri: str, table: DeltaTable | None = None) -> list[str]:
     still under way isn't counted. Only files named as Delta names them. Nothing is deleted."""
     table = table or DeltaTable(uri)
     return sorted(set(_stale_staged(uri)) | set(_unnamed(uri, table, STALE_STAGED_HOURS)))
+
+
+def uncommitted_leftovers(uri: str, hours: float) -> list[str] | None:
+    """What first writes that stopped part way left in a table folder on this PC that no write ever
+    committed to (a first load ended mid-write, as running out of memory ends it), as paths relative to
+    it: data files untouched for ``hours`` and stale staged files, the ages Compact removes them at in a
+    table. Only files named as Delta names them, never in a linked folder. Nothing is deleted.
+
+    None when there's nothing to look at: no folder, a folder or _delta_log that is a link, or a
+    _delta_log holding a commit or a checkpoint, which makes it a table (one that may not open)."""
+    root = Path(uri)
+    if _linked(root) or _linked(root / "_delta_log") or not root.is_dir():
+        return None
+    log = root / "_delta_log"
+    if log.is_dir():
+        with os.scandir(log) as it:
+            if any(_LOG_FILE.fullmatch(e.name) for e in it):
+                return None
+    data = [Path(e.path).relative_to(uri).as_posix() for e in _data_folder_files(uri)
+            if _DATA_FILE.fullmatch(e.name) and _older_than(e, hours)]
+    return sorted(set(data) | set(_stale_staged(uri)))
 
 
 def _named_anywhere(uri: str, table: DeltaTable | None) -> set[str]:

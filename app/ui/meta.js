@@ -1532,7 +1532,14 @@ async function renderHealthTab(body) {
   };
   // A capacity Warning asks first, as X-ray does (Chris, 2026-11-18); Blocked, Pass and Unknown start as before.
   const optimize = async (entities) => {
-    if (hl.local) return run(entities);
+    if (hl.local) {
+      // Compact deletes the files writes that stopped part way left (maintenance.compact_local): asked first.
+      const left = hl.tables.filter((t) => t.leftover_files && (!entities || entities.includes(t.entity)));
+      const n = left.reduce((k, t) => k + t.leftover_files, 0);
+      if (n && !(await confirmDialog("Delete left-overs?", `Compact deletes the files writes that stopped part way left: ${n.toLocaleString()} file${n === 1 ? "" : "s"} in ${left.map((t) => t.entity).join(", ")}, the unfinished ones now and the rest once they're as old as the history kept.`,
+        "Compact and delete", { danger: true }))) return;
+      return run(entities);
+    }
     const check = await metaCall("meta_optimize_check", { env: m.env, entities }, "Couldn't check the capacity");
     if (!check) return;
     if (!check.workspaces.some((w) => w.result === "warning")) return run(entities, null, check);
@@ -1579,7 +1586,8 @@ async function renderHealthTab(body) {
         h("td", { class: "n" }, t.versions_since_vacuum), h("td", {}, shortDate(t.last_optimize)),
         h("td", {}, t.advice.length ? h("ul", { class: "gate-list" }, t.advice.map((a) => h("li", {}, a))) : h("span", { class: "pill-s pass" }, "Healthy")),
         h("td", {}, btn(hl.local ? "Compact" : "Optimize", null, () => optimize([t.entity]), "tool link small")),
-      ] : h("td", { colspan: hl.local ? 8 : 9, class: t.status === "unreadable" ? "error-text" : "muted-text" }, t.message || "Not written in this environment yet")))));
+      ] : [h("td", { colspan: hl.local ? 7 : 8, class: t.status === "unreadable" ? "error-text" : "muted-text" }, t.message || "Not written in this environment yet"),
+        h("td", {}, hl.local && t.leftover_files ? btn("Compact", null, () => optimize([t.entity]), "tool link small") : null)]))));
   const jobs = hl.maintenance || [];
   body.replaceChildren(head, list, jobs.length ? h("div", { class: "card pad" }, h("b", {}, "Recent maintenance jobs in Fabric"),
     h("table", { class: "mini" }, h("tbody", {}, jobs.map((j) => h("tr", {},

@@ -426,3 +426,88 @@ def test_every_message_is_a_plain_sentence_with_a_next_step(monkeypatch):
         sentences = [s for s in message.replace("e.g.", "").split(". ") if s]
         assert len(sentences) >= 2, f"no next step in {message!r}"
         assert "Traceback" not in message and "Error(" not in message
+
+
+# ---------------------------------------------------------------------------- input that would overflow
+
+
+def nested(levels: int) -> str:
+    return "(" * levels + "1" + ")" * levels
+
+
+CASES = "SELECT " + "CASE WHEN 1 = 1 THEN " * 300 + "1" + " END" * 300
+
+
+@pytest.mark.parametrize("levels", [100, 3000])
+@pytest.mark.parametrize("template, kind", [
+    ("CREATE TASK t WAREHOUSE = wh SCHEDULE = '5 MINUTES' WHEN {} = 1 AS SELECT 1", "task"),
+    ("CREATE TASK t WAREHOUSE = wh SCHEDULE = '5 MINUTES' AS SELECT {}", "task"),
+    ("CREATE DYNAMIC TABLE d TARGET_LAG = '1 hour' WAREHOUSE = wh AS SELECT {} AS x FROM s", "dynamic_table"),
+])
+def test_a_statement_nested_too_deeply_is_an_error_on_it_not_a_crash(template, kind, levels):
+    result = one(template.format(nested(levels)))
+    assert result.kind == kind   # read as far as the nesting, so its kind and name are still known
+    assert any("nested too deeply" in m for m in errors(result)), result.findings
+
+
+def test_a_body_of_300_nested_cases_is_an_error_on_it_not_a_crash():
+    result = one(f"CREATE TASK t WAREHOUSE = wh SCHEDULE = '5 MINUTES' AS {CASES}")
+    assert result.kind == "task"
+    assert any("nested too deeply" in m for m in errors(result)), result.findings
+
+
+def test_any_other_overflow_while_reading_a_statement_is_reported_on_it(monkeypatch):
+    def overflow(text):
+        raise RecursionError
+    monkeypatch.setattr(sov, "_statement", overflow)
+    results = validate("CREATE TASK a WAREHOUSE = wh AS SELECT 1; CREATE TASK b WAREHOUSE = wh AS SELECT 1")
+    assert [errors(r) for r in results] == [[sov._TOO_NESTED]] * 2
+
+
+def test_a_long_chain_written_child_first_is_checked_without_overflowing():
+    count = 3000
+    sql = "".join(f"CREATE TASK t{i} WAREHOUSE = wh AFTER t{i + 1} AS SELECT 1;" for i in range(count - 1))
+    sql += f"CREATE TASK t{count - 1} WAREHOUSE = wh SCHEDULE = '5 MINUTES' AS SELECT 1"
+    results = validate(sql)
+    assert len(results) == count
+    assert not any("cycle" in m for r in results for m in errors(r))
+    looped = validate(sql.replace(f"t{count - 1} WAREHOUSE = wh SCHEDULE = '5 MINUTES'", f"t{count - 1} WAREHOUSE = wh AFTER t0"))
+    assert all(any("form a cycle through AFTER" in m for m in errors(r)) for r in looped)
+
+
+@pytest.mark.parametrize("sql", [
+    "CREATE TASK begin WAREHOUSE = wh SCHEDULE = '5 MINUTES' AS SELECT 1; CREATE STREAM s ON TABLE x",
+    "CREATE TASK t WAREHOUSE = wh SCHEDULE = '5 MINUTES' AS SELECT declare FROM x; CREATE STREAM s ON TABLE x",
+])
+def test_begin_or_declare_as_a_name_doesnt_swallow_the_next_statement(sql):
+    task, stream = validate(sql)
+    assert task.kind == "task" and task.properties["AS"].upper().startswith("SELECT") and ";" not in task.properties["AS"]
+    assert stream.kind == "stream"
+
+
+def test_a_scripting_block_after_as_or_on_its_own_stays_one_statement():
+    body = "CREATE TASK t WAREHOUSE = wh SCHEDULE = '5 MINUTES' AS DECLARE n INT; BEGIN n := 1; RETURN n; END"
+    assert [r.kind for r in validate(body + "; CREATE STREAM s ON TABLE x")] == ["task", "stream"]
+    assert len(validate("BEGIN SELECT 1; BEGIN SELECT 2; END; END; SELECT 3")) == 2
+
+
+def test_an_unknown_dynamic_table_property_is_refused_on_both_paths():
+    for sql in ("CREATE DYNAMIC TABLE d TARGET_LAG = '5 minutes' WAREHOUSE = wh FOO = 1 AS SELECT a FROM s",
+                "CREATE DYNAMIC TABLE d (a) TARGET_LAG = '5 minutes' WAREHOUSE = wh FOO = 1 AS SELECT a FROM s"):
+        result = one(sql)
+        assert any("FOO isn't a CREATE DYNAMIC TABLE property" in m for m in errors(result)), (sql, result.findings)
+
+
+@pytest.mark.parametrize("cron, finding", [
+    ("*/ * * * *", "step that isn't a positive whole number"),
+    ("*/00 * * * *", "step that isn't a positive whole number"),
+    ("0 0 * * FRI-MON", "runs from high to low"),
+])
+def test_cron_steps_and_ranges_that_snowflake_may_not_read(cron, finding):
+    result = one(f"CREATE TASK t WAREHOUSE = wh SCHEDULE = 'USING CRON {cron} UTC' AS SELECT 1")
+    assert any(finding in m for m in errors(result) + warnings(result)), result.findings
+
+
+def test_an_unreadable_target_lag_is_shown_in_its_quotes():
+    result = one("CREATE DYNAMIC TABLE d TARGET_LAG = '1 week' WAREHOUSE = wh AS SELECT a FROM s")
+    assert any(m.startswith("TARGET_LAG '1 week' isn't a lag") for m in errors(result)), result.findings

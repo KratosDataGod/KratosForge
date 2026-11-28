@@ -565,7 +565,7 @@ error is something Snowflake's documentation says it refuses, and a warning is s
 Each finding is a sentence that says what to do next. What it checks, from Snowflake's reference pages:
 
 - **Names** are valid Snowflake identifiers. An unquoted name starts with a letter or an underscore
-  and holds letters, digits, underscores and dollar signs, a quoted name may hold anything, and each
+  and holds letters, digits, underscores and dollar signs. A quoted name may hold anything, and each
   part is at most 255 characters.
 - **Tasks** name a WAREHOUSE or a serverless USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE (up to
   XXLARGE), not both. A SCHEDULE is 10 to 691,200 seconds, 1 to 11,520 minutes or 1 to 192 hours, or

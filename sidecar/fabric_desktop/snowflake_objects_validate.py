@@ -168,6 +168,10 @@ class _Stop(Exception):
     """The statement can't be read further; the message says where and what to do."""
 
 
+_TOO_NESTED = ("This statement is nested too deeply for this check to read, with brackets or subqueries inside "
+               "one another. Simplify it, or check it in a Snowflake worksheet.")
+
+
 class _NotOurs(Exception):
     """Not a CREATE TASK, STREAM or DYNAMIC TABLE statement."""
 
@@ -323,9 +327,13 @@ def _split(sql: str) -> list[str]:
         nxt = tokens[k + 1] if k + 1 < len(tokens) else None
         word = tok.text.upper() if tok.token_type not in _STRINGS and tok.token_type != TokenType.IDENTIFIER else ""
         prev = tokens[k - 1].text.upper() if k else ""
-        if word == "DECLARE" and depth == 0:
+        # A block starts a statement or a task's body (after AS), or sits inside a block or after DECLARE.
+        # Anywhere else BEGIN or DECLARE is a name (CREATE TASK begin), so it can't swallow what follows.
+        opens = not has or prev == "AS"
+        if word == "DECLARE" and depth == 0 and opens:
             declare = True
-        elif word == "BEGIN" and (nxt is None or nxt.text.upper() not in ("TRANSACTION", "WORK", "NAME", ";")):
+        elif word == "BEGIN" and (opens or depth or declare) \
+                and (nxt is None or nxt.text.upper() not in ("TRANSACTION", "WORK", "NAME", ";")):
             depth, declare = depth + 1, False
         elif word == "CASE" and prev != "END":
             depth += 1
@@ -373,9 +381,17 @@ def validate(sql: str) -> list[Result]:
     except TokenError:
         return [Result("other", "", sql.strip(), [Finding(ERROR, "This SQL can't be read, often because of an "
                                                           "unclosed quote or comment. Close it and check again.")])]
-    results = [_statement(text) for text in texts]
+    results = [_checked(text) for text in texts]
     _graphs([r for r in results if r.kind == "task" and "name_key" in r.properties])
     return results
+
+
+def _checked(text: str) -> Result:
+    """``_statement``, with a statement too deeply nested to read reported on it rather than raised."""
+    try:
+        return _statement(text)
+    except RecursionError:
+        return Result("other", "", text, [Finding(ERROR, _TOO_NESTED)])
 
 
 def _statement(text: str) -> Result:
@@ -622,8 +638,8 @@ def _cron_field(result: Result, text: str, label: str, low: int, high: int, name
         return names.index(part.upper()) + (0 if label == "day of week" else 1) if part.upper() in names else None
 
     for item in text.split(","):
-        base, _, step = item.partition("/")
-        if step and not step.isdigit() or step == "0":
+        base, slash, step = item.partition("/")
+        if slash and (not step.isdigit() or int(step) == 0):
             result.error(f"The cron {label} field '{text}' has a step that isn't a positive whole number. Fix the "
                          "number after the slash.")
             return
@@ -643,11 +659,16 @@ def _cron_field(result: Result, text: str, label: str, low: int, high: int, name
         if any(v < low or v > high for v in values if v is not None):
             result.error(f"The cron {label} field '{text}' is outside {low} to {high}. Use values in that range.")
             return
+        if len(values) == 2 and values[0] is not None and values[1] is not None and values[0] > values[1]:
+            result.warn(f"The cron {label} field '{text}' has a range that runs from high to low, and Snowflake's "
+                        "documentation doesn't say whether it wraps around. Write it low to high, or as a list.")
 
 
 def _when(result: Result, when: str) -> None:
     try:
         tree = sqlglot.parse_one(f"SELECT {when}", read="snowflake")
+    except RecursionError:
+        raise _Stop(_TOO_NESTED) from None
     except (ParseError, TokenError):
         result.error("WHEN isn't a condition this check can read as Snowflake SQL. Check its syntax.")
         return
@@ -706,6 +727,8 @@ def _task_body(result: Result, body: str) -> None:
 def _parse(sql: str) -> exp.Expr | None:
     try:
         return sqlglot.parse_one(sql, read="snowflake")
+    except RecursionError:
+        raise _Stop(_TOO_NESTED) from None
     except (ParseError, TokenError):
         return None
 
@@ -824,6 +847,9 @@ def _dt_from_tree(tree: exp.Create, clauses: dict[str, str]) -> dict[str, _Val]:
             else:
                 val = _Val("group", value.sql(dialect="snowflake") if value is not None else "")
             key = prop.name.upper()
+            if key not in DT_PROPERTIES:
+                raise _Stop(f"{key} isn't a CREATE DYNAMIC TABLE property. Check its spelling against "
+                            "Snowflake's CREATE DYNAMIC TABLE reference.")
             if key in props:
                 raise _Stop(f"{key} is given twice. Keep one.")
             props[key] = val
@@ -916,7 +942,8 @@ def _target_lag(result: Result, lag: _Val) -> None:
     unit = words[1].upper() if len(words) == 2 else ""
     unit = unit if unit.endswith("S") else unit + "S"
     if len(words) != 2 or not words[0].isdigit() or unit not in LAG_UNITS:
-        result.error(f"TARGET_LAG {lag.text} isn't a lag Snowflake reads. Write a quoted whole number and seconds, "
+        shown = f"'{lag.text}'" if lag.kind == "string" else lag.text
+        result.error(f"TARGET_LAG {shown} isn't a lag Snowflake reads. Write a quoted whole number and seconds, "
                      "minutes, hours or days, such as '5 minutes', or DOWNSTREAM.")
         return
     seconds = int(words[0]) * LAG_UNITS[unit]
@@ -987,32 +1014,38 @@ def _graphs(tasks: list[Result]) -> None:
 
 
 def _cycles(tasks: list[Result], parents: dict[int, list[Result]]) -> None:
+    """Report each loop through AFTER. Depth first with an explicit stack, so a long chain can't overflow."""
     state: dict[int, int] = {}  # 1 on the current path, 2 finished
     reported: set[int] = set()
 
-    def visit(task: Result, path: list[Result]) -> None:
-        state[id(task)] = 1
-        path.append(task)
-        for parent in parents[id(task)]:
-            if state.get(id(parent)) == 1:
-                loop = path[path.index(parent):]
-                names = [t.name for t in reversed(loop)]
-                listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
-                for member in loop:
-                    if id(member) not in reported:
-                        reported.add(id(member))
-                        member.error(f"Tasks {listed} form a cycle through AFTER, and a task graph can't loop. "
-                                     "Remove one of those AFTER links." if len(names) > 1 else
-                                     f"Task {listed} names itself in AFTER, and a task graph can't loop. Remove it "
-                                     "from its own AFTER.")
-            elif state.get(id(parent)) is None:
-                visit(parent, path)
-        path.pop()
-        state[id(task)] = 2
+    def report(loop: list[Result]) -> None:
+        names = [t.name for t in reversed(loop)]
+        listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+        for member in loop:
+            if id(member) not in reported:
+                reported.add(id(member))
+                member.error(f"Tasks {listed} form a cycle through AFTER, and a task graph can't loop. "
+                             "Remove one of those AFTER links." if len(names) > 1 else
+                             f"Task {listed} names itself in AFTER, and a task graph can't loop. Remove it "
+                             "from its own AFTER.")
 
-    for task in tasks:
-        if id(task) not in state:
-            visit(task, [])
+    for start in tasks:
+        if id(start) in state:
+            continue
+        state[id(start)] = 1
+        path: list[Result] = [start]
+        stack = [iter(parents[id(start)])]
+        while stack:
+            parent = next(stack[-1], None)
+            if parent is None:
+                stack.pop()
+                state[id(path.pop())] = 2
+            elif state.get(id(parent)) == 1:
+                report(path[path.index(parent):])
+            elif state.get(id(parent)) is None:
+                state[id(parent)] = 1
+                path.append(parent)
+                stack.append(iter(parents[id(parent)]))
 
 
 def _graph_size(tasks: list[Result], parents: dict[int, list[Result]], children: dict[int, list[Result]],

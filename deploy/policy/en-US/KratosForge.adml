@@ -93,6 +93,8 @@
       <string id="motion_ambient_Help">Whether ambient effects show at Heroic and Legendary (motion levels 2 and 3). People can also change it in Settings; this policy fixes it. Policy file key: motion_ambient. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="motion_follow_system">Motion follow system</string>
       <string id="motion_follow_system_Help">Whether Windows' reduced-motion setting turns decorative motion off. People can also change it in Settings; this policy fixes it. Policy file key: motion_follow_system. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="sign_in_tenant">Sign in tenant</string>
+      <string id="sign_in_tenant_Help">The organization sign-in goes to, as a tenant ID or a domain like northwind.com, for guest (B2B) accounts working in the company that invited them. Trusted only from an admin-only source. People can also change it in Settings; this policy fixes it. Policy file key: sign_in_tenant. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="allow_signed_out_schedules">Allow signed out schedules</string>
       <string id="allow_signed_out_schedules_Help">False stops people setting schedules on this PC to run while they're signed out of Windows. Policy file key: allow_signed_out_schedules. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="platform_presence">Platform presence</string>
@@ -221,6 +223,7 @@
       <presentation id="sql_result_retention_hours"><decimalTextBox refId="sql_result_retention_hours" defaultValue="0">sql_result_retention_hours</decimalTextBox></presentation>
       <presentation id="wh_monitoring_auto"><listBox refId="wh_monitoring_auto">wh_monitoring_auto</listBox></presentation>
       <presentation id="motion_level"><decimalTextBox refId="motion_level" defaultValue="0">motion_level</decimalTextBox></presentation>
+      <presentation id="sign_in_tenant"><textBox refId="sign_in_tenant"><label>sign_in_tenant</label></textBox></presentation>
       <presentation id="onelake_writes"><dropdownList refId="onelake_writes" noSort="true">onelake_writes</dropdownList></presentation>
       <presentation id="onelake_compression"><dropdownList refId="onelake_compression" noSort="true">onelake_compression</dropdownList></presentation>
       <presentation id="wh_open_in"><dropdownList refId="wh_open_in" noSort="true">wh_open_in</dropdownList></presentation>

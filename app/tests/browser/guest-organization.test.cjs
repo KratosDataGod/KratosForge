@@ -4,9 +4,9 @@
 // one, whose domain or tenant id is checked before sign-in. A domain Microsoft doesn't know says so and
 // keeps Sign in off; a known one names it, and Sign in sends organization_switch once with its tenant
 // id. Signed in as a guest, the app bar shows a Guest tag and Settings says whose workspaces these are.
-// When IT fixed the organization, Settings says IT chose it and there's no Switch button. axe finds
-// nothing serious in the dialog. Settings come from the real engine (app_settings.py); the organization
-// calls are mocked in the shapes organizations_service.py returns.
+// When IT fixed the organization in policy, Settings says IT chose it and there's no Switch button,
+// even before sign-in. axe finds nothing serious in the dialog. Settings come from the real engine
+// (app_settings.py); the organization calls are mocked in the shapes organizations_service.py returns.
 // axe covers dialogs: settings.js:switchOrganizationDialog
 const { test, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert");
@@ -138,6 +138,26 @@ test("an organization IT chose says so, with no Switch button", { skip }, async 
   assert.match(text, /IT chose this organization for sign-in\. To change it, ask IT/);
   assert.match(text, /Set by your organization's policy/);
   assert.strictEqual(await account().getByRole("button", { name: "Switch organization" }).count(), 0);
+  assert.deepStrictEqual(app.errors, []);
+});
+
+// Policy sets sign_in_tenant (from a source only administrators could have written: app_settings.LOOSENING),
+// before anyone signs in: Settings says IT chose it, and the sign-in prompt's link opens no switch.
+test("an organization policy sets shows IT chose it before sign-in, and the sign-in prompt can't switch it", { skip }, async () => {
+  Object.assign(org, { fixed: true, guest: false, user: null, setting: "northwind.com" });
+  await openSettings();
+  const text = await account().innerText();
+  assert.match(text, /Not signed in/);
+  assert.match(text, /northwind\.com\. IT chose this organization for sign-in\. To change it, ask IT/);
+  assert.match(text, /Set by your organization's policy/);
+  assert.strictEqual(await account().getByRole("button", { name: "Switch organization" }).count(), 0);
+
+  await page().evaluate(() => go("workspaces"));
+  const from = app.calls.length;
+  await page().getByRole("button", { name: "Guest of another company?" }).click();
+  await page().locator("#toast", { hasText: "IT chose the organization KratosForge signs in to. To change it, ask IT." }).waitFor();
+  assert.strictEqual(await page().getByRole("dialog", { name: "Switch organization" }).count(), 0);
+  assert.deepStrictEqual(calls(from, "organization_switch"), []);
   assert.deepStrictEqual(app.errors, []);
 });
 

@@ -8,8 +8,10 @@ import json
 import pytest
 import requests
 
-from fabric_desktop import app_settings, auth, dpapi, organizations
+from fabric_desktop import app_settings, auth, dpapi, organizations, registry_policy
 from fabric_desktop.organizations_service import OrganizationsMixin
+
+from test_policy_loosening import file_changeable, gp, key_changeable  # noqa: F401 - fixtures
 
 HOST = "aaaaaaaa-1111-2222-3333-444444444444"
 HOME = "bbbbbbbb-1111-2222-3333-444444444444"
@@ -123,8 +125,9 @@ def test_sign_in_tenant_is_a_setting_people_change_and_it_is_kept_tidy():
     assert app_settings.load()["sign_in_tenant"]["source"] == "default"
 
 
-def test_policy_can_fix_the_organization_and_a_bad_value_is_ignored_and_reported(tmp_path, monkeypatch):
-    monkeypatch.setattr(app_settings, "POLICY_SETS_SIGN_IN", True)
+def test_policy_can_fix_the_organization_and_a_bad_value_is_ignored_and_reported(tmp_path):
+    # conftest's policy file is one only administrators could have written: it may widen where sign-in goes.
+    assert "sign_in_tenant" in app_settings.LOOSENING
     _policy(tmp_path, {"sign_in_tenant": "northwind.com"})
     assert app_settings.load()["sign_in_tenant"] == {"value": "northwind.com", "source": "policy"}
     with pytest.raises(ValueError, match="Your organization sets sign_in_tenant"):
@@ -134,12 +137,41 @@ def test_policy_can_fix_the_organization_and_a_bad_value_is_ignored_and_reported
     assert any("sign_in_tenant must be" in p for p in app_settings.policy_problems())
 
 
-def test_this_build_never_takes_the_organization_from_a_policy_file_and_the_persons_choice_stands(tmp_path):
-    _policy(tmp_path, {"sign_in_tenant": "northwind.com"})
-    assert app_settings.load()["sign_in_tenant"] == {"value": "", "source": "default"}
-    assert any("sign_in_tenant isn't applied from the policy file" in p for p in app_settings.policy_problems())
+def test_a_policy_file_the_person_could_change_doesnt_choose_the_organization_and_their_choice_stands(
+        tmp_path, gp, file_changeable):  # noqa: F811
     app_settings.save({"sign_in_tenant": HOST})
-    assert app_settings.load()["sign_in_tenant"] == {"value": HOST, "source": "user"}
+    _policy(tmp_path, {"sign_in_tenant": "northwind.com", "telemetry": False})
+    settings = app_settings.load()
+    assert settings["sign_in_tenant"] == {"value": HOST, "source": "user"}
+    assert settings["telemetry"] == {"value": False, "source": "policy"}  # the file's restrictions still apply
+    ignored = [p for p in app_settings.policy_problems() if "ignored, because" in p]
+    assert len(ignored) == 1 and ignored[0].startswith("sign_in_tenant is ignored")
+    app_settings.save({"sign_in_tenant": ""})  # still the person's own to change
+    assert app_settings.load()["sign_in_tenant"] == {"value": "", "source": "default"}
+
+
+def test_a_group_policy_key_the_person_could_change_doesnt_choose_the_organization(tmp_path, gp, key_changeable):  # noqa: F811
+    app_settings.save({"sign_in_tenant": HOST})
+    gp({"sign_in_tenant": ("northwind.com", registry_policy.REG_SZ), "telemetry": (0, registry_policy.REG_DWORD)})
+    settings = app_settings.load()
+    assert settings["sign_in_tenant"] == {"value": HOST, "source": "user"}
+    assert settings["telemetry"] == {"value": False, "source": "policy"}
+    assert any(p.startswith("sign_in_tenant is ignored") for p in app_settings.policy_problems())
+    status = _Svc(tmp_path).organization_status()
+    assert not status["fixed"] and status["setting"] == HOST
+
+
+def test_a_group_policy_key_only_administrators_could_write_chooses_the_organization(tmp_path, gp, metadata):  # noqa: F811
+    app_settings.save({"sign_in_tenant": HOST})
+    gp({"sign_in_tenant": ("northwind.com", registry_policy.REG_SZ)})
+    assert app_settings.load()["sign_in_tenant"] == {"value": "northwind.com", "source": "policy"}
+    assert not [p for p in app_settings.policy_problems() if "sign_in_tenant" in p]
+    svc = _Svc(tmp_path)
+    status = svc.organization_status()
+    assert status["fixed"] and status["current"]["name"] == "northwind.com"
+    with pytest.raises(PermissionError, match="IT chose the organization"):
+        svc.organization_switch(HOST)
+    assert svc.signed_in_to == []
 
 
 # ---------- sign-in goes to that tenant ----------
@@ -257,8 +289,7 @@ def test_an_unknown_organization_never_reaches_sign_in(tmp_path, metadata):
     assert svc.signed_in_to == [] and app_settings.value("sign_in_tenant") == ""
 
 
-def test_it_fixed_organization_cant_be_switched_and_says_it_chose_it(tmp_path, metadata, monkeypatch):
-    monkeypatch.setattr(app_settings, "POLICY_SETS_SIGN_IN", True)
+def test_it_fixed_organization_cant_be_switched_and_says_it_chose_it(tmp_path, metadata):
     _policy(tmp_path, {"sign_in_tenant": "northwind.com"})
     svc = _Svc(tmp_path)
     status = svc.organization_status()

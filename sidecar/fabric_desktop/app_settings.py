@@ -91,8 +91,9 @@ Keys:
                      signed out again (default: any)
     sign_in_tenant   the organization sign-in goes to, as a tenant id or a domain like northwind.com:
                      a guest (B2B) account working in the company that invited it. Empty (default):
-                     the account's own organization. Set in the policy file, it is fixed and Settings
-                     hides Switch organization
+                     the account's own organization. Set by policy, it is fixed and Settings says IT
+                     chose it; it widens where sign-in goes, so only a policy source only administrators
+                     could have written sets it (LOOSENING)
     audit_retention_days  IT only: days the audit trails on this PC (the app's, external AI tools' and
                      an agent's) are kept; whole months older than this are deleted, each cleanup
                      recorded first. 0 (default) keeps them; otherwise at least 30
@@ -236,12 +237,10 @@ TYPES.update({"motion_level": int} | {key: bool for key in MOTION_SWITCHES})
 USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 
 # The organization sign-in goes to (auth.Authenticator, organizations.py): empty for the account's own.
-# People change it with Switch organization; IT can fix it in the policy file.
+# People change it with Switch organization; IT can fix it in the policy file or Group Policy. It widens
+# where sign-in goes, so it is LOOSENING: a policy source the person could have written doesn't set it, and
+# their own choice stands.
 DEFAULTS["sign_in_tenant"] = ""
-# The policy file can't set it yet. It widens where sign-in goes, so a file that only administrators
-# can have written must be told apart from one any account on the PC could have put there first,
-# and that check isn't in this build. Until it is, the key is reported and ignored.
-POLICY_SETS_SIGN_IN = False
 TYPES["sign_in_tenant"] = str
 USER_KEYS += ("sign_in_tenant",)
 
@@ -327,16 +326,17 @@ SHELL_KEYS = ("fabric_view_sign_in_hosts", "register_link_scheme", "engine_downl
 APPSTUDIO_KEYS = ("appstudio_models", "appstudio_providers", "appstudio_hosts", "appstudio_sample_rows")
 POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *APPSTUDIO_KEYS, *SHELL_KEYS)
 # Settings that widen what KratosForge trusts or where it sends or fetches things: sign-in hosts, a
-# package source, the sign-in app, a telemetry or help-desk address, hosts App Studio and integrations
-# may call. Only a source the person using the PC couldn't change may set them (Chris, 2026-11-10):
-# from a policy file or Group Policy key they could change, or the last good copy in their own profile,
-# they are ignored and reported; that source's restrictions still apply, with a warning.
+# package source, the sign-in app, the organization sign-in goes to, a telemetry or help-desk address,
+# hosts App Studio and integrations may call. Only a source the person using the PC couldn't change may
+# set them (Chris, 2026-11-10): from a policy file or Group Policy key they could change, or the last good
+# copy in their own profile, they are ignored and reported; that source's restrictions still apply, with a
+# warning.
 # audit_retention_days and receipt_retention_days: 0 keeps them, otherwise at least this many days.
 RETENTION_MIN_DAYS = 30
 LOOSENING = ("fabric_view_sign_in_hosts", "dbconnect_index_url", "snowpark_index_url", "notebook_package_folder",
              "client_id",
              "telemetry_connection_string", "appstudio_hosts", "integrations_http", "support_url",
-             "audit_retention_days", "receipt_retention_days")
+             "audit_retention_days", "receipt_retention_days", "sign_in_tenant")
 # No real tenant has the nil GUID, so allowed_tenants of just this lets no account sign in.
 NO_TENANT = "00000000-0000-0000-0000-000000000000"
 # The restrictions among DEFAULTS, and the value each takes when the policy file or that key can't
@@ -688,9 +688,6 @@ def policy_problems() -> list[str]:
         elif key == "telemetry_connection_string" and value and not _telemetry_target(value):
             problems.append("telemetry_connection_string isn't an Application Insights connection string "
                             "(InstrumentationKey=...;IngestionEndpoint=https://...)")
-        elif key == "sign_in_tenant" and value and not POLICY_SETS_SIGN_IN:
-            problems.append("sign_in_tenant isn't applied from the policy file in this build, so each person "
-                            "chooses the organization in Settings")
         elif key == "sign_in_tenant" and value and not _sign_in_tenant(value):
             problems.append("sign_in_tenant must be a tenant id like 11111111-2222-3333-4444-555555555555 or a "
                             "domain like northwind.com, so sign-in goes to the account's own organization")
@@ -937,8 +934,6 @@ def load() -> dict[str, Any]:
             out[key] = {"value": RESTRICTED[key], "source": "policy"}
             continue
         candidates = [("policy", policy.get(key))]
-        if key == "sign_in_tenant" and not POLICY_SETS_SIGN_IN:
-            candidates = []  # not from a policy file yet: see POLICY_SETS_SIGN_IN
         if key in ENV_VARS:
             candidates.append(("environment", os.environ.get(ENV_VARS[key])))
         if key in USER_KEYS:

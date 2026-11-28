@@ -152,6 +152,42 @@ def test_whole_numbers_without_a_tolerance_of_their_own_stay_exact_for_verifys_o
     assert verify.compare(a, b, {"keys": ["id"], "columns": {"q": {"abs": 0, "rel": 0}}})["result"] == "differs"
 
 
+def test_a_whole_number_tolerance_uses_only_its_own_abs_and_rel_never_the_default_rel():
+    # verify.compare's DEFAULT rules (rel 1e-9), as prove and engines/compare call it: {"abs": 1} alone must
+    # not let the default rel hide 900 ms between two epoch times (1e-9 * 1.7e12 = 1700).
+    a, b = pa.table({"id": [1, 2], "ms": [1700000000000, 5]}), pa.table({"id": [1, 2], "ms": [1700000000900, 6]})
+    out = verify.compare(a, b, {"keys": ["id"], "columns": {"ms": {"abs": 1}}})
+    assert out["result"] == "differs" and out["counts"]["changed"] == 1
+    assert out["column_diffs"]["ms"] == {"rows": 1, "max_abs": 900.0, "max_rel": 900 / 1700000000900}
+    assert verify.compare(a, b, {"keys": ["id"], "columns": {"ms": {"abs": 900}}})["result"] == "match"
+    assert verify.compare(a, b, {"keys": ["id"], "columns": {"ms": {"abs": 899.99}}})["result"] == "differs"
+    # Its own rel only: 1e-9 of 1.7e12 is 1700, so 900 apart is within, and 6 vs 5 isn't.
+    out = verify.compare(a, b, {"keys": ["id"], "columns": {"ms": {"rel": 1e-9}}})
+    assert out["counts"]["changed"] == 1 and out["examples"][0]["key"] == {"id": 2}
+    assert verify.compare(a, b, {"keys": ["id"], "columns": {"ms": {"rel": 0.2}}})["result"] == "match", "1 of 6 is within 0.2"
+    assert verify.compare(a, b, {"keys": ["id"], "columns": {"ms": {"rel": 5e-10}}})["counts"]["changed"] == 2, "850 < 900"
+
+
+def test_a_whole_number_tolerance_compares_past_2_to_the_53_exactly():
+    # As DOUBLEs 2^53 and 2^53 + 1 are one number; a tolerance of 0.5 keeps them apart.
+    n = 2 ** 53
+    a, b = pa.table({"id": [1, 2], "v": [n, 2 ** 62]}), pa.table({"id": [1, 2], "v": [n + 1, 2 ** 62 + 1]})
+    out = verify.compare(a, b, {"keys": ["id"], "columns": {"v": {"abs": 0.5}}})
+    assert out["result"] == "differs" and out["counts"]["changed"] == 2
+    assert out["column_diffs"]["v"]["rows"] == 2 and out["column_diffs"]["v"]["max_abs"] == 1.0
+    assert verify.compare(a, b, {"keys": ["id"], "columns": {"v": {"abs": 1}}})["result"] == "match"
+    # The largest int64s and a huge tolerance: no overflow.
+    big, small = 2 ** 63 - 1, -(2 ** 63)
+    a, b = pa.table({"id": [1], "v": [big]}), pa.table({"id": [1], "v": [small]})
+    assert verify.compare(a, b, {"keys": ["id"], "columns": {"v": {"abs": 1e300}}})["result"] == "match"
+    assert verify.compare(a, b, {"keys": ["id"], "columns": {"v": {"rel": 1.99}}})["result"] == "differs", "2^64 - 1 > 1.99 * 2^63"
+    assert verify.compare(a, b, {"keys": ["id"], "columns": {"v": {"rel": 2}}})["result"] == "match"
+    assert verify.compare(a, b, {"keys": ["id"], "columns": {"v": {"rel": 1e-30}}})["result"] == "differs"
+    # NULLs: NULL equals only NULL, with a tolerance too.
+    a, b = pa.table({"id": [1, 2], "v": [None, None]}), pa.table({"id": [1, 2], "v": [None, 3]})
+    assert verify.compare(a, b, {"keys": ["id"], "columns": {"v": {"abs": 10}}})["counts"]["changed"] == 1
+
+
 # ---- status names
 
 

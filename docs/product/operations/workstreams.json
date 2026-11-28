@@ -1127,6 +1127,17 @@
         "Each key does one thing while presenting, debugging or editing Markdown"
       ],
       "agent": "Notebook parity"
+    },
+    "WR-138": {
+      "title": "Notebook find and replace holds up on regular expressions, Unicode, cell edits and 2,000-cell notebooks",
+      "priority": "P3",
+      "problem": "Find and replace across cells shipped with tests on a four-cell notebook and plain ASCII text.",
+      "acceptance": [
+        "A regular expression's ^ and $ match at each line, and whole word finds words with accented letters beside emoji",
+        "Replace moves on to the next match; the count follows cells deleted while the bar is open",
+        "Replace all in a 2,000-cell notebook changes every match, far cells included, and Undo replace all builds no editors"
+      ],
+      "agent": "Notebook parity"
     }
   },
   "side_programs": [

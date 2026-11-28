@@ -35,7 +35,8 @@ session only, so a notebook you just opened has none to search until its cells r
   which puts every changed cell back as it was. It goes away once you edit one of those cells, so it
   never throws away later typing. Each cell's own **Ctrl+Z** also undoes its change.
 - With a regular expression, `$1` or `$<name>` in the replacement inserts that group. Lookarounds
-  and `^` / `$` see the whole cell, so `(?<=dbo\.)sales` replaces only the `sales` after `dbo.`.
+  see the whole cell, so `(?<=dbo\.)sales` replaces only the `sales` after `dbo.`, and `^` / `$`
+  match at the start and end of each line, as in a cell's own search.
 - **Frozen** cells are never changed. Replace all says how many matches it left in frozen cells.
 - **Outputs** are never changed either: run the cell again to change what it printed. Replace all
   says how many matches it left in outputs.

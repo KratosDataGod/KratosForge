@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-27",
+  "updated": "2026-11-28",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -4679,7 +4679,8 @@
         "Spark differential and value checks split so no test nears the time limit (#3340, #3345); learner-package probes end cleanly on Windows (#3334) on main at 9ea9dfde",
         "Mutation batch 261 for the Excellence Assessment controls (#3358); a story-id ledger so each lane takes WR ids from its own block (#3263, WR-616) on main at 7b43ff88",
         "Mutation batches 300, 301, 362 to 367, 400 to 405 and 412 to 424 (#3217, #3359); UI guard paths on eight pages (#3217); the shared Spark session returns to UTC after each test (#3381) on main at 3b422564",
-        "Mutation batches 219 to 474 across #3308, #3309 and #3375; Profile header art test waits for the final draw (#3396); Windows child-process tests get only the engine folder on PYTHONPATH (#3398) on main at f679a9ca"
+        "Mutation batches 219 to 474 across #3308, #3309 and #3375; Profile header art test waits for the final draw (#3396); Windows child-process tests get only the engine folder on PYTHONPATH (#3398) on main at f679a9ca",
+        "Academy exam service tests answer only items that take picked options (#3399) on main at be5ef815"
       ],
       "features": [
         "FEAT-SHL-09",
@@ -5327,7 +5328,8 @@
         3375,
         3381,
         3396,
-        3398
+        3398,
+        3399
       ],
       "issues": [
         910,
@@ -6688,7 +6690,8 @@
         "The semantic model check notebook saves its error for the app when it fails (#1818) on main at 03d2b53a",
         "The live test runs the semantic model best practices check once as model.bpa (#2913), built after the product owner's typed go of 2026-11-13; he typed 'yes, run it' for the live run on 2026-11-20 21:42Z, and it waits on his Allow on his PC on main at 0fdeb4d7",
         "Semantic model Best practices check card, from the approved mockup (#3210, Preview) on main at 293fb38d",
-        "Review follow-ups to #3003 and #2913: DM002 CONVERT and the live test's model.bpa (#3218) on main at a73ebb71"
+        "Review follow-ups to #3003 and #2913: DM002 CONVERT and the live test's model.bpa (#3218) on main at a73ebb71",
+        "A model's last best-practice check appears in Optimize > Opportunities (#3257, model_bpa_share) on main at be5ef815"
       ],
       "features": [
         "FEAT-GOV-09",
@@ -6708,7 +6711,8 @@
         1818,
         2913,
         3210,
-        3218
+        3218,
+        3257
       ],
       "depends_on": [
         "PB-112"
@@ -8582,7 +8586,8 @@
         "Phase 0: audit of every central and local store, target architecture, manifest v1 spec, provider contracts, nine ADRs and stories CP-001 to CP-017 (#3109, docs only) on main at 75bf5b39",
         "Environment manifest, conditional store, provider declarations and read-only Fabric discovery (#3110, CP-001 to CP-004); Fabric provisioning plan, adopt preview, compatibility and status (#3121, CP-005 to CP-008); engine methods (#3131, CP-009) on main at bdb6f251",
         "The environment's own cost, kept apart from savings (#3137, CP-011); Settings > Environment screen with Upgrade's plan and confirm (#3146, CP-010) on main at ea988e99",
-        "Control plane hardening: fuzz and edge-case tests, seven engine fixes and Environment failure-path browser tests (#3169) on main at 0fdeb4d7"
+        "Control plane hardening: fuzz and edge-case tests, seven engine fixes and Environment failure-path browser tests (#3169) on main at 0fdeb4d7",
+        "Adopt links the Prod Platform database; CP-012 live-run runbook; CP-015 inventory engine (#3214) on main at be5ef815"
       ],
       "features": [
         "FEAT-MESH-01",
@@ -8620,7 +8625,8 @@
         3131,
         3137,
         3146,
-        3169
+        3169,
+        3214
       ],
       "computed": {
         "benefit": 3.75,

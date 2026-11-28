@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "f679a9cad2e8d1ff186b8e17705a829e8a8943c2",
-    "date": "2026-11-27",
+    "commit": "be5ef815c1e22924c34413cc13ea6c20b9a07a3a",
+    "date": "2026-11-28",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -85,7 +85,8 @@
       "Product check 2026-11-26 11:42 at 046f9d3ed911e370b4f29ccec85ed97dea7d130a: 7 PRs merged after 9ea9dfde; 1 were product data, docs audit, operations or plan PRs and the other 6 were linked by title; other rows were not re-read.",
       "Product check 2026-11-26 23:42 at 7b43ff882965dacf971c4deb766e0d0538a3e0ae: 8 PRs merged after 046f9d3e; 1 was a product data, docs audit, operations or plan PR and the other 7 were linked by title; other rows were not re-read.",
       "Product check 2026-11-27 11:42 at 3b42256479b2358a4b15369935ccc65ab7ec919e: 31 PRs merged after 7b43ff88; 1 was a product data, docs audit, operations or plan PR and the other 30 were linked by title; other rows were not re-read.",
-      "Product check 2026-11-27 23:42 at f679a9cad2e8d1ff186b8e17705a829e8a8943c2: 21 PRs merged after 3b422564; 0 were product data, docs audit, operations or plan PRs and the other 21 were linked by title; other rows were not re-read."
+      "Product check 2026-11-27 23:42 at f679a9cad2e8d1ff186b8e17705a829e8a8943c2: 21 PRs merged after 3b422564; 0 were product data, docs audit, operations or plan PRs and the other 21 were linked by title; other rows were not re-read.",
+      "Product check 2026-11-28 11:42 at be5ef815c1e22924c34413cc13ea6c20b9a07a3a: 3 PRs merged after f679a9ca; 0 were product data, docs audit, operations or plan PRs and the other 3 were linked by title; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -5216,7 +5217,8 @@
         3131,
         3137,
         3146,
-        3169
+        3169,
+        3214
       ],
       "next_action": "Blocked only by a live tenant run (WR-502, 2026-11-09): setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified).",
       "backlog": [
@@ -8992,7 +8994,8 @@
         1818,
         2913,
         3210,
-        3218
+        3218,
+        3257
       ],
       "workstream": "Enterprise governance foundation; Best Practice Analyzer (checkers)",
       "limitations": [

@@ -3,10 +3,13 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-27 23:42 UTC, main f679a9ca.** Covers the PRs merged from #135 to #3398.
+**Product check of 2026-11-28 11:42 UTC, main be5ef815.** Covers the PRs merged from #135 to #3399.
 
 ## Summary
 
+- Morning check, 2026-11-28: 3 PRs merged after f679a9ca, all linked. The KratosForge Environment's Adopt step links
+  the Prod Platform database, and the CP-012 live-run runbook and the CP-015 inventory engine landed (PB-139). A model's
+  last best-practice check now appears in Optimize > Opportunities (PB-115). No item changed state.
 - Evening check, 2026-11-27: 22 PRs merged after 3b422564, all linked. Five Previews shipped from approved work: the
   SLA report under Reports (PB-105), Compare data on the SQL page (S34, PB-106), sharing an Optimize assessment
   (OE-004, PB-104), comparing one workload's cost across Fabric, Databricks and Snowflake (PB-137), and Snowflake

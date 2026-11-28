@@ -421,3 +421,30 @@ def test_a_monthly_figure_is_scaled_from_the_measured_value_not_its_rounded_disp
     whole = impact.avoidable([w], usage, NOW)
     assert whole["run_seconds_per_month"]["value"] == 30.000027
     assert whole["current"][0]["run_seconds"]["value"] == 1.000001  # the display rounding stays as it was
+
+
+def test_unread_only_because_of_the_assessments_limits_doesnt_say_check_your_access():
+    cap = {"error": "Not read, because only the first 300 notebooks and pipelines are read in one assessment.", "limit": "cap"}
+    budget = {"error": "Not read: the assessment's read budget ran out.", "limit": "budget"}
+    r = _run([("a", "Notebook", "a", cap, None), ("b", "Notebook", "b", budget, None)])
+    assert [n["limit"] for n in r["coverage"]["not_read"]] == ["cap", "budget"]
+    na = r["next_action"]
+    assert na["kind"] == "read_limit" and "check your access" not in na["label"] and "isn't about your access" in na["label"]
+    assert na["label"] == ("No opportunity found in what was read. Some definitions weren't read, because a workspace has "
+                           "more notebooks and pipelines than one assessment reads, and the read budget ran out. Assess "
+                           "fewer workspaces at a time to read more of them. This isn't about your access. The coverage "
+                           "list names the ones that weren't read.")
+    only_cap = _run([("a", "Notebook", "a", cap, None)])["next_action"]["label"]
+    assert only_cap == ("No opportunity found in what was read. Some definitions weren't read, because a workspace has "
+                        "more notebooks and pipelines than one assessment reads. This isn't about your access. The "
+                        "coverage list names the ones that weren't read.")
+
+
+def test_a_real_failure_beside_a_limit_still_asks_about_access_for_that_one():
+    cap = {"error": "Not read, because only the first 300 notebooks and pipelines are read in one assessment.", "limit": "cap"}
+    r = _run([("a", "Notebook", "a", cap, None), ("b", "Notebook", "b", {"error": "Forbidden"}, None)])
+    na = r["next_action"]
+    assert na["kind"] == "fix_access" and [i["item_id"] for i in na["items"]] == ["b"]
+    # an unknown limit word is a failure like any other, never a reason to stop asking
+    odd = _run([("a", "Notebook", "a", {"error": "x", "limit": "whatever"}, None)])
+    assert odd["next_action"]["kind"] == "fix_access" and "limit" not in odd["coverage"]["not_read"][0]

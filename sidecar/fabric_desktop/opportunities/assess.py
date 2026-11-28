@@ -80,7 +80,8 @@ def _coverage(workloads: list[dict[str, Any]], usage_items: int) -> dict[str, An
         kinds[w["type"]] = kinds.get(w["type"], 0) + 1
     return {"items": len(workloads), "by_type": dict(sorted(kinds.items())),
             "analyzed": sum(1 for w in workloads if w["definition"] == "read"),
-            "not_read": [{"item_id": w["item_id"], "name": w["name"], "type": w["type"], "problem": w["problem"]}
+            "not_read": [{"item_id": w["item_id"], "name": w["name"], "type": w["type"], "problem": w["problem"],
+                          **({"limit": w["limit"]} if w.get("limit") else {})}
                          for w in workloads if w["definition"] == "not_read"],
             "not_analyzed_types": sorted({w["type"] for w in workloads if w["definition"] == "unsupported"}),
             "history_not_read": sum(1 for w in workloads if not w["runs"]["read"]),
@@ -92,9 +93,18 @@ def _next_action(ranked: list[dict[str, Any]], coverage: dict[str, Any]) -> dict
     top = next((o for o in ranked if o.get("counted")), ranked[0] if ranked else None)
     if top is not None:
         return {"opportunity_id": top["id"], "title": top["title"], **top["next_step"]}
-    if coverage["not_read"]:
+    failed = [n for n in coverage["not_read"] if not n.get("limit")]
+    if failed:
         return {"kind": "fix_access", "label": "Some definitions couldn't be read; check your access to them",
-                "items": coverage["not_read"]}
+                "items": failed}
+    if coverage["not_read"]:  # every unread one was left out by the assessment's own limits, not your access
+        limits = {n["limit"] for n in coverage["not_read"]}
+        why = ", and ".join(text for key, text in (
+            ("cap", "a workspace has more notebooks and pipelines than one assessment reads"),
+            ("budget", "the read budget ran out. Assess fewer workspaces at a time to read more of them")) if key in limits)
+        return {"kind": "read_limit", "items": coverage["not_read"],
+                "label": (f"No opportunity found in what was read. Some definitions weren't read, because {why}. "
+                          "This isn't about your access. The coverage list names the ones that weren't read.")}
     return {"kind": "none", "label": "No opportunity found in what these analyzers check. That isn't proof there "
                                      "is none: the coverage list says what was read."}
 

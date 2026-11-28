@@ -185,7 +185,7 @@ class OpportunitiesMixin:
 
         def definition(it: dict[str, Any]) -> tuple[str, dict[str, Any]]:
             if not budget.take():
-                return it["id"], {"error": "Not read: the assessment's read budget ran out."}
+                return it["id"], {"error": "Not read: the assessment's read budget ran out.", "limit": "budget"}
             try:
                 fmt = "ipynb" if it.get("type") == "Notebook" else None
                 return it["id"], fabric.get_item_definition(ws, it["id"], fmt)
@@ -206,7 +206,7 @@ class OpportunitiesMixin:
         past = [it for it in items if it.get("type") in inventory.ANALYZED][MAX_ITEMS:]
         for it in past:  # not read: say why, rather than a bare "wasn't read"
             definitions[it["id"]] = {"error": f"Not read, because only the first {MAX_ITEMS} notebooks and pipelines are "
-                                              "read in one assessment."}
+                                              "read in one assessment.", "limit": "cap"}
         left = len(past)
         return {"workspace": workspace, "items": items, "definitions": definitions, "jobs": jobs,
                 "problem": f"{left} item(s) past the first {MAX_ITEMS} weren't read." if left > 0 else None}

@@ -178,8 +178,17 @@ def test_no_budget_left_for_definitions_records_each_as_not_read(make, monkeypat
     r = s.optimization_assess(workspace_id=WS["id"])
     nr = r["coverage"]["not_read"]
     assert {n["item_id"] for n in nr} == {"n000", "n001"}
-    assert all("budget" in n["problem"] for n in nr)
+    assert all("budget" in n["problem"] and n["limit"] == "budget" for n in nr)
     assert r["coverage"]["history_not_read"] == 2
+    assert r["next_action"]["kind"] == "read_limit"
+
+
+def test_items_past_the_read_cap_are_marked_as_a_limit_not_a_failure(make, monkeypatch):
+    monkeypatch.setattr(ops, "MAX_ITEMS", 1)
+    r = make(items=_nbs(3)).optimization_assess(workspace_id=WS["id"])
+    capped = [n for n in r["coverage"]["not_read"] if n.get("limit") == "cap"]
+    assert [n["item_id"] for n in capped] == ["n001", "n002"]
+    assert all("only the first 1 notebooks and pipelines" in n["problem"] for n in capped)
 
 
 # ---------------------------------------------------------------- unreadable reads

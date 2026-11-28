@@ -141,6 +141,8 @@ def pipeline_activities(definition: dict[str, Any], name: str) -> list[dict[str,
             for a in imported.pipeline.all_activities()]
 
 
+# Why a definition wasn't read when nothing failed: the read budget ran out, or the item was past the read cap.
+LIMITS = ("budget", "cap")
 POLICY_KEYS = ("retry", "retryIntervalInSeconds", "timeout", "secureInput", "secureOutput")
 
 
@@ -153,7 +155,8 @@ def _policy(policy: Any) -> dict[str, Any]:
 def workloads(workspace: dict[str, Any], items: list[dict[str, Any]], definitions: dict[str, dict[str, Any]],
               jobs: dict[str, list[dict[str, Any]] | None], *, now: dt.datetime, days: int) -> list[dict[str, Any]]:
     """The workspace's workloads. ``definitions`` maps item id to a getDefinition result, or to
-    ``{"error": text}`` when it couldn't be read; ``jobs`` maps item id to its job instances
+    ``{"error": text}`` when it couldn't be read (with ``"limit"``: "budget" or "cap" when it wasn't read
+    because of the assessment's own limits, not a failure); ``jobs`` maps item id to its job instances
     (``None`` when unread)."""
     out = []
     for it in items:
@@ -169,6 +172,9 @@ def workloads(workspace: dict[str, Any], items: list[dict[str, Any]], definition
             if got is None or "error" in got:
                 w["definition"] = "not_read"
                 w["problem"] = (got or {}).get("error") or "The definition wasn't read."
+                limit = (got or {}).get("limit")
+                if limit in LIMITS:
+                    w["limit"] = limit
             else:
                 try:
                     if kind == "Notebook":

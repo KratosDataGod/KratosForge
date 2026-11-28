@@ -83,6 +83,11 @@ Returns `workloads`, `opportunities` (ranked: counted first, then by confidence,
 and `next_action` (the top opportunity's next step, or what to fix when nothing could be read). When
 nothing is found it says that isn't proof there is nothing.
 
+A definition left unread by the assessment's own limits carries `limit` in `coverage.not_read`: `budget`
+(the read budget ran out) or `cap` (past the first 300 notebooks and pipelines in a workspace). If every
+unread definition is a limit, `next_action` is `read_limit`: it says why, and that it isn't about access.
+Only definitions that failed to read get `fix_access`, which asks you to check your access to them.
+
 `demo=True` runs a **demonstration fixture**: a made-up workspace, runs and usage file, labelled as a
 fixture on the result and on every opportunity. It makes no Fabric call. It shows how the engine works;
 nothing in it is a finding or a saving.

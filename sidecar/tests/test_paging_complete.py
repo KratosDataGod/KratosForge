@@ -182,12 +182,12 @@ def unpaged_list_reads():
     found = set()
     for path in SRC.rglob("*.py"):
         src = path.read_text(encoding="utf-8")
-        if ".json()" not in src:
+        if ".json()" not in src and "_reply(" not in src:
             continue
         for node in ast.walk(ast.parse(src)):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 body = ast.get_source_segment(src, node) or ""
-                if ".json()" in body and LIST_KEY.search(body) and not PAGES.search(body):
+                if (".json()" in body or "_reply(" in body) and LIST_KEY.search(body) and not PAGES.search(body):
                     found.add((path.name, node.name))
     return found
 

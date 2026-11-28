@@ -730,7 +730,8 @@ class Authenticator:
             return
         self.sign_out()
         raise RuntimeError("Your organization only allows signing in with its own work accounts, and this account "
-                           "belongs to another organization. Sign in with your work account.")
+                           "belongs to another organization. Sign in with your work account, or ask IT to add this "
+                           f"account's tenant to allowed_tenants in {app_settings.policy_source('allowed_tenants')}.")
 
     def silent_token(self, scopes: list[str]) -> str | None:
         """A token for scopes the user has already consented to, without any prompt; None otherwise."""

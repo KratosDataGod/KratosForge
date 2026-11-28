@@ -42,9 +42,10 @@ from urllib.parse import unquote
 import duckdb
 import pyarrow as pa
 
-from .. import delta_dml, delta_profile, delta_read, durable, sql_dialects
+from .. import delta_dml, delta_profile, delta_read, durable, maintenance, sql_dialects
 from ..awake_timer import AwakeTimer
-from . import delta, tsql, tsql_errors
+from ..tmdl import _RESERVED as _DEVICE_NAMES  # Windows device names; a read of one waits on the device
+from . import delta, tsql, tsql_errors, tsql_merge
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
 from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
@@ -251,7 +252,10 @@ def _data_files(table: Any, folder: str) -> list[str]:
     """The data files of the loaded version, as paths on disk. From the log's own paths (each one
     percent-encoded once), not file_uris(): delta-rs 1.x percent-encodes the table's folder there but
     leaves a partition folder as it is on disk, so neither decoding nor not decoding it names the files
-    when the project is under a folder with a space or a non-ASCII letter (C:\\Users\\Jöhn Smith)."""
+    when the project is under a folder with a space or a non-ASCII letter (C:\\Users\\Jöhn Smith).
+
+    A path that leaves the table's folder (``..``, a rooted path, a URI elsewhere) is refused, never read:
+    a damaged or hostile log would otherwise show the rows of any Parquet file the project can reach."""
     files = []
     for rel in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist()):
         path = unquote(rel)
@@ -259,8 +263,35 @@ def _data_files(table: Any, folder: str) -> list[str]:
             path = _local_path(path)
         elif not os.path.isabs(path):
             path = os.path.normpath(os.path.join(folder, path))
+        # Checked by name before anything resolves the path: on Windows, resolving one turns it into the device
+        if any(part.split(".")[0].upper().rstrip(" .") in _DEVICE_NAMES for part in _parts_below(path, folder)):
+            raise ValueError(f"The Delta table in {folder} isn't queryable here, because its log names a data file "
+                             f"({rel[:200]!r}) that Windows reserves for a device, like CON or NUL. Check where the "
+                             "table's _delta_log came from, or write the table again.")
+        if not _inside(path, folder):
+            raise ValueError(f"The Delta table in {folder} isn't queryable here, because its log names a data file "
+                             f"outside the table's folder ({rel[:200]!r}), and only files inside it are read. Check "
+                             "where the table's _delta_log came from, or write the table again.")
         files.append(path)
     return files
+
+
+def _parts_below(path: str, folder: str) -> list[str]:
+    """The names in ``path`` below ``folder``, compared as text only (never resolved), split on / and \\."""
+    p, r = os.path.normcase(os.path.normpath(path)), os.path.normcase(os.path.normpath(folder))
+    below = p[len(r):] if p.startswith(r.rstrip("\\/") + os.path.sep) else p
+    return [part for part in below.replace("\\", "/").split("/") if part]
+
+
+def _inside(path: str, folder: str) -> bool:
+    """Whether ``path`` is a file within ``folder``, after ``..``, links (a linked data file or partition
+    folder) and case (on Windows) are resolved."""
+    p = os.path.normcase(os.path.realpath(path))
+    r = os.path.normcase(os.path.realpath(folder))
+    try:
+        return p != r and os.path.commonpath([p, r]) == r
+    except ValueError:  # silent-ok: another drive (Windows) is outside the folder
+        return False
 
 
 def _local_path(uri: str) -> str:
@@ -336,6 +367,20 @@ def _matched_once(con: duckdb.DuckDBPyConnection, c: "delta_dml.Change", target_
         f"{acted} GROUP BY __fd_row HAVING count(*) > 1 LIMIT 1"))
     if row is not None:
         raise ValueError(f"{TSQL_SAME_ROW_TWICE} Nothing in {name or c.name} was changed.")
+
+
+def _column_names(con: duckdb.DuckDBPyConnection, query: str) -> list[str]:
+    """The names of the columns ``query`` gives, read without reading any row."""
+    return [d[0] for d in con.execute(f"SELECT * FROM ({query}) AS __fd_columns LIMIT 0").description or []]
+
+
+def _placed(con: duckdb.DuckDBPyConnection, c: "delta_dml.Change") -> None:
+    """Place a T-SQL MERGE's unqualified columns on a database table by the columns its table and its source have
+    now (WR-257): a temporary table, a table the script made or a table-valued function has them only when the
+    MERGE runs. A source known before it runs was placed when it was read (tsql_merge.check), with the same words."""
+    target = q(c.schema) + "." + q(c.table) if c.schema else q(c.table)
+    tsql_merge.place(tsql_merge.clauses(c), _column_names(con, f"SELECT * FROM {target}"),
+                     _column_names(con, c.source_sql(KfDuckDB)))
 
 
 def _duckdb_types(schema: pa.Schema) -> dict[str, str]:
@@ -868,7 +913,12 @@ class LocalEngine:
                 try:
                     statements = self._statements(con, sql, dialect, run)
                 except ValueError as exc:
-                    if dialect != "tsql" or (said := _as_warehouse_says(exc, {})) is exc:
+                    if isinstance(exc, tsql.InScript):  # WR-238: which statement, and that none of it ran
+                        said: Exception = ValueError(_refused_in_script(_as_warehouse_says(ValueError(str(exc)), {}),
+                                                                        exc))
+                    else:
+                        said = exc if dialect != "tsql" else _as_warehouse_says(exc, {})
+                    if said is exc:
                         raise
                     raise said from None
                 if write is not None:
@@ -888,6 +938,8 @@ class LocalEngine:
                     step_started = time.monotonic()
                     try:
                         as_of += self._make_as_of(con, step["as_of"])
+                        if explain is None and step.get("placed") is not None:
+                            _placed(con, step["placed"])
                         if explain is None and step.get("matched") is not None:
                             _matched_once(con, step["matched"])
                         if dialect == "tsql" and step["kind"] in ("create", "alter") and step["write"] is None \
@@ -1034,6 +1086,7 @@ class LocalEngine:
         steps: list[dict[str, Any]] = []
         for text in texts:
             matched: delta_dml.Change | None = None
+            placed: delta_dml.Change | None = None
             joined: str | None = None
             if delta_dml.looks_like(text):
                 rewritten, found = delta.rewrite_as_of(text, n)
@@ -1051,6 +1104,8 @@ class LocalEngine:
                 if change is None and parsed is not None and parsed.kind == "merge" \
                         and any(w.match == "matched" for w in parsed.whens):
                     matched = parsed  # a MERGE on a database table: checked before it runs (_matched_once)
+                if change is None and parsed is not None and parsed.kind == "merge" and tsql:
+                    placed = parsed  # WR-257: its columns placed by the source's columns as it runs (_placed)
                 if change is not None:
                     n += len(found)
                     steps.append({"sql": "", "write": None, "change": change, "as_of": found,
@@ -1071,7 +1126,7 @@ class LocalEngine:
             n += len(found)
             steps.append({"sql": "" if write else text, "write": write, "change": None, "as_of": found,
                           "kind": "write delta" if write else _kind(text), "matched": matched,
-                          "joined": joined})
+                          "joined": joined, "placed": placed})
         return steps
 
     def _database_table(self, target: tuple[str | None, str] | None) -> bool:
@@ -1193,6 +1248,8 @@ class LocalEngine:
         name = f"{schema + '.' if schema else ''}{table}"
         if entry is None:
             raise ValueError(f"{name} isn't a Delta table in {self.project.name}, so it has no versions.")
+        if not isinstance(entry, dict) or not isinstance(entry.get("folder") or "", str):  # a hand-edited project.json
+            raise ValueError(f"{name}'s entry in {self.project.name}'s saved catalog (project.json) can't be read.")
         if entry.get("format") != "delta" or not entry.get("folder"):
             raise ValueError(f"{name} isn't a Delta table ({entry.get('format')}), so it has no versions.")
         return entry
@@ -1462,6 +1519,7 @@ class LocalEngine:
                     folder.mkdir(parents=True, exist_ok=True)
                     options: dict[str, Any] = {
                         "partition_by": partitions or None, "schema_mode": schema_mode,
+                        "post_commithook_properties": maintenance.WRITE_HOOKS,
                         "commit_properties": CommitProperties(custom_metadata={
                             "fabric_desktop.project": self.project.id, "fabric_desktop.query": query_id})}
                     if current is not None and w.mode == "overwrite":
@@ -1494,6 +1552,7 @@ class LocalEngine:
         # On disk before the write returns, as LocalStore's commits are: a power cut can't take the
         # data of a commit already made (durable.py).
         durable.sync_commits(str(folder), 0 if current is None else current.version() + 1, after.version())
+        maintenance.after_write(str(folder), None if current is None else current.version(), after)
         delta_profile.check_table(after, committed=True)
         out["version"] = after.version()
         entry = self._register_own(con, schema, w.table, folder)
@@ -1552,7 +1611,8 @@ class LocalEngine:
                     out.update(delta_dml.apply(c, DeltaTable(str(copy)), source, names, props, one_match_checked=True))
                     out["version"] = DeltaTable(str(copy)).version()  # what a real run would commit
                 return out
-            out.update(delta_dml.apply(c, current, source, names, props, one_match_checked=True))
+            out.update(delta_dml.apply(c, current, source, names, props, one_match_checked=True,
+                                       post_commithook_properties=maintenance.WRITE_HOOKS))
         except BaseException as exc:
             if state["cancelled"] or state["timed_out"]:
                 raise duckdb.InterruptException("cancelled") from None
@@ -1584,6 +1644,7 @@ class LocalEngine:
         after = DeltaTable(str(folder))
         if after.version() > before:
             durable.sync_commits(str(folder), before + 1, after.version())  # on disk before it returns
+            maintenance.after_write(str(folder), before, after)
         delta_profile.check_table(after, committed=True)
         out["version"] = after.version()
         registered = self._register_own(con, entry["schema"], entry["table"], folder)
@@ -1600,6 +1661,9 @@ class LocalEngine:
         query = c.source_sql(KfDuckDB)
         _only_reads(con, query)
         con.execute(f"CREATE TEMP TABLE {q(source_table)} AS {query}")
+        if c.tsql:  # WR-257: the source's columns as it has them now, before anything is written
+            tsql_merge.place(tsql_merge.clauses(c), [f.name for f in current.schema().fields],
+                             _column_names(con, f"SELECT * FROM temp.{q(source_table)}"))
         if c.tsql:  # WR-244: as a warehouse does, whose tables are Delta tables too
             if any(w.match == "matched" for w in c.whens):
                 _matched_once(con, c, f"{q(c.schema or 'dbo')}.{q(c.table)}", f"temp.{q(source_table)}", name)
@@ -2088,6 +2152,17 @@ def _without_leading_comments(text: str) -> str:
                     i += 1
         else:
             return text[i:]
+
+
+def _refused_in_script(said: Exception, where: "tsql.InScript") -> str:
+    """The refusal of one statement of a T-SQL script, naming it. The script is translated whole before any of it
+    runs, so nothing ran, where a warehouse would also stop the batch before it runs for an error it finds in
+    compiling it, such as Msg 239."""
+    error = str(said)
+    if not error.endswith((".", "!", "?")):
+        error += "."
+    return (f"Statement {where.index + 1} of {where.count} ({where.kind}) was refused: {error} None of the script ran, "
+            "because every statement is checked before the first one runs.")
 
 
 def _as_warehouse_says(exc: Exception, step: dict[str, Any]) -> Exception:

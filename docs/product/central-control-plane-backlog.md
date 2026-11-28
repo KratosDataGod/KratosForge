@@ -148,6 +148,7 @@ Problem: Snowflake is level 0. Value: one environment on Snowflake. Evidence: `s
 
 ### CP-015 Service registry and inventory view (P2)
 Problem: can't see which feature uses which tables (gap G7). Value: find orphaned or duplicate data. Evidence: `optimize/schema.FAMILIES`, `core.py` table list. Solution: registry built from families and a core table list; dashboard panel. Dependencies: CP-010. Owner: this thread.
+- **Built (engine):** `cp_inventory` (`sidecar/fabric_desktop/controlplane/inventory.py`): the registry of every registered family and the active environment's tables family by family, with unclaimed `fd` tables listed and other tables only counted; reads only. The panel waits on a mockup.
 
 ### CP-016 Optional central projection of developer and Academy history (P2, needs Chris's go)
 Problem: profile and Academy progress are local by design (gap G10). Value: team views. Solution: an opt-in `fdkfx_` family, off by default, no code or query text. Dependencies: Chris's typed go; Ranks, Achievements, Academy threads. Security: private by default; names off.

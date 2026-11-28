@@ -11,6 +11,8 @@ Before the "after" run, the new tests were run in a copy of `sidecar/` on its ow
 
 Three mutants timed out, and they count as killed. All three are in `import_`'s loop for a new id (line 457): with the test negated, flipped or made `or`, a profile id that is free makes the loop draw ids forever.
 
+**Rechecked on 2026-11-24.** On a machine this loaded a mutant can time out without hanging, so all three were applied again, alone, to `sidecar/` as it was at the batch's commit and the set run with a 1,500-second limit instead of 120. All three really never end, and the numbers don't change: each was stopped by the test suite's own 300-second limit for one test, with the stack in `import_`'s loop for a new id.
+
 ## Results
 
 | Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |

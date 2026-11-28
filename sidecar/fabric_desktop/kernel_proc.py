@@ -254,11 +254,12 @@ class ProcessKernel:
             self._send_lock(proc)
             ready = threading.Event()
             self._waiting["ready"] = {"done": ready}
-            threading.Thread(target=self._read, args=(proc,), daemon=True, name="kernel-reader").start()
-            threading.Thread(target=self._watch, args=(proc,), daemon=True, name="kernel-limits").start()
             self.pid = None  # until this process reports its own (the watcher reads proc.pid meanwhile)
+            # Set before the reader starts: a process that ends at once is then marked gone, not kept.
             self._proc = proc
             self._attached = object()
+            threading.Thread(target=self._read, args=(proc,), daemon=True, name="kernel-reader").start()
+            threading.Thread(target=self._watch, args=(proc,), daemon=True, name="kernel-limits").start()
             if not ready.wait(60):
                 self._tree.kill()
                 raise KernelGone("The notebook's Python process didn't start.")
@@ -280,6 +281,11 @@ class ProcessKernel:
             if slot is not None:
                 slot.update({k: v for k, v in message.items() if k in ("result", "error")})
                 slot["done"].set()
+        tree = self._tree
+        if tree is not None and tree.proc is proc:
+            # A kernel that died on its own (a crash, killed from outside) leaves no process behind. Before the
+            # wait, so the dead kernel still holds its pid and the group id can't have been reused.
+            tree.reap()
         code = proc.wait()
         self._close_pipes(proc)
         if proc is self._proc:
@@ -721,6 +727,7 @@ class _Tree:
     def __init__(self, proc: subprocess.Popen[str]):
         self.proc = proc
         self.job = _job_for(proc) if sys.platform == "win32" else None
+        self._job_lock = threading.Lock()  # release runs from the reader, Stop and the next start: once only
 
     def pids(self) -> list[int]:
         """The kernel process and the live processes below it: the Job Object's list on Windows, parent
@@ -733,11 +740,22 @@ class _Tree:
 
     def release(self) -> None:
         """On Windows, close the job, which ends anything still in it."""
-        if self.job:
+        with self._job_lock:  # taken out first: a handle closed twice could be a new kernel's job by then
+            job, self.job = self.job, None
+        if job:
             kernel32 = _kernel32()
-            kernel32.TerminateJobObject(self.job, 1)
-            kernel32.CloseHandle(self.job)
-            self.job = None
+            kernel32.TerminateJobObject(job, 1)
+            kernel32.CloseHandle(job)
+
+    def reap(self) -> None:
+        """After the kernel process ended: end what its cells started that is still running. On Windows the job
+        holds them; elsewhere they stay in the kernel's process group (the parent links went with the kernel)."""
+        if sys.platform == "win32":
+            self.release()
+            return
+        import signal
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(self.proc.pid, signal.SIGKILL)
 
     def kill(self) -> None:
         if sys.platform == "win32":

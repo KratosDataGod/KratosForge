@@ -169,6 +169,10 @@
       <string id="allow_dbconnect_install_Help">False stops the app installing the Databricks Connect client. Policy file key: allow_dbconnect_install. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="dbconnect_index_url">Dbconnect index url</string>
       <string id="dbconnect_index_url_Help">The package index the Databricks Connect client is fetched from, for networks that mirror PyPI. Policy file key: dbconnect_index_url. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="allow_snowpark_install">Allow snowpark install</string>
+      <string id="allow_snowpark_install_Help">False stops the app installing Snowpark Python with local testing for the Snowpark engine on this PC. Policy file key: allow_snowpark_install. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
+      <string id="snowpark_index_url">Snowpark index url</string>
+      <string id="snowpark_index_url_Help">The package index Snowpark Python with local testing is fetched from, for networks that mirror PyPI. Policy file key: snowpark_index_url. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="integrations">Integrations</string>
       <string id="integrations_Help">False turns external AI tools off on this PC. Policy file key: integrations. Set here, it wins over the same key in %ProgramData%\FabricDesktop\policy.json.</string>
       <string id="integrations_max_permissions">Integrations max permissions</string>
@@ -233,6 +237,7 @@
       <presentation id="learn_mode_notebooks"><dropdownList refId="learn_mode_notebooks" noSort="true">learn_mode_notebooks</dropdownList></presentation>
       <presentation id="notebook_package_folder"><textBox refId="notebook_package_folder"><label>notebook_package_folder</label></textBox></presentation>
       <presentation id="dbconnect_index_url"><textBox refId="dbconnect_index_url"><label>dbconnect_index_url</label></textBox></presentation>
+      <presentation id="snowpark_index_url"><textBox refId="snowpark_index_url"><label>snowpark_index_url</label></textBox></presentation>
       <presentation id="integrations_max_permissions"><listBox refId="integrations_max_permissions">integrations_max_permissions</listBox></presentation>
       <presentation id="integrations_extensions"><listBox refId="integrations_extensions">integrations_extensions</listBox></presentation>
       <presentation id="receipt_redactions"><listBox refId="receipt_redactions">receipt_redactions</listBox></presentation>

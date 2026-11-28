@@ -87,6 +87,7 @@ class Debugger:
         self.on_change = on_change  # the run's paused state changed (a dict while paused, None after)
         self.commands: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.paused: dict[str, Any] | None = None
+        self.pauses = 0  # pauses so far: each one's "seq", so the app tells a new pause from the one a command left
         self.resumed = threading.Event()  # set when the cell's thread leaves a pause
         self.skip: set[str] = set()  # names not shown as variables (the kernel's own)
         self.skipped: list[str] = []  # functions Step into didn't enter since the last pause
@@ -96,6 +97,7 @@ class Debugger:
         self._from: tuple[types.FrameType, int] | None = None  # where the last step or next started
         self._scopes: dict[types.FrameType, dict[str, Any]] = {}  # a cell or class body's own namespace
         self.stopping = False  # Stop was asked for: its interrupt ends an expression instead of being its answer
+        self._last_eval: threading.Event | None = None  # set when the last eval asked for has its answer
 
     # ---- set up by the kernel, on the cell's thread
 
@@ -261,8 +263,9 @@ class Debugger:
 
     def _pause(self, frame: types.FrameType, reason: str) -> None:
         variables, total = self._variables(frame)
+        self.pauses += 1
         assigned: dict[str, Any] | None = {} if _SNAPSHOT_LOCALS and frame.f_code.co_flags & inspect.CO_OPTIMIZED else None
-        self.paused = {"line": frame.f_lineno, "reason": reason, "stack": self._stack(frame),
+        self.paused = {"seq": self.pauses, "line": frame.f_lineno, "reason": reason, "stack": self._stack(frame),
                        "variables": variables,
                        "watches": [self._evaluate(frame, w, assigned) for w in self.watches], "evals": []}
         if total > len(variables):
@@ -326,8 +329,11 @@ class Debugger:
                 raise ValueError(f"An expression to evaluate is at most {MAX_EXPRESSION} characters.")
             compile(expression, "<debug>", "eval")  # a syntax error is the caller's to see now
             slot: dict[str, Any] = {"done": threading.Event()}
+            earlier, self._last_eval = self._last_eval, slot["done"]
             self.commands.put(("eval", (expression, slot)))
-            if not slot["done"].wait(EVAL_SECONDS):
+            # Behind one still running: pending at once, so evals queued on the engine's debug lane
+            # never add up past the shell's time limit (QUICK_SECONDS in watchdog.rs).
+            if (earlier is not None and not earlier.is_set()) or not slot["done"].wait(EVAL_SECONDS):
                 return {"pending": True}
             return slot["result"]
         if action not in ACTIONS:

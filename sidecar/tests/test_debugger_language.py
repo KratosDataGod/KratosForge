@@ -477,6 +477,7 @@ def test_a_debugged_cell_puts_back_the_trace_hook_its_thread_had(kernel):
     def tool(frame, event, arg):
         return None
 
+    before = threading.gettrace()
     threading.settrace(tool)
     try:
         kernel.start("x = 1\ny = 2", breakpoints=[2], watches=["__import__('sys').gettrace().__name__"])
@@ -484,7 +485,7 @@ def test_a_debugged_cell_puts_back_the_trace_hook_its_thread_had(kernel):
         kernel.debug("continue")
         snap = finished(kernel)
     finally:
-        threading.settrace(None)  # type: ignore[arg-type]
+        threading.settrace(before)  # type: ignore[arg-type]
     assert snap["watches"][0]["value"] == "'tool'", snap["watches"]
 
 

@@ -153,3 +153,30 @@ def test_files_that_aren_t_the_table_s_are_never_reported_or_removed(tmp_path):
     maintenance.compact_local(uri, days=7)
     assert all(p.exists() for p in foreign)
     assert not left["old_orphan"].exists() and not left["staged_data"].exists()
+
+
+def test_a_staged_last_checkpoint_goes_only_from_the_table_s_own_log(tmp_path):
+    """A write killed while checkpointing leaves _delta_log/_last_checkpoint#<n> (test_delta_step_kills.py,
+    last-checkpoint-staged). Compact removes that file, and nothing of the same name anywhere else."""
+    uri, _left = _stopped_writes(tmp_path)
+    root = Path(uri)
+    staged = root / "_delta_log" / "_last_checkpoint#1"
+    staged.write_text('{"version":1,"size":3}')
+    (root / "p=1").mkdir()
+    (root / "_delta_log" / "sub").mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    kept = [root / "_last_checkpoint#1", root / "p=1" / "_last_checkpoint#1",
+            root / "_delta_log" / "sub" / "_last_checkpoint#1", root / "_delta_log" / "x_last_checkpoint#1",
+            root / "_delta_log" / "_last_checkpoint#1.bak", root / "_delta_log" / "_last_checkpoint#",
+            outside / "_last_checkpoint#1"]
+    for p in [staged, *kept]:
+        if p != staged:
+            p.write_text("not a staged pointer of this table")
+        _age(p, 30 * 24)
+    _link_folder(root / "_delta_log" / "linked", outside)
+    assert "_delta_log/_last_checkpoint#1" in maintenance.leftovers(uri)
+    maintenance.compact_local(uri, days=7)
+    assert not staged.exists()
+    assert all(p.exists() for p in kept)
+    assert _rows(uri) == [1, 2, 3, 4]

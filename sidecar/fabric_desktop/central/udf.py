@@ -991,6 +991,10 @@ def left_out_as_empty() -> dict[str, dict[str, Any]]:
     return _EMPTY_LEFT_OUT
 
 
+# The entry Fabric lists for its own functions library, in the shape its Git export uses.
+SDK_LIBRARY = {"name": "fabric-user-data-functions", "type": "PYPI", "version": "1.0.0"}
+
+
 def definition(workspace_id: str, sql_database_id: str) -> dict[str, str]:
     """The item's definition files: the source, its functions, and its connection to SQL_Platform as
     alias "platform". Fabric refuses a definition that lists no functions ("Functions is null or empty").
@@ -1008,7 +1012,9 @@ def definition(workspace_id: str, sql_database_id: str) -> dict[str, str]:
             "connectedDataSources": [{"alias": ALIAS, "artifactId": sql_database_id, "artifactType": SQL_ITEM_TYPE,
                                       "workspaceId": workspace_id}],
             "functions": [{"name": f["name"], "description": "", "isPublicEndpointEnabled": True} for f in functions],
-            "libraries": {"public": [], "private": []}},
+            # Fabric's own functions library must be listed: an empty list is taken on create but
+            # refused on updateDefinition ("FabricUdfLibraryNotFoundInImportList", live run 10).
+            "libraries": {"public": [dict(SDK_LIBRARY)], "private": []}},
             indent=2),
         "resources/functions.json": json.dumps({"runtime": "PYTHON", "functionsMetadata": functions}, indent=2),
     }

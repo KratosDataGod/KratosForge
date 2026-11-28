@@ -11,11 +11,15 @@ license = "Apache-2.0"
 requires-python = ">=3.12"  # the Python the app ships (ci.yml PYTHON_VERSION); constraints.txt needs it (bokeh 3.10). tests/test_python_version.py
 dependencies = [
     "duckdb>=1.1,<3",  # the engine suite runs on the pinned 1.x and on 2.0 in CI (#1341); tests/test_duckdb_version.py
-    "sqlglot>=30.22,<30.28",  # the versions the SQL tests pass on; CI runs them on both ends (tests/test_sqlglot_version.py)
+    "sqlglot>=30.23,<30.28",  # the versions the SQL tests pass on; CI runs them on both ends (tests/test_sqlglot_version.py)
     "polars>=1.20",
     "pyarrow>=16",
-    "deltalake>=0.25",
+    "deltalake>=1.2",  # VACUUM keep_versions (maintenance.vacuum_keep)
     "msal>=1.31",
+    # Snowflake key-pair sign-in signs a JWT on this PC (engines/snowflake_auth.py). msal brings both
+    # today; they are named here so a change in msal can't drop them.
+    "cryptography>=42",
+    "PyJWT>=2.8",
     # Windows sign-in (Web Account Manager) for MSAL: single sign-on with the Windows work account,
     # and it passes "compliant device" Conditional Access. msal 1.3x pairs with 0.20.
     "pymsalruntime>=0.20,<0.21; sys_platform == 'win32'",
@@ -53,6 +57,9 @@ dependencies = [
     # Semantic models to and from Apache Ossie (the vendored converter in _vendor/ossie_microsoft
     # needs PyYAML and sqlglot>=30.12; bokeh brings PyYAML already, so this only makes it explicit).
     "PyYAML>=6",
+    # Ossie files checked against the pinned Apache Ossie JSON Schema (ossie_validate.py, _vendor/ossie_schema),
+    # draft 2020-12, with no remote $ref. mcp brings it already; this makes it explicit.
+    "jsonschema>=4.26,<5",
 ]
 
 [project.optional-dependencies]
@@ -65,18 +72,32 @@ fabric-desktop = "fabric_desktop.cli:main"
 include = ["fabric_desktop*"]
 
 [tool.setuptools.package-data]
+# The SQL editor's function help (sql_function_help.py), and the Snowpark API compatibility check's
+# pinned signatures (snowpark_api.py).
+"fabric_desktop" = ["spark_function_help.json", "tsql_function_help.json", "snowpark_api.json",
+                    "parity_cases.json"]  # the cross-platform verification cases (parity_harness.py)
 # Vendored third-party code ships with its license and notice.
 "fabric_desktop._vendor.ossie_microsoft" = ["LICENSE", "NOTICE", "README.md"]
-# Hash-pinned Databricks Connect requirements, one file per runtime line.
-"fabric_desktop.engines" = ["dbconnect_locks/*.txt"]
+"fabric_desktop._vendor.ossie_schema" = ["*.json", "LICENSE", "NOTICE", "README.md"]
+# Hash-pinned Databricks Connect requirements, one file per runtime line, and Snowpark's (snowpark_local.py).
+"fabric_desktop.engines" = ["dbconnect_locks/*.txt", "snowpark_locks/*.txt"]
 # Learn lessons and labs (learn/content.py), one folder per module.
 "fabric_desktop.learn" = ["content/*.json", "content/*/*", "rule_guides.json", "patterns.json"]
+# The optimization engine's demonstration fixture (opportunities/fixture.py).
+"fabric_desktop.opportunities" = ["fixtures/*.json"]
 # Academy certification packs (academy/registry.py), one folder per certification.
 "fabric_desktop.academy" = ["packs/*/*.json", "packs/*/*/*", "packs/*/*/*/*"]
+# Developer classes and talent trees (mastery/catalog.py).
+"fabric_desktop.mastery" = ["catalog/*.json", "catalog/classes/*.json"]
+# Enterprise notebook templates (notebook_templates), one folder per platform, and their released cell hashes.
+"fabric_desktop.notebook_templates" = ["standards.json", "*/*.ipynb"]
 
 [tool.ruff]
 extend-exclude = ["fabric_desktop/_vendor",  # vendored code stays as its authors wrote it
                   "fabric_desktop/academy/packs",  # exercise answers run with the exercise's spark (pyspark_lab)
+                  # Notebook templates run on Fabric, Databricks or Snowflake (spark, dbutils and session are theirs),
+                  # and share one setup cell across kinds; tests/test_notebook_templates.py compiles and checks them.
+                  "fabric_desktop/notebook_templates/*/*.ipynb",
                   "tests/fixtures/ipynb"]  # notebooks as other tools write them, kept byte for byte (test_ipynb_round_trip)
 
 # CI's lint job (ruff check). Only mistakes: syntax errors (E9), pyflakes (F), such as an unused
@@ -138,4 +159,6 @@ testpaths = ["tests"]
 filterwarnings = ["error:Arrow output on a DB-API result:UserWarning"]
 # These take the exercise runtime's access off the shared Python install for the whole machine, so
 # another xdist worker's running exercise would lose its Python. CI runs them in a serial step of their own.
-markers = ["machine_wide_grants: removes the exercise runtime's machine-wide grants; run without xdist"]
+markers = ["machine_wide_grants: removes the exercise runtime's machine-wide grants; run without xdist",
+           "real_kernel_default: runs notebook cells with the real kernel_process default (conftest pins it off for fakes)",
+           "real_rate_limit: keeps the local API's real per-tool rate limit in test_integrations_multi_client.py"]

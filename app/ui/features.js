@@ -63,7 +63,9 @@ const PREVIEW_FEATURES = {
   health: "Table health",
   model: "Semantic model",
   ossie: "Semantic models and Apache Ossie",
-  directLakeCheck: "Direct Lake check",
+  semanticView: "Semantic View files and publish steps",
+  directLakeCheck: "Direct Lake fallback risk",
+  modelBpa: "Semantic model best practices check",
   dataDictionary: "Data dictionary",
   tests: "Tests",
   xray: "Estate X-ray",
@@ -82,14 +84,18 @@ const PREVIEW_FEATURES = {
   sourceControl: "Source control",
   workloads: "Workloads",
   incidents: "Incidents",
+  incidentReports: "Incident SLA report",
   agents: "Agents",
   queue: "Queue",
   runAs: "Run as",
+  dataHealth: "Data health",
   integrations: "External AI tools",
   releases: "Release records",
   lineage: "Column lineage",
   rollback: "Roll back a release",
   promote: "Promote",
+  deltaPerTable: "Delta table features at publish",
+  createWorkspace: "Create workspace",
   syncKeys: "Sync keys",
   varlib: "Variable library",
   quarantineReplay: "Quarantine replay",
@@ -101,25 +107,38 @@ const PREVIEW_FEATURES = {
   notebookFolderPublish: "Publishing notebooks from folders",
   fabricStep: "Run the last cell on Fabric",
   popOut: "Pop-out windows",
+  nbConsole: "Scratch console in notebooks",
+  nbReport: "Notebook as a report",
+  nbPresent: "Notebook Present mode",
+  mdToolbar: "Markdown toolbar and preview",
   pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",
-  forgeActivity: "Run progress in Monitor",
+  forgeActivity: "Forge Activity view in Monitor",
   cancelFabricRun: "Cancel a Fabric run",
   requestsCoreFour: "Workspace, domain and exception requests",
   trustBadges: "Endorsement",
   warehouse: "Warehouse queries",
   sqlResultViews: "Messages and Chart on the SQL page",
+  sqlStatements: "Several SQL statements per run, a result for each",
+  sqlParams: "Query parameters (:name and {{name}}) on the SQL page",
+  sqlCompare: "Compare data",
+  sqlFiles: "Open and save .sql files from the SQL page",
+  sqlHistory: "Result history and pinned results on the SQL page",
   sqlPractices: "SQL best practices",
+  sqlDiagram: "Table diagram on the SQL page",
   bestPractices: "Best practices: checks and templates",
   updateBanner: "New build banner",
   engines: "Notebook engine picker",
   vscode: "VS Code pairing",
+  syncChooser: "Merge a notebook changed in VS Code and here, cell by cell",
   runSeveral: "Run several notebooks from Home",
   itemPins: "Items pinned to Home",
   learn: "Learn",
   academy: "Academy",
   appStudio: "App Studio",
   embedStudio: "Embed Studio (Power BI)",
+  kfEnvironment: "KratosForge Environment",
+  ucVolumes: "Unity Catalog volumes on this PC",
 };
 
 function previewShown() {
@@ -140,12 +159,17 @@ function preview(id, node) {
 
 // Core steps that are untested on a tenant but must not disappear when preview features are hidden:
 // they always show, always with the Preview tag (previewMarked).
-const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "quarantineReplay", "risk", "vscode"];
+const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "quarantineReplay", "risk", "vscode", "createWorkspace"];
 
 // The node with a Preview tag, whatever the Settings switch says.
 function previewMarked(id, node) {
   if (PREVIEW_FEATURES[id]) node.append(previewTag());
   return node;
+}
+
+// A Fabric-run button carries the Run in Fabric tag; the same button on this PC carries none.
+function fabricMarked(inFabric, node) {
+  return inFabric ? previewMarked("fabricRun", node) : node;
 }
 
 // A small "Learn more" link to a section of the user guide.
@@ -190,6 +214,9 @@ function withHowItWorks(main, panel) {
 // explanation (pageIntro) open as a drawer from the title bar's info button, and a Preview dot keeps
 // the tag's words for screen readers and as its tooltip.
 const LAYOUT_CHOICES = {
+  // Shown under Skin in Appearance (settings.js), not with the layout choices.
+  ui_color_mode: ["Color mode (Preview)", "Light or dark. Follow the skin uses the skin's own mode, which is light for KratosForge. Your organization can set it for everyone.",
+    [["skin", "Follow the skin"], ["light", "Light"], ["dark", "Dark"]]],
   ui_explanations: ["Explanations", "Each page's one-line explanation and How this works panel: what it reads, what it changes and where results go.",
     [["beside", "Beside the page"], ["on_request", "On request"]]],
   ui_preview_marks: ["Preview marks", "How features still in preview are marked. Page titles keep the full tag.",
@@ -297,8 +324,11 @@ function initAppearance() {
     if (e.key === "Escape" && howView.open && !document.querySelector(".overlay, #menu")) setHowDrawer(false);
   });
   let queued = false;
-  new MutationObserver(() => {
-    if (queued) return;
+  new MutationObserver((records) => {
+    // A code editor's own changes (typing, a notebook cell's editor coming and going as it scrolls,
+    // notebook.js) never add or remove a page's explanation: each sync searches the whole page, which in
+    // a long notebook took ~10 ms a frame while scrolling (WR-134).
+    if (queued || records.every((r) => r.target.closest?.(".cells .editor, .cm-editor"))) return;
     queued = true;
     requestAnimationFrame(() => { queued = false; syncHowToggle(); });
   }).observe(document.getElementById("view"), { childList: true, subtree: true });
@@ -328,7 +358,7 @@ function registerShortcuts(group, list) {
 // The keys that work everywhere in the window (app.js handles each through isShortcut).
 registerShortcuts("Anywhere", [
   { id: "palette", keys: ["Ctrl+K"], match: ["k"], mod: true,
-    label: "Open the command bar: find a page, action, notebook, workspace or entity" },
+    label: "Open the command bar: find a page, action, notebook, workspace or entity. While you edit a Markdown cell with its toolbar, Ctrl+K adds a link instead" },
   { id: "shortcuts", keys: ["?"], match: ["?"], label: "Show this list (when you aren't typing in a box)" },
   { id: "close", keys: ["Esc"], match: ["Escape"],
     label: "Close the command bar, a menu, a dialog or the activity tray, then go back to where you were" },

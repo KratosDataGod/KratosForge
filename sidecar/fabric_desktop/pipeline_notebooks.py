@@ -30,6 +30,7 @@ import time
 from typing import Any, Callable
 
 from . import notebook_cells, redact, validate
+from .awake_timer import awake_monotonic
 from .orchestration.adapters import ActivityFailed, notebook_key
 from .orchestration.definition import Activity
 from .proof_runtime import PROOF_ROOT
@@ -219,7 +220,7 @@ class LocalNotebooks:
 
         def stop() -> bool:
             stopped[0] = "cancelled" if cancelled() else (
-                "timeout" if deadline is not None and time.monotonic() > deadline else "")
+                "timeout" if deadline is not None and awake_monotonic() > deadline else "")
             return bool(stopped[0])
         snap, outputs = notebook_cells.wait(kernel, kernel.start(source), stop)
         if stopped[0] == "cancelled":

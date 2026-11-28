@@ -8,8 +8,8 @@ anything else not listed here. Every text passes redaction and is cut to a bound
 are capped so one huge model can't flood a request.
 
 Measure expressions (DAX) are included only when asked, so "explain how revenue is calculated" can work;
-they are redacted like everything else. This is the payload ``providers.build_messages`` sends as
-``{"kind": "metadata"}`` after the person's consent.
+they are redacted like descriptions, so an email or a user name in a path is left out of them too. This is
+the payload ``providers.build_messages`` sends as ``{"kind": "metadata"}`` after the person's consent.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ EXPRESSION_LIMIT = 2000
 
 def _text(value: Any, limit: int, support: bool = False) -> str:
     """Bounded, redacted text. ``support``: also leave out emails, tenant and site names, user names in paths
-    and ids (redact.for_support), for descriptions people write freely."""
+    and ids (redact.for_support), for descriptions and measure expressions people write freely."""
     if isinstance(value, list):  # TMSL keeps multi-line text as a list of lines
         value = "\n".join(str(v) for v in value)
     if not isinstance(value, str):
@@ -86,7 +86,7 @@ def from_bim(bim: dict[str, Any], include_expressions: bool = False) -> dict[str
             if m.get("formatString"):
                 meas["format"] = _name(m["formatString"])
             if include_expressions and m.get("expression"):
-                meas["expression"] = _text(m["expression"], EXPRESSION_LIMIT)
+                meas["expression"] = _text(m["expression"], EXPRESSION_LIMIT, support=True)
             measures.append(meas)
         table: dict[str, Any] = {"name": _name(t["name"]), "columns": columns, "measures": measures}
         if t.get("isHidden"):

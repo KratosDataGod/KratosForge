@@ -30,9 +30,9 @@ class Magic(NamedTuple):
 
 def _match(text: str) -> tuple[str, str, str, str | None] | None:
     """(indent, name, rest, target) for a line magic or ``!`` line, else None."""
-    if m := _LINE.match(text):
+    if m := _LINE.fullmatch(text):
         return m["indent"], m["name"], m["rest"], m["target"]
-    if m := _BANG.match(text):
+    if m := _BANG.fullmatch(text):
         return m["indent"], "sx" if m["target"] else "system", m["rest"], m["target"]
     return None
 
@@ -40,6 +40,10 @@ def _match(text: str) -> tuple[str, str, str, str | None] | None:
 def _lines(code: str) -> list[tuple[str, tuple[str, str, str, str | None] | None]]:
     """Each line with its magic, if it is one. As in IPython, only a line that starts a statement can
     be a magic: one inside a triple-quoted string, brackets or after a backslash is left alone."""
+    if "%" not in code and "!" not in code:
+        # No line can be a magic (each needs one of these), so the per-character scan is skipped. It
+        # ran several times per cell on every open and save (compute_check): most of a large notebook's time.
+        return [(text, None) for text in code.split("\n")]
     out = []
     quote, depth, joined = "", 0, False
     for text in code.split("\n"):
@@ -238,6 +242,9 @@ FABRIC_HEADERS = {"%%sql": "sql", "%%pyspark": "python", "%%python": "python", "
 DATABRICKS_HEADERS = {"%sql": "sql", "%python": "python", "%scala": "scala", "%r": "r", "%md": "markdown",
                       "%sh": "shell"}
 # Script cells (IPython's, and Databricks' %sh): the cell runs in that shell on this PC (shell.py).
+# Databricks' "%sh -e" fails the cell on a non-zero exit status; a plain %sh cell doesn't
+# (https://docs.databricks.com/aws/en/notebooks/notebooks-code).
+SH_FAIL = "-e"
 SHELL_HEADERS = {"%%sh": "sh", "%%bash": "bash", "%%cmd": "cmd", "%%powershell": "powershell", "%sh": "sh"}
 # IPython's cell magics that wrap Python (the body runs as Python, timed or captured), and the
 # ones whose body isn't code at all.
@@ -266,6 +273,8 @@ def cell(source: str) -> Cell:
     if language is None:
         return Cell("python", "", source)
     args = first[len(word):].strip() if word in PYTHON_WRAPPERS or word in OTHER_HEADERS else ""
+    if word == "%sh" and first[len(word):].strip() == SH_FAIL:  # Databricks' %sh -e: an option, not a command
+        return Cell("shell", word, newline + rest, SH_FAIL)
     if word in OTHER_HEADERS:  # the first line holds arguments, not content
         return Cell(language, word, newline + rest, args)
     if language == "python":
@@ -288,3 +297,12 @@ def fabric_cell(c: dict) -> dict:
         return {**c, "source": parsed.body.lstrip("\n")}
     body = parsed.body.lstrip(" \t")
     return {**c, "source": _TO_FABRIC[parsed.language] + ("" if body.startswith("\n") else "\n") + body}
+
+
+def runs_in_fabric(header: str) -> str:
+    """Why a Scala, R or .NET cell stops on this PC, naming its header (%scala, %%spark, %r...)."""
+    named = f"This {header} cell" if header else "This cell"
+    if header.lower() == "%%csharp":  # Fabric's notebooks run PySpark, Scala, Spark SQL and SparkR, not .NET
+        return f"{named} is .NET for Spark, which neither this PC nor Fabric runs, so nothing ran. Write the cell in Python, Scala or SQL."
+    return (f"{named} needs Fabric's Spark, which this PC doesn't have, so nothing ran. Switch Runs on to Fabric to "
+            "run it, or write the cell in Python or SQL.")

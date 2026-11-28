@@ -20,10 +20,13 @@ Text you selected in a cell becomes the search.
 | **ab** | Match whole words only (`sales` doesn't match `sales_count`) |
 | **.\*** | Treat the search as a regular expression |
 | **Markdown** | Include Markdown cells (on by default) |
+| **Outputs** | Include what cells printed: text, errors and their tracebacks, Markdown output and the rows a table output shows (off by default). Images, charts and HTML output aren't searched |
 | Up and down arrows, **Enter**, **Shift+Enter** | Go to the next or previous match |
 
 Every match is marked in the cells, and the current one is darker. Going to a match selects its
-cell, opens its code if the code was hidden, and opens a Markdown cell for editing.
+cell, opens its code if the code was hidden, and opens a Markdown cell for editing. Going to a match
+in an output shows the output if it was hidden and opens a folded traceback. Outputs are kept for the
+session only, so a notebook you just opened has none to search until its cells run.
 
 ## Replace
 
@@ -34,6 +37,8 @@ cell, opens its code if the code was hidden, and opens a Markdown cell for editi
 - With a regular expression, `$1` or `$<name>` in the replacement inserts that group. Lookarounds
   and `^` / `$` see the whole cell, so `(?<=dbo\.)sales` replaces only the `sales` after `dbo.`.
 - **Frozen** cells are never changed. Replace all says how many matches it left in frozen cells.
+- **Outputs** are never changed either: run the cell again to change what it printed. Replace all
+  says how many matches it left in outputs.
 
 The notebook saves itself after a replace, as it does after typing.
 

@@ -160,18 +160,23 @@ class IncidentDeskMixin:
             raise ValueError("Who's affected changed since you looked. Nothing was posted; check the list and tell them again.")
         out = self.platform_notify([notices.incident_impact(inc, found)])  # type: ignore[attr-defined]
         result = (out.get("events") or [{}])[0]
+        told = f"{_TOLD} {', '.join(p['upn'] for p in found['people'])}"
         if result.get("result") == "skipped":
-            return {"told": False, "reason": result.get("reason") or out.get("skipped") or "", "people": found["people"]}
-        upns = [p["upn"] for p in found["people"]]
-        self._incident_log(env).note(id, f"{_TOLD} {', '.join(upns)}", self._incident_user())  # type: ignore[attr-defined]
+            reason = result.get("reason") or out.get("skipped") or ""
+            # Posted before, but the note saying so wasn't written (the list was busy, say): write it now.
+            # Notes are kept to 2,000 characters, so compare with what would have been kept.
+            if reason == "already posted" and not any(n.get("text") == told[:2000] for n in inc.get("notes") or []):
+                self._incident_log(env).note(id, told, self._incident_user())  # type: ignore[attr-defined]
+            return {"told": False, "reason": reason, "people": found["people"]}
+        self._incident_log(env).note(id, told, self._incident_user())  # type: ignore[attr-defined]
         return {"told": True, "result": result.get("result"), "routes": result.get("routes") or [], "people": found["people"]}
 
     # ---- history in the central lakehouse
 
     def _history_unavailable(self) -> dict[str, Any] | None:
         if not app_settings.value("allow_optimize_lakehouse"):
-            return {"state": "off", "message": "Your organization has turned off the central lakehouse "
-                                               "(allow_optimize_lakehouse in its policy file)."}
+            return {"state": "off", "message": "Your organization has turned off the central lakehouse. "
+                                               + app_settings.ask_it("allow_optimize_lakehouse")}
         if not self.central_lakehouse():  # type: ignore[attr-defined]
             return {"state": "not_connected", "message": "Connect this PC to the central KratosForge lakehouse "
                                                          "(Settings > Optimize lakehouses) to keep incident history."}

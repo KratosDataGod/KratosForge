@@ -24,6 +24,8 @@ PACKAGE = Path(fabric_desktop.__file__).parent
 IN_PLACE = {
     "backup.py:restore": "the safety copy of a file being replaced goes to a new folder; the restored file itself is "
                          "written aside, checked against its hash and swapped in",
+    "policy_schema.py:write_templates": "a build step run by hand to regenerate the Group Policy templates "
+                                        "in the repository; the app never runs it",
     "backup.py:_write": "the backup zip, written whole as <name>.part, flushed, and swapped in by create() once done",
     "benchmark.py:write": "writes the example benchmark notebooks into the repository (examples/benchmark)",
     "central/entra_service.py:_entra_script": "a generated script the person downloads",
@@ -32,7 +34,7 @@ IN_PLACE = {
     "environments.py:_install": "the approved folder's pins for pip, rewritten before each install and read only by that install",
     "fabric_compute.py:run_bundle": "runs on Fabric as a stand-alone bundle (no engine package there) and writes "
                                     "its result once to a new file named for the request",
-    "frames.py:write_xlsx": "a member inside a new xlsx export, not a file on disk",
+    "frames.py:write_xlsx_batches": "a member inside a new xlsx export (the sheet, streamed a batch at a time), not a file on disk",
     "learn/guides.py:<module>": "a build script run by hand to regenerate a data file in the repository",
     "learn/patterns.py:<module>": "a build script run by hand to regenerate a data file in the repository",
     "leases.py:create": "written aside and linked into place with os.link, which refuses to replace a file",
@@ -48,7 +50,10 @@ IN_PLACE = {
     "proof_runtime.py:save": "runs in the notebook's kernel (on Fabric or this PC) and writes a proof side's log once",
     "prove_service.py:replay_bundle_open": "named by the hash of its own bytes, so writing it again writes the same file",
     "smoketest.py:_finish": "the report of a finished smoke test, written once to its own new folder",
+    "warehouse_livecheck.py:_finish": "the report of a finished warehouse check, written once to its own new folder",
     "spark_stream.py:_to_files": "a streaming sink's output part, a new uniquely named file per batch",
+    "spark_local.py:write_files": "df.write's _SUCCESS marker, an empty file beside new uniquely named part files, as "
+                                  "Spark writes it",
 }
 
 

@@ -30,6 +30,9 @@ def test_every_function_marked_as_running_has_a_value_check_that_passes(rows):
     data = {f["name"]: f for f in [*spark_coverage.load(), *databricks_coverage.load()]}
     con = databricks_coverage.connect()
     for r in (r for r in rows if r["status"] == "runs"):
+        if r["name"] in databricks_coverage.DATABRICKS_CHECKS:  # a check from Databricks' reference
+            assert databricks_coverage._listed(databricks_coverage.DATABRICKS_CHECKS[r["name"]], con)[0] == "runs"
+            continue
         f = data[r["name"]]
         assert f.get("example") and "value" in f and r["name"] not in spark_coverage.VARYING, r["name"]
         want = databricks_coverage.DATABRICKS_VALUES.get(r["name"], f["value"])
@@ -38,7 +41,7 @@ def test_every_function_marked_as_running_has_a_value_check_that_passes(rows):
 
 def test_a_refusal_a_difference_and_a_failure_are_told_apart(rows):
     status = {r["name"]: r["status"] for r in rows}
-    assert status["abs"] == "runs" and status["rand"] == "runs" and status["version"] == "not checked"
+    assert status["abs"] == "runs" and status["rand"] == "runs" and status["version"] == "differs"
     assert status["hll_sketch_agg"] == "refused" and status["xpath"] == "refused"  # refused by name
     assert status["bitmap_count"] == "runs"  # X '1010' reads in Databricks SQL as in Spark SQL
     assert status["named_struct"] == "runs" and status["map_entries"] == "runs"  # a struct isn't a map
@@ -95,7 +98,7 @@ def test_databricks_own_functions_are_listed_once_and_not_spark_ones():
 
 def test_a_databricks_function_with_no_check_is_probed(rows):
     status = {r["name"]: r["status"] for r in rows}
-    assert status["session_user"] == "not checked"  # DuckDB accepts it; its value is the session's
+    assert status["session_user"] == "differs"  # checked from Databricks' reference: DuckDB's user, not the signed-in one
     assert status["iff"] == "runs"  # Databricks' own example, value checked
     notes = {r["name"]: r["note"] for r in rows}
     assert status["vector_norm"] == "runs" and "FLOAT in Databricks" in notes["vector_norm"]  # its listed note
@@ -123,7 +126,7 @@ def test_a_sketch_name_in_spark_sql_is_left_alone():
 
 def test_a_function_with_its_own_syntax_is_probed_in_that_syntax(rows):
     status = {r["name"]: r["status"] for r in rows}
-    assert status["cube"] == "not checked"  # runs here; no value check yet
+    assert status["cube"] == "runs"  # value checked against the example in Databricks' reference
     for name in ("try_cast", "percentile_cont", "percentile_disc", "timestampdiff", "timestampadd"):
         assert status[name] == "runs", name  # Databricks' own example, value checked
     assert status["collate"] == "runs"  # UTF8_LCASE is DuckDB's NOCASE
@@ -794,3 +797,192 @@ def test_unix_nanos_says_when_a_timestamp_is_past_its_range():
 ])
 def test_databricks_names_aggregates_and_time_give_its_values(code, want):
     assert _one(code) == want
+
+
+# Functions whose value varies (random, the clock, the session) checked from their pages in Databricks' reference
+def test_no_function_is_left_not_checked(rows):
+    assert [r["name"] for r in rows if r["status"] == "not checked"] == []
+
+
+def test_a_reference_check_runs_differs_or_stops_on_its_own_terms():
+    con = databricks_coverage.connect()
+    listed = databricks_coverage._listed
+    assert listed({"example": "SELECT 1", "value": [[1]]}, con) == ("runs", "")
+    assert listed({"example": "SELECT 2", "value": [[1]]}, con)[0] == "differs"
+    assert listed({"example": "SELECT 'v1.5.6'", "pattern": r"\d+\.\d+"}, con)[0] == "differs"  # the whole value
+    assert listed({"example": "SELECT '3.5.0'", "pattern": r"\d+\.\d+\.\d+"}, con)[0] == "runs"
+    assert listed({"example": "SELECT raise_error('boom')", "error": "boom"}, con)[0] == "runs"
+    assert listed({"example": "SELECT 1", "error": "boom"}, con)[0] == "differs"  # it didn't stop
+    assert listed({"example": "SELECT raise_error('other')", "error": "boom"}, con)[0] == "fails"
+
+
+def test_raise_error_stops_with_its_message():
+    with pytest.raises(Exception, match="custom error message"):
+        databricks_coverage.run("SELECT raise_error('custom error message')", databricks_coverage.connect())
+    # only when it's reached, as in Databricks
+    assert databricks_coverage.run("SELECT CASE WHEN 1 = 0 THEN raise_error('x') ELSE 1 END",
+                                   databricks_coverage.connect()) == [[1]]
+
+
+def test_monotonically_increasing_id_is_unique_and_increasing():
+    got = databricks_coverage.run("SELECT monotonically_increasing_id() FROM range(5)", databricks_coverage.connect())
+    assert got == [[0], [1], [2], [3], [4]]
+
+
+def test_raise_error_of_null_stops_as_spark_does():
+    with pytest.raises(Exception, match="null"):
+        databricks_coverage.run("SELECT raise_error(NULL)", databricks_coverage.connect())
+
+
+def test_monotonically_increasing_id_in_a_condition_is_refused_by_name():
+    con = databricks_coverage.connect()
+    for code in ("SELECT id FROM range(3) AS t(id) WHERE monotonically_increasing_id() < 2",
+                 "SELECT count(*) FROM range(3) GROUP BY monotonically_increasing_id()",
+                 "SELECT id FROM range(3) AS t(id) ORDER BY monotonically_increasing_id() DESC"):
+        with pytest.raises(ValueError, match="monotonically_increasing_id.*select it in a subquery"):
+            databricks_coverage.run(code, con)
+    # in a subquery's SELECT list it still runs
+    assert databricks_coverage.run("SELECT id FROM range(3) AS t(id) WHERE id IN "
+                                   "(SELECT monotonically_increasing_id() FROM range(2)) ORDER BY id", con) == [[0], [1]]
+
+
+def test_current_timezone_is_the_session_zone():
+    con = databricks_coverage.connect()
+    assert databricks_coverage.run("SELECT current_timezone()", con) == [["UTC"]]
+    con.execute("SET TimeZone = 'Asia/Shanghai'")
+    assert databricks_coverage.run("SELECT current_timezone()", con) == [["Asia/Shanghai"]]
+
+
+def test_randstr_and_uniform_keep_what_databricks_documents_without_a_seed():
+    con = databricks_coverage.connect()
+    assert databricks_coverage.run("SELECT randstr(10) RLIKE '^[a-zA-Z0-9]{10}$' FROM range(20)", con) == [[True]] * 20
+    assert databricks_coverage.run("SELECT min(u) >= 10 AND max(u) <= 20 FROM (SELECT uniform(10, 20) AS u "
+                                   "FROM range(200))", con) == [[True]]
+    assert databricks_coverage.run("SELECT getdate() = current_timestamp()", con) == [[True]]
+
+
+def test_randstr_and_uniform_draw_again_on_every_row_and_in_every_query():
+    con = databricks_coverage.connect()
+    # each row gets its own string (Databricks' reference shows three different ones), and so does the next query
+    first = databricks_coverage.run("SELECT count(DISTINCT s) FROM (SELECT randstr(10) AS s FROM range(50))", con)
+    assert first == [[50]]
+    again = [databricks_coverage.run("SELECT randstr(16)", con)[0][0] for _ in range(2)]
+    assert again[0] != again[1]
+    assert databricks_coverage.run("SELECT randstr(0)", con) == [[""]]
+    # Spark's min + (max - min) * rand() cut toward zero: 10 to 19, every one of them, and never 20
+    assert databricks_coverage.run("SELECT min(u), max(u), count(DISTINCT u) FROM (SELECT uniform(10, 20) AS u "
+                                   "FROM range(2000))", con) == [[10, 19, 10]]
+    # and toward zero for negative bounds too: -20 + 10 * rand() is -19.x to -10.x, so -19 to -10
+    assert databricks_coverage.run("SELECT min(u), max(u) FROM (SELECT uniform(-20, -10) AS u FROM range(2000))",
+                                   con) == [[-19, -10]]
+
+
+@pytest.mark.parametrize(("code", "kind"), [
+    ("uniform(10, 20)", "INTEGER"), ("uniform(10L, 20)", "BIGINT"), ("uniform(10, 20L)", "BIGINT"),
+    ("uniform(1.5, 2.5)", "DECIMAL(2,1)"), ("uniform(1, 2.5)", "DECIMAL(2,1)"), ("uniform(1.5, 2.5e0)", "DOUBLE"),
+    ("uniform(1.5D, 2)", "DOUBLE"), ("uniform(1, 2.25)", "DECIMAL(3,2)"),
+])
+def test_uniform_gives_the_type_spark_gives_its_bounds(code, kind):
+    con = databricks_coverage.connect()
+    from fabric_desktop import sql
+    from fabric_desktop.engines.local_sql import _databricks
+    assert con.sql(sql.duckdb_sql(_databricks(f"SELECT {code}")[-1])).types[0] == kind
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT randstr(10, 0)", "SELECT uniform(10, 20, 0)", "SELECT uniform(1.5, 2.5, 42) FROM range(3)",
+])
+def test_randstr_and_uniform_with_a_seed_are_refused_by_name(code):
+    with pytest.raises(ValueError, match=r"\(\) can't run on this PC the way it runs in Databricks.*with a seed.*"
+                                         r"leave out the seed"):
+        databricks_coverage.run(code, databricks_coverage.connect())
+
+
+def test_uniform_with_bounds_that_arent_numbers_is_refused_by_name():
+    with pytest.raises(ValueError, match="uniform\\(\\) can't run.*write the bounds as numbers"):
+        databricks_coverage.run("SELECT uniform(a, 2) FROM VALUES (1) AS t(a)", databricks_coverage.connect())
+
+
+def test_a_randstr_longer_than_this_pc_builds_is_refused_by_name():
+    with pytest.raises(ValueError, match=r"randstr\(\) can't run.*up to 1,000,000 characters.*shorter string"):
+        databricks_coverage.run("SELECT randstr(1000000001)", databricks_coverage.connect())
+    assert len(databricks_coverage.run("SELECT randstr(1000000)", databricks_coverage.connect())[0][0]) == 1_000_000
+
+
+@pytest.mark.parametrize("code", ["SELECT randstr(" + "9" * 5000 + ")", "SELECT uniform(1, " + "9" * 5000 + ")"])
+def test_a_number_of_thousands_of_digits_gets_the_plain_refusal(code):
+    with pytest.raises(ValueError, match=r"\(\) can't run on this PC the way it runs in Databricks"):
+        databricks_coverage.run(code, databricks_coverage.connect())
+
+
+def test_current_time_is_a_time_cut_to_its_precision_in_the_session_zone():
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+    con = databricks_coverage.connect()
+    con.execute("SET TimeZone = 'Asia/Kolkata'")
+    before = dt.datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None, microsecond=0)
+    rows = databricks_coverage.run("SELECT current_time(0), current_time(3), current_time(), localtime(1), "
+                                   "localtime()", con)
+    after = dt.datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
+    zero, three, six, one, local = rows[0]
+    assert re.fullmatch(r"time:\d\d:\d\d:\d\d", zero)
+    # a zero fraction is written with no digits
+    assert re.fullmatch(r"time:\d\d:\d\d:\d\d(\.\d{3}000)?", three)
+    assert re.fullmatch(r"time:\d\d:\d\d:\d\d(\.\d{6})?", six) and local == six
+    assert re.fullmatch(r"time:\d\d:\d\d:\d\d(\.\d00000)?", one)
+    assert three.startswith(zero) and one.startswith(zero) and six.startswith(zero)
+    # the session's time of day (Kolkata, UTC+05:30), not UTC's
+    seconds = dt.time.fromisoformat(zero.removeprefix("time:"))
+    if before.date() == after.date():  # not across midnight
+        assert before.time() <= seconds <= after.time()
+    for bad in ("current_time(7)", "current_time(-1)", "localtime(2 + 1)"):
+        with pytest.raises(ValueError, match="takes a precision from 0 to 6"):
+            databricks_coverage.run(f"SELECT {bad}", con)
+
+
+def test_current_database_is_current_schema_as_in_databricks():
+    con = databricks_coverage.connect()
+    assert databricks_coverage.run("SELECT current_database(), current_schema()", con) == [["default", "default"]]  # the schema main shows as default (WR-316)
+    con.execute("CREATE SCHEMA sales")
+    con.execute("USE sales")
+    assert databricks_coverage.run("SELECT current_database() = current_schema(), current_database()",
+                                   con) == [[True, "sales"]]
+
+
+@pytest.mark.parametrize("code", [
+    "SELECT aes_encrypt('Spark SQL', '0000111122223333', 'ECB', 'PKCS')",
+    "SELECT java_method('java.util.UUID', 'randomUUID')",
+    "SELECT reflect('java.util.UUID', 'randomUUID')",
+    "SELECT input_file_name()",
+    "SELECT input_file_block_start()",
+    "SELECT spark_partition_id()",
+    "SELECT * FROM sql_keywords()",
+])
+def test_what_this_pc_cant_answer_is_refused_by_name_for_a_databricks_cell(code):
+    with pytest.raises(ValueError, match="the way it runs in Databricks.*Run the cell on a Databricks SQL warehouse"):
+        databricks_coverage.run(code, databricks_coverage.connect())
+
+
+def test_a_refusal_reached_at_run_time_names_databricks_in_a_databricks_cell():
+    from fabric_desktop.engines import local_sql
+    from fabric_desktop.engines.contract import CellRequest, SessionConfig
+    session = local_sql.DuckDBSession(SessionConfig("nb"))
+    try:
+        def error(code, dialect):
+            result = session.execute(CellRequest(code, "sql", dialect))
+            assert result.status == "error"
+            return result.outputs[0]["evalue"]
+        quoted = "SELECT from_csv('\"a\"', 'x STRING')"
+        assert "the way it runs in Databricks" in error(quoted, "databricks")
+        assert "Run the cell on a Databricks SQL warehouse" in error(quoted, "databricks")
+        assert "Run the cell in Fabric" in error(quoted, "spark")
+        # a message the cell's author wrote is left as written
+        assert error("SELECT raise_error('Run the cell in Fabric.')", "databricks").endswith("Run the cell in Fabric.")
+    finally:
+        session.close()
+
+
+def test_a_spark_sql_cell_still_names_fabric():
+    from fabric_desktop import sql
+    with pytest.raises(ValueError, match="the way it runs in Fabric.*Run the cell in Fabric"):
+        sql.parse("SELECT aes_encrypt('a', '0000111122223333')")

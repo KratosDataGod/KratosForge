@@ -72,6 +72,37 @@ def test_outputs_flow_from_a_mock(tmp_path):
     assert res["passed"], res
 
 
+def test_a_check_can_run_the_pipeline_with_its_own_parameters(tmp_path):
+    ret = act("Return", "SetVariable", variableName="pipelineReturnValue", setSystemVariable=True,
+              value=[{"key": "t", "value": {"type": "Expression", "content": "@pipeline().parameters.tables"}}])
+    driven = json.dumps({"name": "p", "properties": {"parameters": {"tables": {"type": "string"}},
+                                                     "activities": [ret]}})
+    fixed = driven.replace("@pipeline().parameters.tables", "a,b")
+    ex = {**EX, "mocks": {}, "parameters": {"tables": "a,b"},
+          "validation": [{"kind": "pipeline_outcome", "return_value": {"t": "a,b"}},
+                         {"kind": "pipeline_outcome", "parameters": {"tables": "c"}, "return_value": {"t": "c"}}]}
+    assert pipelab.grade(_write(tmp_path, driven), ex)["passed"]
+    res = pipelab.grade(_write(tmp_path, fixed), ex)   # hard-coded: right with the exercise's value only
+    assert [r["passed"] for r in res["results"]] == [True, False]
+    assert pipelab.check_problems({"kind": "pipeline_outcome", "parameters": ["c"]})
+
+
+def test_a_check_can_replace_a_mock_so_a_stand_in_fails(tmp_path):
+    # The exercise's Copy succeeds; the second check runs the same pipeline on a night it fails.
+    ex = {**EX, "mocks": {"Copy orders": {"output": {"rowsCopied": 120}}},
+          "validation": [{"kind": "pipeline_outcome", "activities": {"Log success": "Succeeded"}},
+                         {"kind": "pipeline_outcome", "status": "Failed",
+                          "mocks": {"Copy orders": {"status": "Failed", "error": {"message": "source offline"}}},
+                          "activities": {"Log failure": "Succeeded", "Log success": "Skipped"}}]}
+    assert pipelab.grade(_write(tmp_path, SOLUTION), ex)["passed"]
+    res = pipelab.grade(_write(tmp_path, WRONG["wrong-always.json"]), ex)
+    assert [r["passed"] for r in res["results"]] == [True, False]
+    assert ex["mocks"]["Copy orders"] == {"output": {"rowsCopied": 120}}   # the exercise's own mock is untouched
+    assert pipelab.check_problems({"kind": "pipeline_outcome", "mocks": ["Copy orders"]})
+    assert pipelab.check_problems({"kind": "pipeline_outcome", "mocks": {"Copy orders": "Failed"}})
+    assert not pipelab.check_problems({"kind": "pipeline_outcome", "mocks": {"Copy orders": {"status": "Failed"}}})
+
+
 @pytest.mark.parametrize("typ", ["Copy", "WebActivity", "TridentNotebook", "Script", "Lookup", "MadeUpActivity"])
 def test_activities_outside_control_flow_need_the_exercises_mock(tmp_path, typ):
     text = pipeline(act("Call out", typ, url="https://example.com"), ON_FAIL)

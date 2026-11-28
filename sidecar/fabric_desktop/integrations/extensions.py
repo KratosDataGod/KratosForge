@@ -35,6 +35,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from .. import app_settings
 from . import policy, scope
 from .core import CallContext
 from .registry import PERMISSIONS, SOURCE_PATTERN, URI_SCHEME, Capability, Registry, schema
@@ -75,7 +76,7 @@ def check(ext: Extension) -> list[Capability]:
     for what in ("name", "publisher", "description"):
         if not str(getattr(ext, what) or "").strip():
             raise ValueError(f"{ext.id}: {what} is required")
-    if not VERSION_PATTERN.match(ext.version or ""):
+    if not VERSION_PATTERN.fullmatch(ext.version or ""):
         raise ValueError(f"{ext.id}: version {ext.version!r} must look like 1.2.3")
     if not ext.permissions or any(p not in PERMISSIONS for p in ext.permissions):
         raise ValueError(f"{ext.id}: permissions must be one or more of {', '.join(PERMISSIONS)}")
@@ -139,7 +140,7 @@ class ExtensionHost:
         rules = policy.current()
         allowed = rules.get("extensions")
         if allowed is not None and ext_id not in allowed:
-            return False, "Your organization doesn't allow this extension."
+            return False, "Your organization doesn't allow this extension. " + app_settings.ask_it("integrations_extensions")
         return True, ""
 
     def wanted(self) -> set[str]:

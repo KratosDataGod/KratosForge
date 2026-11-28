@@ -254,6 +254,60 @@ test("the explorer is a tree: one row takes Tab, the arrow keys walk and open it
   assert.deepStrictEqual(app.errors, []);
 });
 
+test("F12 on a table or view in the editor opens the tree down to it and focuses it", { skip }, async () => {
+  await page().evaluate(() => { sqlPage.whOpen.add("s:dbo"); sqlPage.whFilter = "Orders"; sqlPage.whRedraw(); });  // dbo closed, filtered away
+  const text = "SELECT v.Amount FROM dbo.vSales AS v";
+  await setDoc(text);
+  await page().evaluate((at) => { sqlPage.editor.view.dispatch({ selection: { anchor: at } }); sqlPage.editor.focus(); }, text.indexOf("v.Amount"));
+  const sent = starts().length;
+  await page().keyboard.press("F12");
+  await page().waitForFunction(() => document.activeElement?.dataset?.tid === "o:dbo.vSales");
+  assert.strictEqual(await page().locator(".wh-filter").inputValue(), "", "the filter is cleared so it shows");
+  assert.ok(await page().locator(".wh-tree .tree-row.sql-col[data-tid='c:dbo.vSales.Amount']").isVisible(), "its columns are open");
+  assert.strictEqual(starts().length, sent, "nothing is sent to Fabric: the explorer's catalog is enough");
+});
+
+test("F12 goes to a procedure too, and Alt+F12 peeks at a definition under the cursor", { skip }, async () => {
+  const at = (text, word, k = 1) => page().evaluate((a) => { sqlPage.editor.view.dispatch({ selection: { anchor: a } }); sqlPage.editor.focus(); }, text.indexOf(word) + k);
+  const text = "EXEC dbo.usp_Load;\nSELECT Amount FROM Sales;";
+  await setDoc(text);
+  await at(text, "usp_Load");
+  await page().keyboard.press("F12");
+  await page().waitForFunction(() => document.activeElement?.dataset?.tid === "o:dbo.usp_Load");
+  // Alt+F12 on the procedure: its definition, read from sys.sql_modules, in a panel; focus moves into it.
+  await at(text, "usp_Load");
+  await page().keyboard.press("Alt+F12");
+  const peek = page().getByRole("region", { name: "Definition of usp_Load" });
+  await peek.locator("pre").getByText("CREATE PROCEDURE dbo.usp_Load").waitFor();
+  assert.match(starts().at(-1).query, /FROM sys\.sql_modules AS m\nWHERE m\.object_id = OBJECT_ID\(N'\[dbo\]\.\[usp_Load\]'\);/);
+  assert.match(await peek.locator(".sql-peek-head").innerText(), /usp_Load\s*procedure/);
+  assert.ok(await peek.locator("pre").evaluate((el) => el === document.activeElement), "focus is in the definition");
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "sql-peek-definition.png") });
+  await page().keyboard.press("Escape");
+  await peek.waitFor({ state: "detached" });
+  assert.strictEqual(await page().evaluate(() => document.activeElement?.getAttribute("aria-label")), "SQL query", "Esc goes back to the editor");
+  // A table: CREATE TABLE from the catalog's columns, with nothing sent to Fabric; Open in a new tab scripts it.
+  const sent = starts().length;
+  await at(text, "Sales");
+  await page().keyboard.press("Alt+F12");
+  const table = page().getByRole("region", { name: "Definition of Sales" });
+  assert.match(await table.locator("pre").innerText(), /^CREATE TABLE \[dbo\]\.\[Sales\]\n\(\n {4}\[Amount\] decimal\(18,2\) NOT NULL,/);
+  assert.strictEqual(starts().length, sent);
+  const tabs = await page().evaluate(() => ({ n: sqlPage.tabs.length, active: sqlPage.active }));
+  await table.getByRole("button", { name: "Open in a new tab" }).click();
+  await page().waitForFunction(() => sqlPage.tabs[sqlPage.active].name === "Sales (definition)");
+  assert.match(await tabText(), /^-- CREATE script from WH_Gold, .* UTC\.\n-- Opened, not run\.\nCREATE TABLE \[dbo\]\.\[Sales\]/);
+  await page().evaluate((t) => { sqlPage.tabs.splice(t.n); sqlPage.active = t.active; saveQueryTabs(); renderQuery(); }, tabs);
+  await page().waitForSelector(".warehouse-page .sql-edit .cm-editor");
+  // A keyword names nothing.
+  await setDoc(text);
+  await at(text, "EXEC");
+  await page().keyboard.press("Alt+F12");
+  await page().waitForFunction(() => /Put the cursor on the name of a table, view, procedure or function/.test(document.querySelector(".toast")?.textContent || ""));
+  assert.strictEqual(await page().locator(".sql-peek").count(), 0);
+  assert.deepStrictEqual(app.errors, []);
+});
+
 test("objects in Fabric's own schemas have no ALTER or DROP", { skip }, async () => {
   const labels = await page().evaluate(() => whScriptItems(sqlPage.ref, { schema: "queryinsights", name: "exec_requests_history", type: "V" }, [], {})
     .map((it) => it.label || it.info));

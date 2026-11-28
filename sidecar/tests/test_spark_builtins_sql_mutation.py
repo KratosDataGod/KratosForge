@@ -5,13 +5,18 @@ Spark's int literal, extract from text. Each expected value is what Apache Spark
 
 from __future__ import annotations
 
+import datetime
+
 import pytest
 
 from fabric_desktop import sql
 
 
 def one(query: str):
-    return next(iter(sql.run(query).to_pylist()[0].values()))
+    value = next(iter(sql.run(query).to_pylist()[0].values()))
+    if isinstance(value, datetime.datetime) and value.tzinfo is not None:  # Spark's timestamp, in the session's UTC
+        return value.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    return value
 
 
 # ---- split(str, regex, limit)

@@ -11,14 +11,14 @@
 
 ## Outcome
 
-**Accepted with Documented Limitations** (recommended). The limits half of the item is done. A notebook
+**Accepted with Documented Limitations**. The limits half of the item is done. A notebook
 running in its own process has a cell time limit and a notebook memory limit, set in Settings or by
 policy, and both are tested. The default flip is not done. The process kernel stays an opt-in Preview
 setting, because the default waits on a clean Windows trial rerun (Python 3.12, with the venv fix from
 #996) and Chris's go. Issue #896 was closed on 2026-11-02 for that reason. If accepted, the flip moves to
 its own item, PB-136.
 
-Recommended by: Product management thread. Decided by (product owner): pending.
+Recommended by: Product management thread. Decided by (product owner): Chris, 'Accept with limits' on the decision card on 2026-11-13 (project message cmsg_018T4o2pQdpbLBNhHpgVNNGp3ZUBsK6r4QNz6DBouE86Ey).
 
 ## Acceptance criteria
 
@@ -64,5 +64,6 @@ None blocking.
 ## Inventory and backlog changes
 
 - PB-073: In progress → In review. Evidence links this review.
+- PB-073: In review → Accepted, 2026-11-13.
 - PB-136 added (Proposed): process kernel by default, after a clean Windows trial rerun and Chris's go.
 - No feature row status changed.

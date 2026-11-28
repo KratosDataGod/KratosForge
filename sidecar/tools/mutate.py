@@ -11,15 +11,19 @@ one stopped halfway) can't leave a mutant in your working tree, and several modu
         tests/test_redact.py
 
 Point mode (the default) rewrites the module with one change at a time: a comparison flipped
-(== and !=, < and >=, > and <=, is and is not, in and not in), and/or swapped, an if, while or
+(== and !=, < and >=, > and <=, is and is not, in and not in), a comparison's boundary moved
+(< and <=, > and >=), and/or swapped, an if, while or
 conditional expression negated, an integer or boolean constant changed (0 and 1 swapped, n to n+1,
 True and False), a return value dropped to None, a raise removed, or + and -, * and // swapped.
-Docstrings are never changed. At most --cap mutants are run (150), sampled with --seed (7), so a
+Docstrings are never changed. --kinds point leaves out the boundary moves, which runs
+before batch 36 didn't make, so their --seed and --only indexes still match; --kinds boundary runs only them. At most --cap mutants are run (150), sampled with --seed (7), so a
 re-run with the same seed mutates the same points; --only runs just the mutants with those indexes
 again (to re-check survivors once tests are added). --entries NAME instead deletes each entry of the
 module-level list or tuple NAME in turn, for a table of patterns the point mutations can't reach.
 
-For each mutant the given tests run with pytest -x and a 120 s timeout. A failing run is "killed",
+The tests first run once on the unmutated copy, and the run stops if they fail or time out there
+(as a test that reads docs/ or app/ does, since only sidecar/ is copied). For each mutant the given
+tests then run with pytest -x and a 120 s timeout. A failing run is "killed",
 a passing one "survived", and a run that hangs "timeout" (stopped along with every process it
 started), which counts as killed in the score. Each mutant prints
 `<index> <line> <kind> <change> <status>`, and --out gets the totals and every result.
@@ -59,6 +63,10 @@ def _ignore(folder: str, names: list[str]) -> set[str]:
 
 CMP_SWAP = {ast.Eq: ast.NotEq, ast.NotEq: ast.Eq, ast.Lt: ast.GtE, ast.GtE: ast.Lt, ast.Gt: ast.LtE,
             ast.LtE: ast.Gt, ast.Is: ast.IsNot, ast.IsNot: ast.Is, ast.In: ast.NotIn, ast.NotIn: ast.In}
+# Boundary (off-by-one) swaps: < and <=, > and >=. Kept apart from CMP_SWAP, which negates, so
+# `--kinds point` still makes exactly the mutants (and indexes) that runs before batch 36 made.
+BOUNDARY_SWAP = {ast.Lt: ast.LtE, ast.LtE: ast.Lt, ast.Gt: ast.GtE, ast.GtE: ast.Gt}
+KINDS = ("all", "point", "boundary")
 BIN_SWAP = {ast.Add: ast.Sub, ast.Sub: ast.Add, ast.Mult: ast.FloorDiv, ast.FloorDiv: ast.Mult}
 
 
@@ -72,8 +80,17 @@ def _docstring_ids(tree: ast.AST) -> set[int]:
     return ids
 
 
-def points(tree: ast.AST) -> list[tuple[str, ast.AST, int | None]]:
-    """Every place a mutant can be made, in ast.walk order (the order --seed samples from)."""
+def points(tree: ast.AST, kinds: str = "all") -> list[tuple[str, ast.AST, int | None]]:
+    """Every place a mutant can be made, in ast.walk order (the order --seed samples from).
+
+    kinds="point" is the original set; "boundary" is only the off-by-one comparison swaps; "all"
+    (the default) is the original set followed by the boundary swaps, so a point's index under
+    "point" is the same under "all".
+    """
+    boundary = [("boundary", node, i) for node in ast.walk(tree) if isinstance(node, ast.Compare)
+                for i, op in enumerate(node.ops) if type(op) in BOUNDARY_SWAP]
+    if kinds == "boundary":
+        return boundary
     skip = _docstring_ids(tree)
     out: list[tuple[str, ast.AST, int | None]] = []
     for node in ast.walk(tree):
@@ -93,7 +110,7 @@ def points(tree: ast.AST) -> list[tuple[str, ast.AST, int | None]]:
             out.append(("raise", node, None))
         elif isinstance(node, ast.BinOp) and type(node.op) in BIN_SWAP:
             out.append(("binop", node, None))
-    return out
+    return out + boundary if kinds == "all" else out
 
 
 class _DropRaise(ast.NodeTransformer):
@@ -109,6 +126,9 @@ def mutate(tree: ast.Module, kind: str, node: ast.AST, i: int | None) -> tuple[a
     if kind == "cmp":
         node.ops[i] = CMP_SWAP[type(node.ops[i])]()  # type: ignore[attr-defined,index]
         return tree, f"compare op {i} swapped"
+    if kind == "boundary":
+        node.ops[i] = BOUNDARY_SWAP[type(node.ops[i])]()  # type: ignore[attr-defined,index]
+        return tree, f"compare op {i} boundary"
     if kind == "boolop":
         node.op = ast.Or() if isinstance(node.op, ast.And) else ast.And()  # type: ignore[attr-defined]
         return tree, "and/or swapped"
@@ -139,7 +159,9 @@ def _list_node(tree: ast.Module, name: str) -> ast.List | ast.Tuple:
 
 
 def _run_tests(work: Path, tests: list[str]) -> str:
-    env = {**os.environ, "PYTHONPATH": str(work)}
+    # No bytecode cache: two mutants of the same size written in the same second would otherwise
+    # look unchanged to Python, so the second would run the first one's cached code (#2836).
+    env = {**os.environ, "PYTHONPATH": str(work), "PYTHONDONTWRITEBYTECODE": "1"}
     # Its own process group (a new console group on Windows), so a timeout stops everything pytest
     # started too, such as an engine or kernel process, not just pytest.
     group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
@@ -176,15 +198,22 @@ def _kill_group(proc: subprocess.Popen) -> None:
             print(f"pytest {proc.pid} would not stop; moving on", file=sys.stderr, flush=True)
 
 
+USAGE = ("mutate.py MODULE [--cap N] [--seed N] [--kinds all|point|boundary] [--entries NAME] [--only N,...] "
+         "--out FILE -- TESTS...")
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if "--" not in argv:
-        raise SystemExit("usage: mutate.py MODULE [--cap N] [--seed N] [--entries NAME] --out FILE -- TESTS...")
+        raise SystemExit(f"usage: {USAGE}")
     split = argv.index("--")
-    ap = argparse.ArgumentParser(description="Mutation testing for one engine module.")
+    ap = argparse.ArgumentParser(description="Mutation testing for one engine module.", usage=USAGE)
     ap.add_argument("module", help="path under sidecar/, such as fabric_desktop/retrying.py")
     ap.add_argument("--cap", type=int, default=150)
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--kinds", choices=KINDS, default="all",
+                    help="point: the original mutants (same indexes as runs before batch 36); "
+                         "boundary: only < <=, > >= swaps; all (default): both")
     ap.add_argument("--entries", help="delete each entry of this module-level list instead")
     ap.add_argument("--only", help="comma-separated mutant indexes (the first number of each line) to run again")
     ap.add_argument("--out", required=True)
@@ -197,13 +226,21 @@ def main(argv: list[str] | None = None) -> int:
         shutil.copytree(SIDECAR, work, ignore=_ignore)
         target = work / args.module
         src = target.read_text(encoding="utf-8")
+        # The tests must pass on the unmutated copy first. A test that reads a file outside sidecar/
+        # (docs/ or app/, say) fails in the copy whatever the mutant, which would count every
+        # mutant as killed and report a false 100%.
+        baseline = _run_tests(work, tests)
+        if baseline != "survived":
+            raise SystemExit(f"the tests {'time out' if baseline == 'timeout' else 'fail'} on the unmutated "
+                             f"module in the copy of sidecar/, so no mutant can be scored. Run them on their "
+                             f"own there, and leave out any test that reads a file outside sidecar/.")
         base = ast.parse(src)
         results = []
         if args.entries:
             n = len(_list_node(base, args.entries).elts)
             plan = list(range(n))
         else:
-            n = len(points(base))
+            n = len(points(base, args.kinds))
             idx = list(range(n))
             random.Random(args.seed).shuffle(idx)
             plan = sorted(idx[:args.cap])
@@ -221,7 +258,7 @@ def main(argv: list[str] | None = None) -> int:
                 kind, line, desc = "entry", elts[k].lineno, f"entry {k} deleted"
                 del elts[k]
             else:
-                kind, node, i = points(tree)[k]
+                kind, node, i = points(tree, args.kinds)[k]
                 line = getattr(node, "lineno", 0)
                 tree, desc = mutate(tree, kind, node, i)
             ast.fix_missing_locations(tree)

@@ -1,0 +1,65 @@
+name: Shell coverage (Windows)
+
+# Line coverage of the Rust shell's unit tests on Windows, where the app runs. On Linux
+# (docs/quality/shell-coverage.md) the code behind #[cfg(windows)] isn't compiled, so it isn't
+# counted; this run counts it. It's a measurement, not a gate: nothing fails on the numbers, and it
+# runs once a day and by hand, never on a pull request, so it doesn't take Windows runners from pull
+# request CI. The tests themselves run on every pull request in ci.yml's shell job.
+on:
+  schedule:
+    # Off the hour: GitHub delays or drops scheduled runs when load is high, most of all at :00.
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shell-coverage
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: app/src-tauri
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # The token stays out of .git/config, where the crates' build scripts could read it.
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          # The version in app/src-tauri/rust-toolchain.toml, which cargo uses in that folder.
+          toolchain: "1.99.1"
+          components: llvm-tools-preview
+      # The coverage tool at a fixed version, built from crates.io against its own lock file.
+      - name: Install cargo-llvm-cov
+        run: cargo llvm-cov --version 2>/dev/null | grep -qwF 0.9.1 || cargo install --locked cargo-llvm-cov --version 0.9.1
+      # The same tests as the shell job, built with coverage instrumentation in a target folder of their own.
+      - name: Run the shell's tests with coverage
+        run: cargo llvm-cov --locked --no-report
+      - name: Report line coverage by file
+        run: |
+          cargo llvm-cov report --summary-only | tee "$RUNNER_TEMP/summary.txt"
+          cargo llvm-cov report --lcov --output-path "$RUNNER_TEMP/lcov.info"
+          {
+            echo "## Shell line coverage (Windows)"
+            echo
+            echo "Commit ${GITHUB_SHA}. Advisory: nothing fails on these numbers (docs/quality/shell-coverage.md)."
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/summary.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: shell-coverage-windows
+          path: |
+            ${{ runner.temp }}/summary.txt
+            ${{ runner.temp }}/lcov.info
+          if-no-files-found: error
+          retention-days: 30

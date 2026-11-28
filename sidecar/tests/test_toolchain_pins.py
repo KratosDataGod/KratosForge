@@ -60,7 +60,9 @@ def test_the_shells_crates_are_linted_and_gated_on_licence_and_source():
     toolchain = tomllib.loads((ROOT / "app" / "src-tauri" / "rust-toolchain.toml").read_text(encoding="utf-8"))
     assert "clippy" in toolchain["toolchain"]["components"]
     audit = CI.split("\n  audit:\n", 1)[1].split("\n  sbom-app:\n", 1)[0]
-    assert "check licenses bans sources" in audit and "cargo audit --file app/src-tauri/Cargo.lock" in audit
+    action = (ROOT / ".github" / "actions" / "dependency-audit" / "action.yml").read_text(encoding="utf-8")
+    assert "check licenses bans sources" in audit and "uses: ./.github/actions/dependency-audit" in audit
+    assert "cargo audit --file app/src-tauri/Cargo.lock" in action
     deny = tomllib.loads((ROOT / "app" / "src-tauri" / "deny.toml").read_text(encoding="utf-8"))
     assert deny["graph"]["targets"] == ["x86_64-pc-windows-msvc"]
     assert (deny["sources"]["unknown-registry"], deny["sources"]["unknown-git"]) == ("deny", "deny")
@@ -106,3 +108,20 @@ def test_ci_installs_the_engines_packages_from_hashed_locks_at_constraints_versi
     assert '--require-hashes -r "../.github/requirements/$lock"' in CI and "lock=test-windows.txt" in CI
     assert "--require-hashes -r ../.github/requirements/lint.txt" in CI
     assert CI.count("python -m pip install --no-deps --no-build-isolation -e .") == 4
+
+
+def test_the_windows_shell_coverage_run_is_advisory_and_pinned():
+    """Shell coverage on Windows runs daily and by hand, never on a pull request (it would hold Windows
+    runners that pull request CI needs), with the pinned Rust release and a fixed cargo-llvm-cov."""
+    import yaml
+
+    text = (ROOT / ".github" / "workflows" / "shell-coverage.yml").read_text(encoding="utf-8")
+    workflow = yaml.safe_load(text)
+    triggers = workflow[True]   # YAML 1.1 reads the bare key `on` as true
+    assert set(triggers) == {"schedule", "workflow_dispatch"}
+    assert workflow["permissions"] == {"contents": "read"}
+    channel = tomllib.loads((ROOT / "app" / "src-tauri" / "rust-toolchain.toml").read_text(encoding="utf-8"))["toolchain"]["channel"]
+    assert f'toolchain: "{channel}"' in text
+    assert re.search(r"cargo install --locked cargo-llvm-cov --version \d+\.\d+\.\d+\b", text)
+    assert "persist-credentials: false" in text
+    assert "--fail-under" not in text

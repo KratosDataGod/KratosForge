@@ -117,11 +117,10 @@ def test_a_dataframe_says_it_is_local_and_knows_its_session(k):
     assert "".join(o.get("text", "") for o in k.run("df.explain()")["outputs"]).strip()  # DuckDB's plan, printed
 
 
-@pytest.mark.parametrize("code", ["df.rdd", "df.foreach(print)", "df.foreachPartition(print)",
-                                  "df.mapInPandas(lambda x: x, 'id long')"])
-def test_row_by_row_python_runs_in_fabric(k, code):
+def test_the_rdd_runs_in_fabric(k):
+    # foreach, foreachPartition and mapInPandas run here (test_spark_map.py); the RDD API doesn't.
     k.run("df = spark.range(1)")
-    e = error(k, code)
+    e = error(k, "df.rdd")
     assert e["ename"] == "NotImplementedError" and "run in Fabric" in e["evalue"]
 
 

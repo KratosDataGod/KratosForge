@@ -203,7 +203,8 @@ def fabric_cells(config: dict[str, Any], modules: list[str],
     if spark is None:
         source += "_fd_sys.modules['fabric_desktop.lakehouse']._bind_proof(_fd_proof)\n"
     else:
-        root = f"abfss://{spark['workspace_id']}@onelake.dfs.fabric.microsoft.com/{spark['lakehouse_id']}"
+        from .onelake import lakehouse_root
+        root = lakehouse_root(spark["workspace_id"], spark["lakehouse_id"])
         source += (
             "try:\n"
             "    import sqlglot as _fd_sqlglot  # nothing is installed here: a proof brings no code from outside\n"

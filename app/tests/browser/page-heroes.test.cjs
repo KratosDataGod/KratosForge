@@ -1,10 +1,10 @@
-// The tab headers (home-hero.js pageHero, Preview): Chris's approved artwork on Academy and Profile, the
-// progression pages, with the tab's name and its actions as real UI in the navy sky at left. Working pages
-// keep a plain heading: RPG art is for ranks, progression and achievements only. Run it as harness.cjs says; SCREENSHOT_DIR saves a picture of each page at each width.
+// The tab headers (home-hero.js pageHero, Preview): Chris's approved artwork on Create, Workspaces,
+// Platform, Data mesh, Optimize, Monitor, Academy, Source control, Settings and Profile, with the tab's name and
+// its actions as real UI in the navy sky at left. Run it as harness.cjs says; SCREENSHOT_DIR saves a picture of each page at each width.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
-const { playwright, openApp } = require("./harness.cjs");
+const { playwright, openApp, animationsDone } = require("./harness.cjs");
 const { heroArt } = require("./hero-art.cjs");
 
 const SHOTS = process.env.SCREENSHOT_DIR;
@@ -13,19 +13,19 @@ const RATIO = 2172 / 724;
 // Each page with header art: its view and its h1. Every picture in the page's pool (art/experience/heroes.js)
 // is checked against the sky line its manifest entry gives.
 const PAGES = [
+  { view: "create", name: "create", title: "Create", actions: ["New notebook", "New lakehouse"] },
+  { view: "workspaces", name: "workspace", title: "Workspaces" },
+  { view: "platform", name: "platform", title: "Platform" },
+  { view: "metadata", name: "datamesh", title: "Data mesh" },
+  { view: "optimize", name: "optimize", title: "Optimize" },
   { view: "academy", name: "academy", title: "Academy", prep: () => { academyPage.open = null; } },
-  { view: "profile", name: "profile", title: "Profile", prep: () => { profilePage.tab = "overview"; } },
-];
-// Working pages: never header art, whatever the motion level or Preview.
-const PLAIN = [
-  { view: "create", title: "Create" },
-  { view: "workspaces", title: "Workspaces" },
-  { view: "platform", title: "Platform" },
-  { view: "metadata", title: "Data mesh" },
-  { view: "optimize", title: "Optimize" },
-  { view: "source", title: "Source control" },
-  { view: "settings", title: "Settings" },
-  { view: "monitor", title: "Monitor" },
+  { view: "source", name: "source", title: "Source control" },
+  { view: "settings", name: "settings", title: "Settings" },
+  // Profile draws its header twice: at once with "Loading...", then again when profile_get answers. ready is
+  // what only the second draw has, so the picture is measured on the page as it stays.
+  { view: "profile", name: "profile", title: "Profile", prep: () => { profilePage.tab = "overview"; }, ready: ".page.profile .profile-id" },
+  // With the Forge view off: its band carries #2226's own Monitor art, and the header steps aside for it.
+  { view: "monitor", name: "monitor", title: "Monitor", prep: () => { forgeActivity.on = false; monitorPage.panel = "runs"; } },
 ];
 const WIDTHS = [1920, 1440, 1330, 1251, 1200, 1181, 1101, 1041, 1000, 961, 850, 700];
 
@@ -54,6 +54,7 @@ for (const p of PAGES) for (const art of heroArt().filter((e) => e.page === p.na
     await open(p.view);
     const hero = `.${p.name}-hero`;
     await page().locator(hero).waitFor();
+    if (p.ready) await page().locator(p.ready).waitFor();
     assert.ok(await page().locator(`${hero} h1`).getByText(p.title).isVisible());
     assert.strictEqual(await page().locator("#view h1").count(), 1);
     assert.strictEqual(await page().locator(`${hero} .home-hero-kicker`).count(), 0, "no KratosForge kicker on a page's header");
@@ -72,6 +73,7 @@ for (const p of PAGES) for (const art of heroArt().filter((e) => e.page === p.na
     for (const width of WIDTHS) {
       await page().setViewportSize({ width, height: 900 });
       await page().waitForFunction((s) => document.querySelector(`${s} .home-hero-img`)?.complete, hero);
+      await animationsDone(page());  // the page's own entrance moves the band and the picture while it plays
       const r = await page().evaluate(([s, sky]) => {
         const img = document.querySelector(`${s} .home-hero-img`);
         const band = document.querySelector(s).getBoundingClientRect();
@@ -81,12 +83,16 @@ for (const p of PAGES) for (const art of heroArt().filter((e) => e.page === p.na
           ...[...document.querySelectorAll(`${s} .home-hero-actions button, ${s} .home-hero-actions a`)].map((e) => e.getBoundingClientRect().right));
         const a = img.getBoundingClientRect();
         return { shown: true, ratio: a.width / a.height, fills: Math.abs(a.height - band.height) < 1,
-          inside: a.left >= band.left - 0.5 && a.right <= band.right + 0.5, sky: a.left + sky * a.width, textRight };
+          inside: a.left >= band.left - 0.5 && a.right <= band.right + 0.5, sky: a.left + sky * a.width, textRight,
+          // Said when a check fails, to tell a picture not drawn yet from one laid out wrong.
+          seen: { img: [a.left, a.top, a.width, a.height].map(Math.round), band: [band.left, band.top, band.width, band.height].map(Math.round),
+            complete: img.complete, natural: img.naturalWidth, connected: img.isConnected } };
       }, [hero, art.sky]);
       if (r.shown) {
-        assert.ok(Math.abs(r.ratio - RATIO) < 0.02, `${p.title} ratio at ${width}: ${r.ratio}`);
-        assert.ok(r.fills && r.inside, `${p.title}: the whole picture fills the band's height at ${width}`);
-        assert.ok(r.sky >= r.textRight, `${p.title} at ${width}: the sky ends at ${r.sky}, the text at ${r.textRight}`);
+        const seen = JSON.stringify(r.seen);
+        assert.ok(Math.abs(r.ratio - RATIO) < 0.02, `${p.title} ratio at ${width}: ${r.ratio} ${seen}`);
+        assert.ok(r.fills && r.inside, `${p.title}: the whole picture fills the band's height at ${width} ${seen}`);
+        assert.ok(r.sky >= r.textRight, `${p.title} at ${width}: the sky ends at ${r.sky}, the text at ${r.textRight} ${seen}`);
       } else {
         assert.ok(width <= 960, `${p.title}: the picture shows at ${width}`);
         // Without the art the band holds its title and buttons, no empty navy block below them.
@@ -104,13 +110,14 @@ for (const p of PAGES) for (const art of heroArt().filter((e) => e.page === p.na
   });
 }
 
-test("Working pages keep a plain heading, with no header art", { skip }, async () => {
+test("Monitor shows one picture: no header above the Forge Activity band", { skip }, async () => {
   await mode(2, true);
-  for (const p of PLAIN) {
-    await open(p.view);
-    await page().locator("#view h1").first().waitFor();
-    assert.strictEqual(await page().locator(".home-hero").count(), 0, p.title);
-  }
+  await page().evaluate(() => { forgeActivity.on = true; monitorPage.panel = "runs"; });
+  await open("monitor");
+  await page().locator("#view h1").getByText("Monitor", { exact: true }).waitFor();
+  assert.strictEqual(await page().locator(".monitor-hero").count(), 0);
+  if (await page().evaluate(() => forgeViewShown() && forgeViewOn())) assert.strictEqual(await page().locator(".forge-slot").count(), 1);
+  await page().evaluate(() => { forgeActivity.on = null; });
 });
 
 test("Profile > Ranks shows no page header: the tab has its own banner", { skip }, async () => {
@@ -124,7 +131,7 @@ test("Profile > Ranks shows no page header: the tab has its own banner", { skip 
 test("Professional and preview off keep each page's plain heading", { skip }, async () => {
   for (const [motion, preview] of [[0, true], [2, false]]) {
     await mode(motion, preview);
-    for (const p of PAGES.filter((x) => preview || x.view !== "academy")) {
+    for (const p of PAGES.filter((x) => preview || !["platform", "optimize", "academy"].includes(x.view))) {
       await open(p.view);
       await page().locator("#view h1").first().waitFor();
       assert.strictEqual(await page().locator(".home-hero").count(), 0, `${p.title} motion ${motion} preview ${preview}`);

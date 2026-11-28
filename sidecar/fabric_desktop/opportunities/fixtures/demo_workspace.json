@@ -1,0 +1,97 @@
+{
+  "fixture": true,
+  "note": "DEMONSTRATION FIXTURE. A made-up workspace, made-up runs and a made-up usage import that show how the optimization engine works. Nothing here was read from Fabric; none of it is a real finding or saving.",
+  "as_of": "2026-11-01T00:00:00+00:00",
+  "price": {"price_per_cu_hour": 0.18, "currency": "USD", "note": "fixture price, not a quote"},
+  "workspace": {"id": "f1f1f1f1-0000-4000-8000-000000000001", "displayName": "Sales Analytics (demonstration fixture)",
+                "capacityId": "f1f1f1f1-0000-4000-8000-0000000000ca"},
+  "items": [
+    {"id": "f1f1f1f1-0000-4000-8000-000000000101", "type": "Notebook", "displayName": "nb_load_orders"},
+    {"id": "f1f1f1f1-0000-4000-8000-000000000102", "type": "Notebook", "displayName": "nb_orders_refresh_finance"},
+    {"id": "f1f1f1f1-0000-4000-8000-000000000103", "type": "Notebook", "displayName": "nb_customers_eu"},
+    {"id": "f1f1f1f1-0000-4000-8000-000000000104", "type": "Notebook", "displayName": "nb_customers_us"},
+    {"id": "f1f1f1f1-0000-4000-8000-000000000105", "type": "Notebook", "displayName": "nb_products_incremental"},
+    {"id": "f1f1f1f1-0000-4000-8000-000000000201", "type": "DataPipeline", "displayName": "pl_ingest_sales"},
+    {"id": "f1f1f1f1-0000-4000-8000-000000000202", "type": "DataPipeline", "displayName": "pl_finance_sales_copy"},
+    {"id": "f1f1f1f1-0000-4000-8000-000000000203", "type": "DataPipeline", "displayName": "pl_crm_accounts"},
+    {"id": "f1f1f1f1-0000-4000-8000-000000000301", "type": "Lakehouse", "displayName": "LH_Bronze"},
+    {"id": "f1f1f1f1-0000-4000-8000-000000000302", "type": "Lakehouse", "displayName": "LH_Silver"},
+    {"id": "f1f1f1f1-0000-4000-8000-000000000401", "type": "SemanticModel", "displayName": "Sales"}
+  ],
+  "notebooks": {
+    "f1f1f1f1-0000-4000-8000-000000000101": {
+      "default_lakehouse": "f1f1f1f1-0000-4000-8000-000000000302",
+      "cells": [
+        "# Load the day's orders into silver\nfrom pyspark.sql import functions as F\n",
+        "orders = spark.read.table(\"bronze_orders\")\nclean = orders.where(F.col(\"status\") != \"test\").dropDuplicates([\"order_id\"])\n",
+        "clean.write.mode(\"overwrite\").saveAsTable(\"silver_orders\")\n"
+      ]
+    },
+    "f1f1f1f1-0000-4000-8000-000000000102": {
+      "default_lakehouse": "f1f1f1f1-0000-4000-8000-000000000302",
+      "cells": [
+        "from pyspark.sql import functions as F  # finance team's copy\n",
+        "orders = spark.read.table('bronze_orders')\nclean = orders.where(F.col('status') != 'test').dropDuplicates(['order_id'])\n",
+        "# refresh for month end\nclean.write.mode('overwrite').saveAsTable('silver_orders')\n"
+      ]
+    },
+    "f1f1f1f1-0000-4000-8000-000000000103": {
+      "default_lakehouse": "f1f1f1f1-0000-4000-8000-0000000003e1",
+      "cells": ["%%sql\nSELECT customer_id, name, country FROM customers WHERE active = 1\n"]
+    },
+    "f1f1f1f1-0000-4000-8000-000000000104": {
+      "default_lakehouse": "f1f1f1f1-0000-4000-8000-0000000003a1",
+      "cells": ["%%sql\nselect customer_id, name, country\nfrom customers\nwhere active = 1 -- US copy\n"]
+    },
+    "f1f1f1f1-0000-4000-8000-000000000105": {
+      "default_lakehouse": "f1f1f1f1-0000-4000-8000-000000000302",
+      "cells": [
+        "from delta.tables import DeltaTable\n",
+        "changes = spark.read.table('bronze_products').where(\"modified_at > '{wm}'\")\nDeltaTable.forName(spark, 'silver_products').alias('t').merge(changes.alias('s'), 't.product_id = s.product_id').whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()\n"
+      ]
+    }
+  },
+  "pipelines": {
+    "f1f1f1f1-0000-4000-8000-000000000201": {"name": "pl_ingest_sales", "properties": {"activities": [
+      {"name": "Copy sales", "type": "Copy", "dependsOn": [], "typeProperties": {
+        "source": {"type": "SqlServerSource", "sqlReaderQuery": "SELECT * FROM dbo.sales",
+                   "datasetSettings": {"type": "SqlServerTable", "externalReferences": {"connection": "f1f1f1f1-0000-4000-8000-0000000000c1"}}},
+        "sink": {"type": "LakehouseTableSink", "tableActionOption": "Append",
+                 "datasetSettings": {"type": "LakehouseTable", "typeProperties": {"table": "bronze_sales"},
+                                     "linkedService": {"properties": {"type": "Lakehouse", "typeProperties": {"artifactId": "f1f1f1f1-0000-4000-8000-000000000301"}}}}}}}]}},
+    "f1f1f1f1-0000-4000-8000-000000000202": {"name": "pl_finance_sales_copy", "properties": {"activities": [
+      {"name": "Copy sales for finance", "type": "Copy", "dependsOn": [], "description": "finance asked for its own load",
+       "typeProperties": {
+        "source": {"type": "SqlServerSource", "sqlReaderQuery": "SELECT * FROM dbo.sales",
+                   "datasetSettings": {"type": "SqlServerTable", "externalReferences": {"connection": "f1f1f1f1-0000-4000-8000-0000000000c1"}}},
+        "sink": {"type": "LakehouseTableSink", "tableActionOption": "Append",
+                 "datasetSettings": {"type": "LakehouseTable", "typeProperties": {"table": "bronze_sales"},
+                                     "linkedService": {"properties": {"type": "Lakehouse", "typeProperties": {"artifactId": "f1f1f1f1-0000-4000-8000-000000000301"}}}}}}}]}},
+    "f1f1f1f1-0000-4000-8000-000000000203": {"name": "pl_crm_accounts", "properties": {"activities": [
+      {"name": "Copy accounts", "type": "Copy", "dependsOn": [], "typeProperties": {
+        "source": {"type": "SqlServerSource", "sqlReaderQuery": "SELECT * FROM crm.accounts",
+                   "datasetSettings": {"type": "SqlServerTable", "externalReferences": {"connection": "f1f1f1f1-0000-4000-8000-0000000000c2"}}},
+        "sink": {"type": "LakehouseTableSink", "tableActionOption": "Overwrite",
+                 "datasetSettings": {"type": "LakehouseTable", "typeProperties": {"table": "bronze_accounts"},
+                                     "linkedService": {"properties": {"type": "Lakehouse", "typeProperties": {"artifactId": "f1f1f1f1-0000-4000-8000-000000000301"}}}}}}}]}}
+  },
+  "jobs": {
+    "f1f1f1f1-0000-4000-8000-000000000101": {"daily_scheduled": 30, "seconds": 420},
+    "f1f1f1f1-0000-4000-8000-000000000102": {"daily_scheduled": 30, "seconds": 450},
+    "f1f1f1f1-0000-4000-8000-000000000103": {"daily_scheduled": 30, "seconds": 90},
+    "f1f1f1f1-0000-4000-8000-000000000104": {"daily_scheduled": 30, "seconds": 95},
+    "f1f1f1f1-0000-4000-8000-000000000105": {"daily_scheduled": 30, "seconds": 60},
+    "f1f1f1f1-0000-4000-8000-000000000201": {"daily_scheduled": 30, "seconds": 300},
+    "f1f1f1f1-0000-4000-8000-000000000202": {"daily_scheduled": 30, "seconds": 310},
+    "f1f1f1f1-0000-4000-8000-000000000203": {"daily_scheduled": 30, "seconds": 240}
+  },
+  "usage_import": {
+    "id": "u-fixture000000000", "file_name": "capacity-metrics-export (demonstration fixture).csv",
+    "rows": [
+      {"key": "fixture:1", "workspace": "Sales Analytics (demonstration fixture)", "item": "nb_orders_refresh_finance",
+       "cu": {"value": 162000.0, "period": {"start": "2026-10-02T00:00:00+00:00", "end": "2026-11-01T00:00:00+00:00"}}},
+      {"key": "fixture:2", "workspace": "Sales Analytics (demonstration fixture)", "item": "pl_finance_sales_copy",
+       "cu": {"value": 93000.0, "period": {"start": "2026-10-02T00:00:00+00:00", "end": "2026-11-01T00:00:00+00:00"}}}
+    ]
+  }
+}

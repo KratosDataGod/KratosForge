@@ -60,8 +60,13 @@ def test_map_contains_key_takes_the_map_first(query, want):
     assert answer(query) is want
 
 
-@pytest.mark.parametrize("path", ["$.items[*].n", "$.items[*]", "$.*"])
-def test_get_json_object_with_a_wildcard_is_refused_never_a_list(path):
+@pytest.mark.parametrize("path, want", [("$.items[*].n", "[1,2]"), ("$.items[*]", '[{"n":1},{"n":2}]')])
+def test_get_json_object_with_one_wildcard_gives_json_text_as_spark_does(path, want):
+    assert answer(f"""SELECT get_json_object('{{"items":[{{"n":1}},{{"n":2}}]}}', '{path}')""") == want
+
+
+@pytest.mark.parametrize("path", ["$.*", "$.items[*].m[*]"])
+def test_get_json_object_with_another_wildcard_is_refused_never_a_list(path):
     with pytest.raises(ValueError, match="returns JSON text there"):
         _databricks(f"SELECT get_json_object('{{\"items\":[{{\"n\":1}}]}}', '{path}')")
 

@@ -8,7 +8,6 @@ Replies can arrive in a different order from the requests (see QUICK); the shell
 
 from __future__ import annotations
 
-import io
 import json
 import logging
 import math
@@ -18,10 +17,11 @@ import re
 import sys
 import threading
 import time
+from os import devnull  # not os.devnull: tests replace this module's os
 from pathlib import Path
 from typing import IO, Any, Callable
 
-from . import app_control, audit, disk_full, net_trust, rpc_params, sqlitefile
+from . import app_control, audit, disk_full, net_trust, rpc_params, secret_redaction, sqlitefile
 from .redact import secrets
 from .service import Service, data_dir
 
@@ -29,7 +29,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark", "item_pins", "set_item_pin",
            "notebook_details", "notebook_batch_start", "notebook_batch", "notebook_batch_stop", "notebook_batch_fabric",
            "list_tables", "list_files", "history",
-           "start_cell", "poll_cell", "interrupt_cell", "debug_cell", "kernel_variables", "kernel_variable_detail", "kernel_complete", "kernel_inspect", "notebook_syntax", "notebook_format", "notebook_practices", "notebook_practice_rules", "notebook_plotly_js", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_query_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_ipywidget_event", "notebook_frame_download", "restart_kernel", "save_sql", "table_columns", "cached_schemas", "sql_format", "sql_analyze", "sql_practices", "sql_practice_rules", "sql_compat_export", "sql_start", "sql_status", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
+           "start_cell", "poll_cell", "interrupt_cell", "debug_cell", "kernel_variables", "kernel_variable_detail", "kernel_complete", "kernel_inspect", "notebook_syntax", "notebook_symbol", "notebook_format", "notebook_practices", "notebook_practice_rules", "notebook_plotly_js", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_query_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_ipywidget_event", "notebook_frame_download", "restart_kernel", "save_sql", "table_columns", "cached_schemas", "sql_format", "sql_function_help", "sql_analyze", "sql_practices", "sql_practice_rules", "sql_compat_export", "sql_diagram_export", "sql_start", "sql_status", "sql_page", "sql_column_stats", "sql_pin", "sql_file_info", "sql_file_read", "sql_file_write", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "sql_compare", "sql_compare_export", "list_notebooks", "new_notebook", "open_notebook",
            "save_notebook", "notebook_inputs", "notebook_inputs_set", "notebook_onelake_writes_set", "rename_notebook", "publish_notebook",
            "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_keys_setup", "platform_keys_join", "platform_share_keys", "platform_cancel_share_keys", "platform_domains",
            "platform_save_domain", "platform_create_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "mesh_home", "platform_glossary", "platform_save_term", "platform_audit",
@@ -52,21 +52,21 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "mesh_delete_link", "mesh_resolve_links", "mesh_about", "mesh_save_about", "meta_set_designation",
            "meta_create_designation_workspace", "meta_keys_to_platform", "meta_keys_to_lakehouse",
            "meta_project", "meta_init", "meta_open", "meta_set_environment", "meta_create_workspace", "meta_entity", "meta_save_entity",
-           "meta_new_entity", "meta_delete_entity", "meta_set_layers", "meta_run", "meta_preflight", "meta_runs", "meta_runs_all", "meta_run_detail",
-           "meta_promote_check", "meta_promote", "meta_last_release", "meta_releases", "meta_rollback_preview", "meta_rollback", "meta_lineage", "meta_keys", "meta_set_keys_workspace",
+           "meta_new_entity", "meta_delete_entity", "meta_set_layers", "meta_set_delta_features", "meta_run", "meta_preflight", "meta_runs", "meta_runs_all", "meta_run_detail",
+           "meta_promote_check", "meta_promote", "meta_last_release", "meta_releases", "meta_rollback_preview", "meta_rollback", "meta_lineage", "meta_impact", "meta_edit_impact", "meta_openlineage_preview", "meta_openlineage_export", "meta_keys", "meta_set_keys_workspace",
            "meta_new_key_table", "meta_delete_key_table", "meta_key_lookup", "meta_save_source_system",
            "meta_delete_source_system", "meta_source_read", "meta_sources_move", "meta_keys_sync", "meta_key_notebook",
            "run_notebook_in_fabric", "notebook_fabric_step_check", "notebook_vorder_cell", "run_notebook_fabric_step", "notebook_fabric_step_result", "fabric_runs", "cancel_fabric_run", "notebook_schedules", "add_notebook_schedule",
-           "delete_notebook_schedule", "meta_health", "meta_optimize", "meta_set_maintenance", "meta_model_plan",
+           "delete_notebook_schedule", "meta_health", "meta_optimize", "meta_optimize_check", "meta_set_maintenance", "meta_model_plan",
            "meta_build_model", "meta_profile", "meta_profile_preview", "meta_add_rules",
            "meta_set_compute", "meta_fabric_result", "meta_schedules", "meta_add_schedule", "meta_delete_schedule",
            "meta_versions", "meta_compare", "meta_promote_impact", "meta_quarantine", "meta_replay",
-           "meta_discard_quarantine", "meta_set_freshness", "meta_freshness", "meta_alerts", "meta_set_alerts",
+           "meta_discard_quarantine", "meta_set_freshness", "meta_freshness", "meta_data_health", "meta_data_health_list", "meta_data_health_watch", "meta_data_health_quiet", "meta_alerts", "meta_set_alerts",
            "meta_drift", "meta_drift_apply",
            "meta_table_history", "meta_restore", "cost_report", "set_cost_settings", "capacity_health",
            "usage_preview", "usage_import", "usage_import_delete",
            "risk_check", "meta_risk_gate", "risk_settings", "set_risk_settings", "risk_acknowledge",
-           "model_bpa_status", "model_bpa_risk", "model_bpa_check",
+           "model_bpa_status", "model_bpa_risk", "model_bpa_check", "model_bpa_share",
            "create_shortcut", "delete_shortcut", "shortcut_connections",
            "shortcut_center", "shortcut_export", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
            "shortcut_save_rules", "shortcut_preflight", "shortcut_changes", "shortcut_repoint", "shortcut_undo",
@@ -126,10 +126,25 @@ from .localdata_service import METHODS as LOCAL_DATA_METHODS  # noqa: E402
 
 METHODS |= LOCAL_DATA_METHODS
 
+# The KratosForge Environment (controlplane_service.py, CP-009).
+from .controlplane_service import METHODS as CONTROL_PLANE_METHODS  # noqa: E402
+
+METHODS |= CONTROL_PLANE_METHODS
+
 # Optimize's shared lakehouse (optimize_service.py).
 from .optimize_service import METHODS as OPTIMIZE_METHODS  # noqa: E402
 
 METHODS |= OPTIMIZE_METHODS
+
+# The optimization engine's assessment (opportunities_service.py, engine only).
+from .opportunities_service import METHODS as OPPORTUNITY_METHODS  # noqa: E402
+
+METHODS |= OPPORTUNITY_METHODS
+
+# The Fabric Excellence Assessment (excellence_service.py, engine only).
+from .excellence_service import METHODS as EXCELLENCE_METHODS  # noqa: E402
+
+METHODS |= EXCELLENCE_METHODS
 
 from .tenant_history_service import METHODS as TENANT_HISTORY_METHODS  # noqa: E402
 from .capacity_history_service import METHODS as CAPACITY_HISTORY_METHODS  # noqa: E402
@@ -146,6 +161,16 @@ METHODS |= PLATFORM_NOTIFY_METHODS
 from .engines_service import METHODS as ENGINE_METHODS  # noqa: E402
 
 METHODS |= ENGINE_METHODS
+
+# Workspaces > Databricks > Volumes on this PC (databricks_volumes_service.py, Preview).
+from .databricks_volumes_service import METHODS as DATABRICKS_VOLUME_METHODS  # noqa: E402
+
+METHODS |= DATABRICKS_VOLUME_METHODS
+
+# Optimize > Cost and savings: Compare platforms for one workload (compare_service.py, Preview).
+from .compare_service import METHODS as COMPARE_METHODS  # noqa: E402
+
+METHODS |= COMPARE_METHODS
 
 # OneLake > Access across every workspace: the access cache (access_cache_service.py).
 from .access_cache_service import METHODS as ACCESS_CACHE_METHODS  # noqa: E402
@@ -225,6 +250,10 @@ METHODS |= WH_PROJECT_METHODS
 from .warehouse_monitoring_service import METHODS as WH_MONITORING_METHODS  # noqa: E402
 
 METHODS |= WH_MONITORING_METHODS
+# Open in SSMS: a warehouse's server and database (warehouse_ssms_service.py).
+from .warehouse_ssms_service import METHODS as WH_SSMS_METHODS  # noqa: E402
+
+METHODS |= WH_SSMS_METHODS
 
 # Folders for notebooks (notebook_folders_service.py): new, rename, delete when empty, move into one.
 from .notebook_folders_service import METHODS as NOTEBOOK_FOLDERS_METHODS  # noqa: E402
@@ -235,6 +264,12 @@ METHODS |= NOTEBOOK_FOLDERS_METHODS
 from .notebook_formats_service import METHODS as NOTEBOOK_FORMATS_METHODS  # noqa: E402
 
 METHODS |= NOTEBOOK_FORMATS_METHODS
+
+# A notebook cell's change to a Prod-marked workspace waits for its typed name (prod_writes_service.py).
+from .prod_writes_service import METHODS as PROD_WRITES_METHODS  # noqa: E402
+
+METHODS |= PROD_WRITES_METHODS
+
 # Profile (progress_service.py): the person's private record of verified work and its report.
 from .progress_service import METHODS as PROFILE_METHODS  # noqa: E402
 
@@ -276,7 +311,7 @@ QUICK = frozenset({
     "receipt_get", "side_by_side_list",
     "side_by_side_status", "side_by_side_writes", "sql_analyze", "sql_cancel",
     "sql_export", "sql_export_cancel", "sql_export_status",
-    "sql_page", "sql_practices", "sql_start", "sql_status",
+    "sql_file_info", "sql_file_read", "sql_file_write", "sql_page", "sql_pin", "sql_practices", "sql_start", "sql_status",
     "wizard_preview", "wizard_templates",
     "engine_state", "engine_poll_cell", "engine_cancel",
 })
@@ -481,54 +516,11 @@ def _log_file() -> IO[str]:
 
 class _SafeFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        return secrets(super().format(record))
+        return secret_redaction.redact(secrets(super().format(record)))
 
 
-class _RedactedStream(io.TextIOBase):
-    """The engine's stderr, which the shell keeps in sidecar.log: every line passes through
-    ``redact.secrets`` first. Log records already do; this covers what doesn't go through them:
-    tracebacks, ``warnings``, third-party loggers' last-resort handler and anything a library prints.
-    Writes are held until a newline, so a credential split across writes (``print("Bearer", token)``)
-    is redacted whole; ``flush`` writes out a part line, and a line past ``HOLD`` characters goes out
-    as it is. Native code writing to the file descriptor directly isn't seen here."""
-
-    HOLD = 64 * 1024
-
-    def __init__(self, stream: IO[str]):
-        self.stream = stream
-        self._part = ""
-        self._lock = threading.Lock()
-
-    def writable(self) -> bool:
-        return True
-
-    @property
-    def encoding(self) -> str:  # type: ignore[override]
-        return getattr(self.stream, "encoding", None) or "utf-8"
-
-    def fileno(self) -> int:
-        return self.stream.fileno()
-
-    def isatty(self) -> bool:
-        return False
-
-    def write(self, text: str) -> int:
-        with self._lock:
-            held = self._part + text
-            cut = held.rfind("\n") + 1
-            if len(held) - cut > self.HOLD:
-                cut = len(held)
-            self._part = held[cut:]
-            if cut:
-                self.stream.write(secrets(held[:cut]))
-        return len(text)
-
-    def flush(self) -> None:
-        with self._lock:
-            part, self._part = self._part, ""
-            if part:
-                self.stream.write(secrets(part))
-        self.stream.flush()
+# The engine's stderr, which the shell keeps in sidecar.log (secret_redaction.RedactedStream).
+_RedactedStream = secret_redaction.RedactedStream
 
 
 def _log_to_stderr() -> None:
@@ -567,7 +559,13 @@ def main() -> None:
     _report_native_crashes(sys.stderr)
     sys.stderr = _RedactedStream(sys.stderr)
     sys.stdout = sys.stderr
-    sys.stdin = _rpc_stdin(sys.stdin)
+    # The same for requests: a private handle on fd 0, then fd 0 is the null device, so a cell's pdb,
+    # sys.stdin, sys.__stdin__ or os.read(0) gets nothing, never the app's requests (as kernel_host does).
+    rpc_in = _rpc_stdin(os.fdopen(os.dup(sys.stdin.fileno()), "r", encoding="utf-8"))
+    null = os.open(devnull, os.O_RDONLY)
+    os.dup2(null, sys.stdin.fileno())
+    os.close(null)
+    sys.stdin = open(devnull, encoding="utf-8")  # noqa: SIM115 - kept open for the engine's life
     _log_to_stderr()
     from . import data_format
     try:
@@ -575,7 +573,7 @@ def main() -> None:
     except data_format.NewerData as exc:
         # Every call gets the reason, so the app says it, and nothing opens a store.
         print(f"engine: {exc}", file=sys.stderr)
-        serve(_Refused(exc), stdin=sys.stdin, stdout=rpc_out)  # type: ignore[arg-type]
+        serve(_Refused(exc), stdin=rpc_in, stdout=rpc_out)  # type: ignore[arg-type]
         return
     except OSError as exc:
         # A full or read-only profile disk (a new profile on a shared or virtual desktop): the
@@ -584,7 +582,7 @@ def main() -> None:
                                                     "restart KratosForge")
                          or f"KratosForge can't write to its data folder ({data_dir()}): {exc}. Restart KratosForge once that's fixed.")
         print(f"engine: {reason}", file=sys.stderr)
-        serve(_Refused(reason), stdin=sys.stdin, stdout=rpc_out)  # type: ignore[arg-type]
+        serve(_Refused(reason), stdin=rpc_in, stdout=rpc_out)  # type: ignore[arg-type]
         return
     _refresh_integration_launcher()
     from . import notebook
@@ -593,7 +591,7 @@ def main() -> None:
     service.policy_record()  # a policy file changed since the last start goes in the audit trail (#1670)
     threading.Thread(target=_start_integration_http, args=(service,), daemon=True, name="integrations-http").start()
     try:
-        serve(service, stdin=sys.stdin, stdout=rpc_out)
+        serve(service, stdin=rpc_in, stdout=rpc_out)
     finally:
         runs = getattr(service, "_sql_runs", None)
         if runs is not None:

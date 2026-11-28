@@ -84,23 +84,27 @@ def test_planned_engines_claim_nothing_and_say_what_is_planned():
         assert check_cell(d, "python")["ok"] is False
 
 
-def test_snowflake_engines_are_planned_and_claim_nothing():
+def test_snowpark_engines_are_planned_and_claim_nothing():
     local = {d.family for d in registry.ENGINES.values() if d.platform != "snowflake"}
-    for eid in ("snowflake-sql", "snowpark-local", "snowpark-connect"):
+    for eid in ("snowpark-connect",):
         d = registry.get(eid)
         assert d.platform == "snowflake" and not d.adapter and d.planned
         assert all(not d.capability(c).available for c in CAPABILITIES)
         assert not any(s.available for s in (*d.languages.values(), *d.dialects.values()))
         with pytest.raises(ValueError, match="can't run cells"):
             registry.adapter(eid)
-        # A Snowflake session can't carry variables to or from another engine.
-        assert d.family not in local
+    # A Snowflake session can't carry variables to or from another engine.
+    for eid in ("snowflake-sql", "snowpark-local", "snowpark-connect"):
+        assert registry.get(eid).family not in local
     for eid in ("snowflake-sql", "snowpark-connect"):
         d = registry.get(eid)
-        assert d.remote and d.preview and d.billing == "snowflake_credits" and "credits" in d.planned
+        assert d.remote and d.preview and d.billing == "snowflake_credits"
+    assert "credits" in registry.get("snowpark-connect").planned
+    # Snowpark on this PC has an adapter now (SF-007): Preview, simulated, never billed, and its own family.
     local_snowpark = registry.get("snowpark-local")
-    assert not local_snowpark.remote and local_snowpark.billing == "none"
-    assert "Simulated" in local_snowpark.planned and "Preview" in local_snowpark.planned
+    assert local_snowpark.adapter and local_snowpark.preview and not local_snowpark.remote
+    assert local_snowpark.billing == "none" and local_snowpark.family not in local
+    assert local_snowpark.language("python").level == "simulated"
     with pytest.raises(ValueError, match="say how they are billed"):
         EngineDescriptor("x", "X", "remote", "snowflake", "none", adapter=False)
 
@@ -224,7 +228,7 @@ def test_spark_timestamps_read_in_utc_as_in_fabric_whatever_this_pcs_zone(dialec
     try:
         s._con.execute("SET TimeZone = 'America/Chicago'")
         r = s.execute(sql("SELECT CAST(date_trunc('HOUR', TIMESTAMP'2024-03-10 02:45:10') AS STRING) AS h", dialect))
-        assert r.status == "ok" and r.outputs[0]["rows"] == [["2024-03-10 02:00:00+00"]]
+        assert r.status == "ok" and r.outputs[0]["rows"] == [["2024-03-10 02:00:00"]]  # as Spark writes it, no offset
         # DuckDB SQL cells keep the session's own zone.
         assert s._con.execute("SELECT current_setting('TimeZone')").fetchone() == ("America/Chicago",)
         failed = s.execute(sql("SELECT * FROM no_such_table", dialect))

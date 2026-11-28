@@ -22,6 +22,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import itertools
 import threading
+from typing import Any
 
 _names = itertools.count()
 
@@ -272,8 +273,9 @@ def _item(text: str, kind: str, name: str) -> str:
         f"WHEN {kind} LIKE 'DECIMAL(%' THEN {_decimal_item(text, kind)} "
         f"WHEN {kind} = 'VARCHAR' THEN {make('b', h=f'HEX(ENCODE({text}))')} "
         f"WHEN {kind} = 'BLOB' THEN {make('b', h=f'HEX({text}::BLOB)')} "
-        f"ELSE ERROR('{name}() of a value of type ' || {kind} || ' can''t run on this PC the way it runs in Fabric, so nothing "
-        f"ran. Run the cell in Fabric, or hash its parts.') END")
+        f"ELSE ERROR('{name}() of a value of type ' || {kind} || ' can''t run on this PC the way it runs in Fabric, "
+        f"because this PC can''t yet hash it in Spark''s order, so nothing ran. Hash its fields or elements instead, "
+        f"such as {name}(s.a, s.b), or run the cell in Fabric.') END")
 
 
 def _values(value: str) -> str:
@@ -306,3 +308,44 @@ def _hash_sql(name: str, count: int) -> str:
     top = 1 << (width - 1)
     return _let(_run(width, steps), lambda h: (
         f"(CASE WHEN {h} >= {top} THEN {h} - {2 * top} ELSE {h} END)::{'INTEGER' if width == 32 else 'BIGINT'}"))
+
+
+def sha2(data: bytes | None, bits: int | None) -> str | None:
+    """Spark's sha2 for 224, 384 and 512 bits (DuckDB has SHA-256 only): the digest as lower-case hex. Any
+    other number of bits gives NULL, as Spark's sha2 does."""
+    import hashlib
+    if data is None or bits not in (224, 384, 512):
+        return None
+    return hashlib.new(f"sha{bits}", data).hexdigest()
+
+
+def _sha2_chunk(data: Any, bits: Any) -> Any:
+    """sha2 above over a chunk of rows at once (pyarrow arrays in, a pyarrow string array out), so DuckDB
+    calls Python once per chunk, not once per row. 0 and 256 are SHA-256, as Spark's sha2 has them."""
+    import hashlib
+
+    import pyarrow as pa
+    makers = {0: hashlib.sha256, 224: hashlib.sha224, 256: hashlib.sha256, 384: hashlib.sha384,
+              512: hashlib.sha512}
+    values = data.to_pylist()
+    lengths = bits.to_pylist()
+    if lengths and lengths.count(lengths[0]) == len(lengths):  # one length for the chunk, as sha2(x, 512) gives
+        make = makers.get(lengths[0])
+        out = [None] * len(values) if make is None else [None if v is None else make(v).hexdigest() for v in values]
+    else:
+        out = [None if v is None or (m := makers.get(n)) is None else m(v).hexdigest()
+               for v, n in zip(values, lengths, strict=True)]
+    return pa.array(out, pa.string())
+
+
+def register(con: Any) -> None:
+    """Add __kf_sha2 (sha2 above, a chunk at a time) and __kf_url_decode (databricks_bytes.url_decode, the
+    java.net.URLDecoder Spark's and Databricks' url_decode both use) to DuckDB connection ``con``, as each Spark
+    SQL connection does. A NULL argument gives NULL."""
+    from duckdb.sqltypes import BLOB, BOOLEAN, INTEGER, VARCHAR
+
+    from .databricks_bytes import url_decode
+    con.create_function("__kf_sha2", _sha2_chunk, [BLOB, INTEGER], VARCHAR, type="arrow", null_handling="special",
+                        side_effects=False)
+    con.create_function("__kf_url_decode", url_decode, [VARCHAR, BOOLEAN], VARCHAR, null_handling="special",
+                        side_effects=False)  # try_url_decode gives NULL for bad input

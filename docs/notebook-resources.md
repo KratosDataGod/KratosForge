@@ -22,6 +22,7 @@ Fabric's built-in resources have similar per-notebook limits on the number and s
 
 ## Use them in a cell
 
+<!-- example: illustrative -->
 ```python
 import pandas as pd
 regions = pd.read_csv("builtin/regions.csv")

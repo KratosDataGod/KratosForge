@@ -139,12 +139,13 @@ def test_engine_download_url_is_a_setting_used_only_for_managed_updates(files, m
     monkeypatch.setenv("FABRIC_DESKTOP_ENGINE_URL_IGNORED", "someone other than SYSTEM and Administrators can change it")
     assert app_settings.policy_problems() == [
         ("engine_download_url is ignored, so the engine comes from GitHub: someone other than SYSTEM and "
-        "Administrators can change it. Push policy.json as SYSTEM (Intune, Group Policy) or from an elevated "
+        "Administrators can change it. Ask IT to push policy.json as SYSTEM (Intune, Group Policy) or from an elevated "
         "prompt, so only administrators can change it")]
     monkeypatch.delenv("FABRIC_DESKTOP_ENGINE_URL_IGNORED")
     files({"engine_download_url": "https://files.contoso.com/kratosforge"})
     assert app_settings.policy_problems() == [('engine_download_url is used only with "auto_update": false, '
-                                              "so the engine comes from GitHub")]
+                                              "so the engine comes from GitHub. Ask IT to set auto_update to false in "
+                                              "the policy file, or to remove engine_download_url")]
     for bad in ["http://files.contoso.com/kf", "\\\\server\\share", "https://u:p@files.contoso.com/kf",
                 "https://files.contoso.com/kf?sig=x", "https://10.0.0.5/kf", "https://files.contoso.com:/kf",
                 "https://files.contoso.com/%2e%2e", 7]:
@@ -273,6 +274,51 @@ def test_removing_the_file_forgets_the_copy(files):
     assert_everything_restricted()
 
 
+def _held(monkeypatch, times):
+    """The saved copy's delete is refused ``times`` times, as Windows does while a scanner has it open.
+    Setting the returned hold[0] to 0 ends the hold."""
+    from pathlib import Path
+    from fabric_desktop import jsonfile
+    real, refused, hold = Path.unlink, [], [times]
+    monkeypatch.setattr(jsonfile.time, "sleep", lambda s: None)
+
+    def unlink(self, missing_ok=False):
+        if self == app_settings.saved_policy_path() and len(refused) < hold[0]:
+            refused.append(self)
+            raise PermissionError(32, "The process cannot access the file because it is being used by another process")
+        return real(self, missing_ok=missing_ok)
+    monkeypatch.setattr(Path, "unlink", unlink)
+    return refused, hold
+
+
+def test_removing_the_file_forgets_the_copy_once_a_brief_hold_on_it_ends(files, monkeypatch):
+    files({"allow_fabric_runs": False})
+    app_settings.load()
+    refused, _ = _held(monkeypatch, 3)
+    files.path.unlink()
+    assert app_settings.load()["allow_fabric_runs"] == {"value": True, "source": "default"}
+    assert len(refused) == 3 and not app_settings.saved_policy_path().exists()
+
+
+def test_a_copy_held_past_the_wait_still_lets_the_settings_load_and_goes_on_the_next_read(files, monkeypatch, caplog):
+    files({"allow_fabric_runs": False})
+    app_settings.load()
+    _, hold = _held(monkeypatch, 10**6)
+    files.path.unlink()
+    assert app_settings.load()["allow_fabric_runs"] == {"value": True, "source": "default"}
+    assert app_settings.saved_policy_path().exists() and "saved copy of the removed policy" in caplog.text
+    files("{broken")  # a broken file while the copy is still held doesn't bring the removed policy back
+    assert_everything_restricted()
+    files.path.unlink()
+    hold[0] = 0
+    app_settings.load()  # the hold ended: the next read removes it
+    assert not app_settings.saved_policy_path().exists()
+    files({"allow_fabric_runs": False})  # a policy that reads becomes the copy a broken file falls back on
+    app_settings.load()
+    files("{broken")
+    assert app_settings.load()["allow_fabric_runs"]["value"] is False
+
+
 def test_a_damaged_copy_fails_closed(files):
     files({"show_preview": True})
     app_settings.load()
@@ -294,7 +340,7 @@ def test_register_link_scheme_is_a_setting_the_shell_reads(files):
     assert app_settings.policy_problems()[0].startswith("register_link_scheme should be bool")
 
 
-GATES = ("allow_replay_samples", "allow_optimize_lakehouse", "allow_notebook_packages", "allow_pypi_packages")
+GATES = ("allow_replay_samples", "allow_optimize_lakehouse", "allow_central_environment", "allow_notebook_packages", "allow_pypi_packages")
 
 
 def test_a_file_that_cant_be_read_turns_off_every_gate(files):
@@ -308,9 +354,25 @@ def test_a_file_that_cant_be_read_turns_off_every_gate(files):
 def test_a_wrongly_typed_gate_is_off(files, key):
     files({key: "false"})
     assert app_settings.load()[key] == {"value": False, "source": "policy"}
-    assert f"{key} should be bool, not str, so it takes its most restrictive value" in app_settings.policy_problems()
+    assert (f"{key} should be bool, not str, so it takes its most restrictive value. Ask IT to change {key} in the "
+            "policy file.") in app_settings.policy_problems()
 
 
 def test_every_allow_key_fails_closed():
     """A new allow_* switch is a restriction, so it needs a most restrictive value too."""
     assert {k for k in app_settings.DEFAULTS if k.startswith("allow_")} <= set(app_settings.RESTRICTED)
+
+
+def test_engine_folder_is_a_local_path_used_only_for_managed_updates(files):
+    """IT's own engine folder (Preview): the shell reads the key and checks the folder's permissions."""
+    files({"auto_update": False, "engine_folder": "C:\\Program Files\\KratosForge\\engine"})
+    assert app_settings.policy_problems() == []
+    assert "engine_folder" not in app_settings.load()  # the shell applies it, not the engine
+    files({"engine_folder": "C:\\Program Files\\KratosForge\\engine"})
+    assert app_settings.policy_problems() == [('engine_folder is used only with "auto_update": false, so the engine '
+                                               "can't start until that is set. Ask IT to set auto_update to false "
+                                               "in the policy file, or to remove engine_folder")]
+    for bad in ["engine", "\\\\server\\share\\engine", "C:/Program Files/engine", "C:\\Program Files\\..\\Users",
+                "C:engine", "", 7]:
+        files({"auto_update": False, "engine_folder": bad})
+        assert app_settings.policy_problems()[0].startswith("engine_folder: "), bad

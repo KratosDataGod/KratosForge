@@ -6,14 +6,13 @@ file; delete removes one file. Nothing here reaches Fabric or OneLake.
 
 from __future__ import annotations
 
-import base64
-import binascii
 import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
+from . import b64
 from .notebook_resources import Resources
 from .winexe import windows_exe
 
@@ -44,8 +43,8 @@ class NotebookResourcesMixin:
         """Copies one file (``content`` is its bytes in base64) into the notebook's resources. When a
         file of that name is there, nothing is written and the answer suggests a free name."""
         try:
-            data = base64.b64decode(content, validate=True)
-        except (binascii.Error, ValueError):
+            data = b64.decode_exact(content)
+        except ValueError:
             raise ValueError("The file didn't arrive whole. Add it again.") from None
         return self._resources(name).add(file_name, data)
 

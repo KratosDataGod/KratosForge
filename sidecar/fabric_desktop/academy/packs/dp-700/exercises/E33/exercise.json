@@ -1,7 +1,7 @@
 {
   "schema": "kratosforge/academy-exercise@1",
   "id": "E33",
-  "version": 1,
+  "version": 2,
   "status": "draft",
   "title": "Spark SQL: clean, cast and join raw orders in SQL",
   "objectives": [
@@ -49,7 +49,7 @@
       "kind": "result_matches",
       "ordered": true,
       "pass": "silver_orders has the right rows.",
-      "fail": "Check the statuses, the order sent twice and the amount that isn't a number."
+      "fail": "Check the statuses, the order sent twice and the amounts that aren't numbers."
     },
     {
       "kind": "table_shape",

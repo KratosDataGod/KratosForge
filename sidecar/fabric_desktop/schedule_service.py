@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import json
 import logging
 import os
@@ -14,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
-from . import app_settings, notebook_cells
+from . import app_settings, audit, notebook_cells
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL, describe_schedule, schedule_configuration
 from .fabric_step import is_step
@@ -24,7 +23,9 @@ from .orchestration.definition import DefinitionError
 from .redact import describe
 from .redact import without_webhook as _without_webhook
 from .time_zones import time_zones
-from .workloads.notify import Outbox, send, single
+from .timeutil import now_iso as _now, seconds_between
+from .workloads.notify import (UNCONFIRMED, OutcomeUnknown, Outbox, audit_trouble, outcome_unknown, send,
+                                settle_failed, single)
 
 _log = logging.getLogger(__name__)
 _PIPELINE_POLL = 0.25  # seconds between looks at a scheduled pipeline run
@@ -42,8 +43,6 @@ TYPE_LABELS = {"Notebook": "Notebook", "DataPipeline": "Pipeline", "SparkJobDefi
 STALE_LOCK_SECONDS = 12 * 3600
 
 
-def _now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 def _read_lock(path: Path) -> dict[str, Any]:
     """Who holds a schedule lock. Older builds wrote only the pid."""
@@ -240,8 +239,9 @@ class ScheduleMixin:
         for r in mine:
             seconds = None
             if r.get("finished_at") and r.get("started_at"):
-                seconds = round((dt.datetime.fromisoformat(r["finished_at"].replace("Z", "+00:00"))
-                                 - dt.datetime.fromisoformat(r["started_at"])).total_seconds(), 1)
+                # Fabric's endTimeUtc has no offset and our started_at has one: timeutil reads both as UTC.
+                between = seconds_between(r["started_at"], r["finished_at"])
+                seconds = round(between, 1) if between is not None else None
             url = r.get("url") or (f"{FABRIC_APP}/groups/{r['workspace_id']}/synapsenotebooks/{r['item_id']}"
                                    "?experience=fabric-developer" if r.get("item_id") else "")
             trigger = ("prove" if r.get("proof") else "side_by_side" if r.get("side_by_side")
@@ -388,12 +388,26 @@ class ScheduleMixin:
                                "Edit the schedule to run only while you're signed in."}
             schedules.log_run(row)
             return row
+        params = {"schedule_id": schedule_id, "trigger": trigger, "target": s["target"]}
+        prod = audit.fails_closed("run_schedule", {"target": s["target"]})  # before the lock: nothing can leave it held
         lock = self._lock(schedule_id, {"started": row["started"], "trigger": trigger})
         if lock is None:
             row |= {"ended": _now(), "seconds": 0, "status": "skipped",
                     "message": "The previous run of this schedule was still going"}
             schedules.log_run(row)
             return row
+        if prod:
+            # Aimed at Prod: as for the app's own calls, it runs only once its audit line is written. Only the
+            # check of whether it is aimed at Prod comes before the overlap lock; the line itself is written
+            # after it, so a run skipped because the last one was still going leaves no "started" line.
+            try:
+                self.audit.record("run_schedule", "started", 0.0, params)  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - any failure to write refuses the run
+                lock.unlink(missing_ok=True)
+                row |= {"ended": _now(), "seconds": 0, "status": "failed",
+                        "message": audit.NOT_RECORDED.format(error=f"{type(exc).__name__}: {exc}")}
+                schedules.log_run(row)
+                return row
         t0 = time.monotonic()
         try:
             if s["target"]["kind"] == "notebook":
@@ -407,6 +421,13 @@ class ScheduleMixin:
         finally:
             lock.unlink(missing_ok=True)
         row |= {"ended": _now(), "seconds": round(time.monotonic() - t0, 1)}
+        if prod:  # how it went, after its "started" line; best effort, as for the app's own calls
+            failed = row.get("status") != "ok"
+            try:
+                self.audit.record("run_schedule", "error" if failed else "ok", row["seconds"], params,  # type: ignore[attr-defined]
+                                  error=str(row.get("message") or "")[:300] if failed else "")
+            except Exception as exc:  # noqa: BLE001 - the run already happened; its row on Monitor still says how it went
+                _log.warning("A Prod schedule's outcome couldn't be written to the audit log: %s", type(exc).__name__)
         problem = self._send_schedule_alerts(row)
         if problem:  # recorded with the run, so Monitor shows the alert didn't go out
             row["alert_error"] = problem
@@ -490,14 +511,22 @@ class ScheduleMixin:
                 return ""
             title = f"Scheduled run failed on this PC: {row['label']}"
             lines = [row.get("message") or "See Monitor > KratosForge > Schedules"]
+            box = self._schedule_alerts()
+            item = box.sending(title, lines)  # kept before the post: a stop mid-send leaves it for the next run
             try:
                 post_teams(url, title, lines)
+                box.done(item)
                 return ""
             except Exception as exc:  # noqa: BLE001 - kept, and sent after the next run here
                 why = _without_webhook(describe(exc), url).rstrip(".")
-                self._schedule_alerts().add(title, lines, why)
-                problem = (f"Couldn't post the Teams alert: {why}. It waits on this PC and is sent, marked Delayed, "
-                           "after the next scheduled run here, for up to three days.")
+                if settle_failed(box, item, exc, why):
+                    audit_trouble(self.audit, {"error": UNCONFIRMED.format(error=why), "unconfirmed": 1},  # type: ignore[attr-defined]
+                                  SCHEDULE_ALERTS)
+                    problem = f"Couldn't confirm the Teams alert: {UNCONFIRMED.format(error=why)}"
+                else:
+                    audit_trouble(self.audit, {"error": why, "queued": 1}, SCHEDULE_ALERTS)  # type: ignore[attr-defined]
+                    problem = (f"Couldn't post the Teams alert: {why}. It waits on this PC and is sent, marked Delayed, "
+                               "after the next scheduled run here, for up to three days.")
         except Exception as exc:  # noqa: BLE001 - the run is still logged, with the webhook kept out of what it says
             if not failed:
                 _log.warning("Couldn't send waiting schedule alerts: %s", _without_webhook(describe(exc), url))
@@ -524,11 +553,15 @@ class ScheduleMixin:
             try:
                 post(to, title, lines)
             except Exception as exc:  # noqa: BLE001 - any send failure becomes TeamsUnreachable, with the webhook kept out
-                raise TeamsUnreachable(_without_webhook(describe(exc), to)) from None
+                said = _without_webhook(describe(exc), to)
+                if outcome_unknown(exc):  # it may have arrived (no answer, 500, 502, 504): never sent again
+                    raise OutcomeUnknown(said) from None
+                raise TeamsUnreachable(said) from None
         try:
             result = send([], single(url), self._schedule_alerts(), "this PC's schedules", scrubbed)
         finally:
             lock.unlink(missing_ok=True)
+        audit_trouble(self.audit, result, SCHEDULE_ALERTS)  # type: ignore[attr-defined]
         if result.get("error"):
             _log.warning("Couldn't post waiting schedule alerts; they go after the next run: %s",
                          _without_webhook(result["error"], url))

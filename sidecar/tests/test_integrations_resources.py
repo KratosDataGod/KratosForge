@@ -19,6 +19,8 @@ from fabric_desktop.integrations.registry import Capability, Registry, schema
 from fabric_desktop.integrations.store import IntegrationStore
 from fabric_desktop.service import Service
 
+from test_integrations_http import IN_PROCESS, this_account
+
 LAKEHOUSE = {"name": "LH_Bronze", "workspace_id": "ws1", "workspace_name": "Sales", "lakehouse_id": "lh1"}
 CELLS = [{"type": "code", "source": "import polars as pl\ndf = pl.DataFrame({'a': [1]})"},
          {"type": "code", "source": "print(df)"}]
@@ -173,6 +175,13 @@ def test_proof_ids_cant_reach_files(svc):
     assert e.value.code == "invalid_input"
 
 
+def test_an_id_ending_in_a_line_break_is_refused(svc):
+    # %0A in a resource URI is unquoted to "\n", and a pattern's $ also matches before a final line break.
+    with pytest.raises(IntegrationError) as e:
+        read(registry(), svc, "fabric-desktop://proofs/20261017-120000-abc123%0A")
+    assert e.value.code == "invalid_input"
+
+
 def test_unknown_proof_is_not_found(svc):
     with pytest.raises(IntegrationError) as e:
         read(registry(), svc, "fabric-desktop://proofs/20990101-000000-zzzzzz")
@@ -242,7 +251,8 @@ def test_rest_resources(tmp_path, svc):
     store.set_setting("enabled", True)
     _, token = store.add_client("Script", "http", transport="http", grants=["READ_METADATA"])
     reg = registry(PermissionAuthorizer(store, wait_seconds=0.1, poll=0.02))
-    with TestClient(build_app(reg, store, 47615, lambda: svc), base_url="http://127.0.0.1:47615") as c:
+    with TestClient(build_app(reg, store, 47615, lambda: svc, same_user=this_account), base_url="http://127.0.0.1:47615",
+                    client=IN_PROCESS) as c:
         h = {"Authorization": f"Bearer {token}"}
         rows = c.get("/api/v1/resources", headers=h).json()["resources"]
         assert {"uri": "fabric-desktop://notebooks/{name}", "template": True} .items() <= next(

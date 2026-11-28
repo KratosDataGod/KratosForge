@@ -17,6 +17,17 @@ def test_ip_host_refuses_a_block_and_the_try_form_gives_null():
     assert dip.ip("try_ip_host:text", "VARCHAR", h("10.0.0.0/8")) is None
 
 
+@pytest.mark.parametrize(("op", "argument", "message"), [
+    ("ip_host", "10.0.0.0/8", r"\[INVALID_IP_ADDRESS\] ip_host\(\) can't read its argument as an IP address\.$"),
+    ("ip_network", "10.0.0.1", r"\[INVALID_CIDR_BLOCK\] ip_network\(\) can't read its argument as a CIDR block\.$"),
+    ("ip_version", "not an ip", (r"\[INVALID_IP_ADDRESS_OR_CIDR_BLOCK\] ip_version\(\) can't read its argument as "
+                                 r"an IP address or CIDR block\.$")),
+])
+def test_a_refused_argument_says_what_the_function_reads(op, argument, message):
+    with pytest.raises(ValueError, match=message):
+        dip.ip(f"{op}:text", "VARCHAR", h(argument))
+
+
 def test_a_text_result_for_a_binary_argument_says_to_cast_it():
     with pytest.raises(ValueError, match="CAST\\(... AS BINARY\\)"):
         dip.ip("ip_as_string:text", "BLOB", bytes([10, 0, 0, 1]).hex())

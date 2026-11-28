@@ -14,7 +14,7 @@ import logging
 import re
 from typing import Any
 
-from .. import http_session, sql_exec
+from .. import csv_cells, http_session, sql_exec
 from ..auth import GRAPH_GROUP_SCOPES
 from ..redact import describe, one_line
 from ..retrying import send_with_retry
@@ -104,16 +104,19 @@ class EntraGroupsMixin:
         domain, rows = self._entra_plan(domain_id, envs, subdomains)
         ext, make = entra.KINDS[kind]
         at = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        cells = csv_cells.Cells()
         if kind == "csv":
-            text = make(rows, entra.owners_of(domain))
+            text = make(rows, entra.owners_of(domain), cells)
         elif kind == "roles":
             text = make(rows, self._entra_workspaces({r["domain_id"] for r in rows}), self._user(), at)  # type: ignore[attr-defined]
         else:
             text = make(rows, entra.owners_of(domain), self._user(), at)  # type: ignore[attr-defined]
         out: dict[str, Any] = {"kind": kind, "text": text, "new": sum(1 for r in rows if not r["linked"]),
-                               "steps": list(entra.MANUAL_STEPS) if kind == "csv" else []}
+                               "steps": list(entra.MANUAL_STEPS) if kind == "csv" else [],
+                               "protected": cells.protected,
+                               "notes": [csv_cells.note(cells.protected, can_keep_raw=False)] if cells.protected else []}
         if save:
-            folder = known_folders.downloads()
+            folder = known_folders.export_folder()
             folder.mkdir(parents=True, exist_ok=True)
             label = {"powershell": "groups", "az": "groups", "csv": "groups", "roles": "Fabric roles"}[kind]
             path = sql_exec._reserve(folder, f"{entra._part(domain.get('name') or domain_id)} Entra {label}", f".{ext}")

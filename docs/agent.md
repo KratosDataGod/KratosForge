@@ -25,7 +25,7 @@ fabric-desktop agent enqueue ─┼─> durable queue (SQLite) ─> worker ─> 
 - **Fabric pipelines can ask for runs.** With `[pipeline]` turned on, a pipeline writes a run request to the environment's `LH_Meta` and waits for the agent's answer next to it. See [Run from a Fabric pipeline](#run-from-a-fabric-pipeline).
 - **Shortcut health on a schedule (Preview).** With `[shortcut_health]` turned on, the agent checks the environments' shortcuts and posts each new break to Teams once. It only reads. See [Shortcut health](#shortcut-health).
 - **Guard rails.** The agent runs only the environments listed in `agent.environments`, writes only to the workspaces in `agent.workspaces` when you set it, and never creates lakehouses: an environment is set up by promoting to it from the app.
-- **Logs.** One JSON object per line on stdout (journald, `docker logs`) and in `<home>/logs/agent.log` (20 MB, 10 files kept). Every line has the worker and host; job lines add `job_id`, `env`, `attempt` and `source`. Every `run_log` row the agent writes has `worker`, `host`, `attempt` and `job_id`.
+- **Logs.** One JSON object per line on stdout (journald, `docker logs`) and in `<home>/logs/agent.log` (20 MB a file, with 10 older files kept). Every line has the worker and host; job lines add `job_id`, `env`, `attempt` and `source`. Every `run_log` row the agent writes has `worker`, `host`, `attempt` and `job_id`.
 
 ## Before you start
 
@@ -196,6 +196,8 @@ For what each alert, log warning and incident means and how to recover, see the 
 **Pruning.** At start and then once a day, the agent removes `succeeded`, `failed` and `cancelled` jobs that finished more than `agent.queue_retention_days` days ago (default 30). `dead` jobs stay until you requeue them. Queued and running jobs are never removed. `agent prune` does the same now; `--days N` picks another age and `--dry-run` lists the jobs without removing them. Pruning removes rows from the agent's own `queue.sqlite3` only, never anything in OneLake, and it runs in one short transaction.
 
 **Local copies.** Right after pruning, the agent deletes local copies of lakehouse data in its data folder (`<home>\data`, where its runs keep them) that haven't been used for the policy's `local_retention_days` (default 30; `0` keeps them), by the same rules as the app ([Configure Azure and Fabric](azure-setup.md)): files read, staged tables, the download cache and replay bundle copies. A write's left-over spill file goes after a day whatever the setting. The queue, audit trail, logs, settings and a project's This PC data are never touched. A cleanup that fails is logged and tried again the next day.
+
+**Audit trail time limit.** The audit trail is kept until someone deletes it, unless IT sets `audit_retention_days` in the policy (at least 30). Then, right after the local copies, the agent deletes each whole month of `<home>\audit` that ended longer ago than that, never the newest month. It first adds an `audit_pruned` line, and deletes nothing if that line can't be written. `fabric-desktop audit --verify` still checks what is left.
 
 ### The agent's audit trail
 
@@ -415,7 +417,7 @@ shared = true
 - **Same times on every agent.** An every-N-minutes shared schedule runs on multiples of its interval, counted in UTC (every hour on the hour, for example), so every agent computes the same due times. Daily and weekly times are each machine's local time, so agents sharing them must use the same time zone.
 - **No late runs.** A slot's request has a deadline: its next slot, at most 6 hours on. An agent that comes up after that doesn't create it. An unclaimed request past its deadline is `expired`. With `claim = "when_free"`, if every agent stays busy until the deadline, that due time expires without running. That is by design, not a lost run: the next due time runs as normal.
 - **Requirements.** A shared schedule needs `[pipeline] enabled = true` for its environment, its id is at most 40 characters, and an every-N-minutes shared schedule uses whole minutes, at least 1. With `pipeline.entities`, it must name entities the allowlist takes. A shared backfill needs `pipeline.allow_backfill`.
-- **Not yet.** A request claimed by an agent that then stops reporting waits for that agent, unless the others have `take_over = true` (below). Monitor > KratosForge > Operations > Agents doesn't warn about a schedule that agents share this way. A late or expired shared due time doesn't open an incident yet.
+- **Not yet.** A request claimed by an agent that then stops reporting waits for that agent, unless the others have `take_over = true` (below). Monitor > KratosForge > Operations > Agents tags a shared schedule **Shared** and doesn't warn about it. It doesn't check that every agent's copy of it matches. A late or expired shared due time doesn't open an incident yet.
 
 ### Taking over from a lost agent (Preview)
 
@@ -458,9 +460,12 @@ lakehouse = "Sales"          # created as a schema-enabled lakehouse if missing
 schema = "dbo"
 table = "sales_by_region"
 mode = "overwrite"           # or "append"
+v_order = false              # true: V-Order the table in Fabric after each run (Preview)
 ```
 
 Relative paths in a job resolve from the job file's folder.
+
+**V-Order (Preview).** Only Fabric writes V-Order, which Direct Lake and the SQL analytics endpoint read fastest, so a table written from this PC has none. With `v_order = true`, once the write has committed, the run queues Fabric's table maintenance job for the table. That job runs OPTIMIZE with V-Order and no VACUUM, so it removes no version a reader may still need. It uses the workspace's capacity, so the run checks the capacity first, as every Optimize does. A job runs unattended and can't accept a warning, so V-Order starts only when the capacity is known and fine. When the check is Blocked, has a warning, or the capacity isn't known (never read, unreadable or stale), no V-Order starts, and `v_order_error` says why. Then run Optimize on the table from X-ray, which shows the capacity and asks first. The run's history has the job's id as `v_order_job`. If the job can't be queued (for example, the capacity is paused), the run still succeeds, because the rows are written, and `v_order_error` says why. The Monitor page shows it beside the run. Metadata projects have the same step for every table an environment's run writes: **Optimize every table a run writes, right after the run** on the project's Health page. That step also runs VACUUM. This hasn't been run against a live tenant yet.
 
 ## Limits in this version
 

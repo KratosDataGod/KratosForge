@@ -108,3 +108,20 @@ mod tests {
         assert_eq!(explain(other, folder), other);
     }
 }
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::free_bytes;
+
+    #[test]
+    fn windows_says_how_much_room_a_folder_has() {
+        let free = free_bytes(&std::env::temp_dir()).expect("the temp folder's drive answers");
+        assert!(free > 0, "{free}");
+    }
+
+    #[test]
+    fn a_folder_that_isnt_there_has_no_answer() {
+        let missing = std::env::temp_dir().join(format!("kf-no-such-folder-{}", std::process::id())).join("deeper");
+        assert_eq!(free_bytes(&missing), None, "check_room then lets the install go ahead and fail on its own words");
+    }
+}

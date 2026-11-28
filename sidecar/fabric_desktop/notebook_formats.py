@@ -30,7 +30,7 @@ import zlib
 from pathlib import PurePosixPath
 from typing import Any
 
-from .notebook import check_notebook_name, from_ipynb, to_ipynb
+from .notebook import breakpoints_meta, check_notebook_name, from_ipynb, ipynb_cell_problem, other_cell_type_note, to_ipynb
 
 FORMATS = ("ipynb", "ipynb_outputs", "fabric_py", "databricks_py", "html")
 EXTENSIONS = {"ipynb": ".ipynb", "ipynb_outputs": ".ipynb", "fabric_py": ".py", "databricks_py": ".py", "html": ".html"}
@@ -119,12 +119,23 @@ def to_fabric_py(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None =
             "default_lakehouse": lakehouse["lakehouse_id"], "default_lakehouse_name": lakehouse.get("name", ""),
             "default_lakehouse_workspace_id": lakehouse.get("workspace_id", "")}}
     out = [FABRIC_HEADER, ""] + _meta_block(meta)
-    for c in cells:
+    for n, c in enumerate(cells, 1):
         source = c.get("source", "")
         out.append("")
         if c.get("type") == "markdown":
-            out += [FABRIC_MARKDOWN, ""] + _prefixed("#", _lines(source))
+            lines = _prefixed("#", _lines(source))
+            bad = next((raw for raw, ln in zip(_lines(source), lines, strict=True) if ln.rstrip() in _FABRIC_MARKERS), None)
+            if bad is not None:
+                # Fabric's markdown has no escape: such a line would split the cell and lose text.
+                quoted = repr(bad if len(bad) <= 80 else bad[:77] + "...")
+                raise ValueError(f"The notebook wasn't exported as Fabric source, because line {quoted} in cell {n}, a "
+                                 "markdown cell, would read back as a cell marker and split it. Change that line, or "
+                                 "export as .ipynb.")
+            out += [FABRIC_MARKDOWN, ""] + lines
             continue
+        # The blank lines before the code don't read back (see _magic_first and _trim in _parse_fabric),
+        # so the breakpoints are written as lines of the code that does.
+        blank = next((i for i, ln in enumerate(_lines(source)) if ln.strip()), 0)
         source = _magic_first(source)
         magic = _magic(source)
         language = _FABRIC_LANGUAGE.get(magic or "", "python")
@@ -132,8 +143,16 @@ def to_fabric_py(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None =
         lines = _lines(source)
         # A Python cell that would read back wrong is written as # MAGIC lines too, as a magic
         # cell is; its METADATA still says Python, so it reads back as the same code.
-        out += _prefixed("# MAGIC", lines) if magic or _misread(lines, _FABRIC_MARKERS) else lines
-        out += [""] + _meta_block({"language": language, "language_group": "synapse_pyspark"})
+        misread = not magic and _misread(lines, _FABRIC_MARKERS)
+        out += _prefixed("# MAGIC", lines) if magic or misread else lines
+        if misread:
+            blank = 0  # as # MAGIC lines its blank lines read back too
+        cell_meta: dict[str, Any] = {"language": language, "language_group": "synapse_pyspark"}
+        breakpoints = breakpoints_meta([max(b - blank, 1) for b in
+                                        breakpoints_meta((c.get("meta") or {}).get("breakpoints"))])
+        if breakpoints:  # KratosForge's own key in the cell's METADATA, read back by _parse_fabric
+            cell_meta["fabric_desktop"] = {"breakpoints": breakpoints}
+        out += [""] + _meta_block(cell_meta)
     return "\n".join(out) + "\n"
 
 
@@ -199,6 +218,8 @@ def databricks_export_notes(cells: list[dict[str, Any]], lakehouse: dict[str, An
                                            ("frozen", "frozen")) if meta.get(key)]
         if hidden:
             notes.append(_note(n, "dropped", f"The cell's {' and '.join(hidden)} setting: Databricks source doesn't keep it."))
+        if c.get("type") == "code" and breakpoints_meta(meta.get("breakpoints")):
+            notes.append(_note(n, "dropped", "The cell's breakpoints weren't kept, because Databricks source has no place for them."))
         if c.get("type") != "code":
             continue
         source = _magic_first(c.get("source", ""))
@@ -232,8 +253,10 @@ _HERE_CHECKS = (
      "dbutils.fs mounts are Databricks storage; there are no mounts on this PC."),
     (re.compile(r"\bdbutils\.library\.install"), "dbutils.library.install runs in Databricks; this PC's packages are fixed."),
     (re.compile(r"\bdbutils\.credentials\."), "dbutils.credentials is a Databricks on AWS feature; this PC signs in to Microsoft as you."),
-    (re.compile(r"(?i)(?:dbfs:/|[\"'\s(]/dbfs/|[\"'\s(]/Volumes/|[\"'\s(]/Workspace/)"),
-     ("A Databricks storage path (dbfs:/, /dbfs/, /Volumes/ or /Workspace/), which neither this PC nor Fabric "
+    # dbfs:/Volumes/... and /Volumes/... are Unity Catalog volumes, which run on this PC (databricks_volumes) and
+    # are listed in _FABRIC_CHECKS instead
+    (re.compile(r"(?i)(?:dbfs:/(?!(?-i:Volumes/))|[\"'\s(]/dbfs/|[\"'\s(]/Workspace/)"),
+     ("A Databricks storage path (dbfs:/, /dbfs/ or /Workspace/), which neither this PC nor Fabric "
      "can reach. Point it at Files/ or Tables/ in a lakehouse, or at a folder on this PC.")),
     # Delta Live Tables (Lakeflow declarative pipelines): Python decorators and SQL statements.
     (re.compile(r"(?m)^\s*(?:import\s+dlt\b|from\s+dlt\s+import\b|@dlt\.)|(?i:\bCREATE\s+(?:OR\s+REFRESH\s+)?"
@@ -265,6 +288,9 @@ _FABRIC_CHECKS = (
     (re.compile(r"""["']spark\.databricks\.(?!delta\.)\w[\w.]*["']"""),
      ("A Databricks Runtime setting (spark.databricks., other than Delta's), which Fabric doesn't have: "
      "setting it does nothing there, and reading it fails unless the call gives a default.")),
+    (re.compile(r"(?:dbfs:|[\"'\s(])/Volumes/"),
+     ("A Unity Catalog volume path (/Volumes/...). On this PC it reads and writes a volume's folder here (Preview); "
+     "Fabric has no volumes, so before running it in Fabric point it at Files/ in a lakehouse.")),
     (re.compile(r"\.trigger\(\s*(?:processingTime|continuous)\s*="),
      ("A stream that keeps running. In Fabric it uses capacity for as long as it runs, and continuous "
      "triggers aren't supported there. The usual Fabric pattern is trigger(availableNow=True) run on a "
@@ -355,10 +381,11 @@ h1{font-size:20px;margin:0 0 4px}.note{color:#616161;margin:0 0 20px}
 .label{font-size:12px;color:#616161;padding:4px 10px;background:#fafafa;border-bottom:1px solid #e0e0e0}
 pre{margin:0;padding:10px;white-space:pre-wrap;word-break:break-word;font:13px/1.45 Consolas,monospace}
 .src{background:#f7f7f7}.md{padding:10px;white-space:pre-wrap}
-.out{border-top:1px dashed #e0e0e0}.err{color:#a4262c}.skipped{padding:8px 10px;color:#616161;font-style:italic}
+.out{border-top:1px dashed #e0e0e0}.report{margin:0 0 12px}.report .out{border-top:0}.md.report{padding:0}.err{color:#a4262c}.skipped{padding:8px 10px;color:#616161;font-style:italic}
 table{border-collapse:collapse;margin:10px;font-size:13px}th,td{border:1px solid #e0e0e0;padding:3px 8px;text-align:left}
 th{background:#fafafa}img{max-width:100%;margin:10px}
-@media (prefers-color-scheme:dark){body{background:#1f1f1f;color:#eee}.cell,.label,th,td,.out{border-color:#444}
+@media print{body{margin:0;max-width:none;padding:0}.cell{break-inside:avoid-page}pre{white-space:pre-wrap}}
+@media screen and (prefers-color-scheme:dark){body{background:#1f1f1f;color:#eee}.cell,.label,th,td,.out{border-color:#444}
 .label,th{background:#292929}.src{background:#262626}.note,.label,.skipped{color:#aaa}.err{color:#f1707b}}
 """
 
@@ -377,7 +404,7 @@ def _html_output(o: dict[str, Any]) -> str:
         shown = len(o.get("rows") or [])
         note = f'<div class="skipped">{shown} of {html.escape(str(total))} rows</div>' if total not in (None, shown) else ""
         return f'<div class="out">{_table_html(o)}{note}</div>'
-    if kind == "image" and o.get("mime") in _IMAGE_TYPES and _B64.match(str(o.get("data", ""))):
+    if kind == "image" and o.get("mime") in _IMAGE_TYPES and _B64.fullmatch(str(o.get("data", ""))):
         return f'<div class="out"><img alt="Chart from this cell" src="data:{o["mime"]};base64,{o["data"]}"></div>'
     if kind == "html":
         return '<div class="out skipped">HTML output isn\'t included in the page, so nothing in it can run.</div>'
@@ -388,17 +415,30 @@ def _html_output(o: dict[str, Any]) -> str:
     return ""
 
 
-def to_html(name: str, cells: list[dict[str, Any]]) -> str:
+def to_html(name: str, cells: list[dict[str, Any]], report: str | None = None) -> str:
     """A page to read the notebook without KratosForge: the cells, then each one's outputs. Every
-    text is escaped, HTML outputs are left out, and the page's policy allows no script at all."""
+    text is escaped, HTML outputs are left out, and the page's policy allows no script at all.
+
+    ``report`` (a line saying which run the outputs are from) makes it the read-only report: the
+    Markdown and the outputs only, no code and no cell labels, under that line."""
     out = ["<!doctype html>", '<html lang="en"><head><meta charset="utf-8">',
            "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\">",
            '<meta name="viewport" content="width=device-width, initial-scale=1">',
            f"<title>{html.escape(name)}</title><style>{_PAGE_STYLE}</style></head><body>",
-           f"<h1>{html.escape(name)}</h1>", '<p class="note">Exported from KratosForge. Outputs are as they were on screen.</p>']
+           f"<h1>{html.escape(name)}</h1>",
+           f'<p class="note">{html.escape(report)}</p>' if report is not None
+           else '<p class="note">Exported from KratosForge. Outputs are as they were on screen.</p>']
     n = 0
     for c in cells:
         source = html.escape(c.get("source", ""))
+        if report is not None:
+            if c.get("type") == "markdown":
+                out.append(f'<div class="md report">{source}</div>')
+            else:
+                outs = "".join(_html_output(o) for o in c.get("outputs") or [] if isinstance(o, dict))
+                if outs:
+                    out.append(f'<div class="report">{outs}</div>')
+            continue
         if c.get("type") == "markdown":
             out.append(f'<div class="cell"><div class="label">Markdown</div><div class="md">{source}</div></div>')
             continue
@@ -437,41 +477,59 @@ def _unprefix(lines: list[str], prefix: str) -> list[str]:
     return [ln[len(prefix):] if ln.startswith(prefix) else "" if ln.rstrip() == bare else ln for ln in lines]
 
 
-def _parse_fabric(lines: list[str]) -> list[dict[str, Any]]:
+# Fabric source by its first line's comment: notebook-content.py (#), .sql (--) and .scala (//). A
+# code cell with no cell magic and no language in its METADATA is in the notebook's own language.
+_FABRIC_COMMENTS = {"#": None, "--": "%%sql", "//": "%%spark"}
+
+
+def _parse_fabric(lines: list[str], comment: str = "#") -> list[dict[str, Any]]:
     cells: list[dict[str, Any]] = []
     blocks: list[tuple[str, list[str]]] = []
+    markers = {m.replace("#", comment, 1): m for m in _FABRIC_MARKERS}
     for ln in lines[1:]:
         s = ln.rstrip()
-        if s in (FABRIC_CELL, FABRIC_PARAMS, FABRIC_MARKDOWN, FABRIC_METADATA):
-            blocks.append((s, []))
+        if s in markers:
+            blocks.append((markers[s], []))
         elif blocks:
             blocks[-1][1].append(ln)
+    default = _FABRIC_COMMENTS[comment]
+    bare: list[dict[str, Any]] = []  # code cells that may get the notebook's language
     for kind, body in blocks:
         if kind == FABRIC_METADATA:
             if cells and cells[-1]["type"] == "code":
-                meta = _fabric_meta(body)
+                meta = _fabric_meta(body, comment)
+                if meta.get("language") and bare and bare[-1] is cells[-1]:
+                    bare.pop()
                 magic = _FABRIC_MAGIC.get(str(meta.get("language", "")))
                 if magic and not cells[-1]["source"].startswith("%%"):
                     cells[-1]["source"] = f"{magic}\n{cells[-1]['source']}"
+                own = meta.get("fabric_desktop")
+                breakpoints = breakpoints_meta(own.get("breakpoints") if isinstance(own, dict) else None)
+                if breakpoints:
+                    cells[-1].setdefault("meta", {})["breakpoints"] = breakpoints
             continue
         if kind == FABRIC_MARKDOWN:
-            cells.append(_markdown(_trim(_unprefix(body, "# "))))
+            cells.append(_markdown(_trim(_unprefix(body, f"{comment} "))))
             continue
         text = _trim(body)
-        if all(ln.startswith("# MAGIC") for ln in _lines(text) if ln.strip()) and text:
-            text = "\n".join(_unprefix(_lines(text), "# MAGIC "))
+        if all(ln.startswith(f"{comment} MAGIC") for ln in _lines(text) if ln.strip()) and text:
+            text = "\n".join(_unprefix(_lines(text), f"{comment} MAGIC "))
         cell = _code(text)
         if kind == FABRIC_PARAMS:
             cell["meta"] = {"tags": ["parameters"]}
         cells.append(cell)
+        bare.append(cell)
+    for cell in bare:
+        if default and not cell["source"].startswith("%%"):
+            cell["source"] = f"{default}\n{cell['source']}"
     return cells
 
 
-def _fabric_meta(body: list[str]) -> dict[str, Any]:
-    text = "\n".join(_unprefix([ln for ln in body if ln.startswith("# META")], "# META "))
+def _fabric_meta(body: list[str], comment: str = "#") -> dict[str, Any]:
+    text = "\n".join(_unprefix([ln for ln in body if ln.startswith(f"{comment} META")], f"{comment} META "))
     try:
         value = json.loads(text) if text.strip() else {}
-    except ValueError:
+    except (ValueError, RecursionError):  # RecursionError: nested too deep to be cell settings
         return {}
     return value if isinstance(value, dict) else {}
 
@@ -492,10 +550,14 @@ def _databricks_cell(text: str, comment: str, default: str | None,
     return _code(f"{default}\n{text}" if default else text)
 
 
+SH_EXIT = (" A %%sh cell fails when its script ends with a non-zero exit code, as a %sh -e cell does in Databricks."
+           " There, a plain %sh cell goes on.")
+
+
 def _databricks_magic(body: list[str], notes: list[dict[str, Any]] | None = None, n: int = 0) -> dict[str, Any]:
     """A Databricks cell whose first line is a magic: %md, %sql, %scala, %r, %python, %run, %pip..."""
     first = body[0].strip() if body else ""
-    m = re.match(r"^%([A-Za-z_-]+)\s*(.*)$", first)
+    m = re.fullmatch(r"^%([A-Za-z_-]+)\s*(.*)$", first)
     if not m:
         return _code("\n".join(body))
     name, rest = m.group(1).lower(), m.group(2)
@@ -506,9 +568,12 @@ def _databricks_magic(body: list[str], notes: list[dict[str, Any]] | None = None
         return _markdown(_trim(tail))
     if name == "python":
         return _code(_trim(tail))
+    if name == "sh" and rest.strip() == "-e":  # %sh -e: fail the cell on a non-zero exit, which %%sh can't say
+        return _code("%sh -e\n" + _trim(body[1:]))
     if name in _FROM_DATABRICKS:
         if notes is not None:
-            notes.append(_note(n, "changed", f"%{name} became {_FROM_DATABRICKS[name]}, KratosForge's way to mark the language."))
+            notes.append(_note(n, "changed", f"%{name} became {_FROM_DATABRICKS[name]}, KratosForge's way to mark the language."
+                               + (SH_EXIT if name == "sh" else "")))
         return _code(_FROM_DATABRICKS[name] + "\n" + _trim(tail))
     return _code("\n".join(body))  # %run, %pip, %fs...: line magics, kept as they are
 
@@ -542,7 +607,7 @@ def _parse_percent(lines: list[str]) -> list[dict[str, Any]]:
                 break
     chunks: list[tuple[str, list[str]]] = [("", [])]
     for ln in lines:
-        m = _PERCENT.match(ln.rstrip())
+        m = _PERCENT.fullmatch(ln.rstrip())
         if m:
             chunks.append((m.group(1).strip(), []))
         else:
@@ -574,15 +639,16 @@ def parse_source(text: str, file_name: str = "") -> dict[str, Any]:
     lines = _lines(text)
     first = lines[0].strip() if lines else ""
     ext = PurePosixPath(file_name.replace("\\", "/")).suffix.lower()
-    if first == FABRIC_HEADER:
-        return {"format": "Fabric notebook source", "cells": _parse_fabric(lines)}
+    for comment in _FABRIC_COMMENTS:
+        if first == f"{comment} {FABRIC_HEADER[2:]}":
+            return {"format": "Fabric notebook source", "cells": _parse_fabric(lines, comment)}
     for comment, default, label in (("#", None, "Databricks notebook source"), ("--", "%%sql", "Databricks SQL notebook source"),
                                     ("//", "%%spark", "Databricks Scala notebook source")):
         if first == f"{comment} {DATABRICKS_HEADER}":
             notes: list[dict[str, Any]] = []
             cells = _parse_databricks(lines, comment, default, notes)
             return {"format": label, "cells": cells, "notes": _here_notes(cells, notes)}
-    if any(_PERCENT.match(ln.rstrip()) for ln in lines):
+    if any(_PERCENT.fullmatch(ln.rstrip()) for ln in lines):
         return {"format": "Percent-format script (# %%)", "cells": _parse_percent(lines)}
     source = _trim(lines)
     if ext == ".sql" and source:
@@ -594,12 +660,23 @@ def parse_ipynb(text: str) -> dict[str, Any]:
     if len(text) > MAX_TEXT:
         raise ValueError("The file is larger than 32 MB, so it wasn't read.")
     try:
-        nb = json.loads(text)
+        nb = json.loads(text.lstrip("\ufeff"))
     except (ValueError, RecursionError):  # RecursionError: nested too deep to be a notebook
         raise ValueError("This .ipynb file isn't valid JSON, so it can't be imported.") from None
     if not isinstance(nb, dict) or not isinstance(nb.get("cells"), list):
         raise ValueError("This .ipynb file has no cells list, so it isn't a Jupyter notebook.")
-    return {"format": "Jupyter notebook (.ipynb)", "cells": from_ipynb(nb)["cells"]}
+    problem = ipynb_cell_problem(nb["cells"])
+    if problem:
+        raise ValueError(f"This .ipynb file can't be imported, because {problem}. Fix that cell in Jupyter, then import it "
+                         "again.")
+    notes: list[dict[str, Any]] = []
+    for n, c in enumerate(nb["cells"], 1):
+        if c.get("cell_type") not in ("code", "markdown"):
+            notes.append(_note(n, "changed", other_cell_type_note(c.get("cell_type"))))
+        if c.get("outputs"):
+            notes.append(_note(n, "dropped", "The cell's saved outputs were left out, because imported notebooks start without outputs. "
+                                             "Run the cell to get them."))
+    return {"format": "Jupyter notebook (.ipynb)", "cells": from_ipynb(nb)["cells"], "notes": notes}
 
 
 def _safe_entry(name: str) -> bool:

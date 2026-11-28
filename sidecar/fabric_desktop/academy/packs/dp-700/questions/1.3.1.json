@@ -323,6 +323,108 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.1-q11",
+      "type": "multiple",
+      "stem": "At Tidewater, which three Git actions do the engineers' Contributor role in Ship-Dev allow? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Commit changed items in Ship-Dev to the connected branch"
+        },
+        {
+          "id": "b",
+          "text": "Add a new engineer to Ship-Dev as a Contributor"
+        },
+        {
+          "id": "c",
+          "text": "Branch out from Ship-Dev to another workspace"
+        },
+        {
+          "id": "d",
+          "text": "Update Ship-Dev with the latest commits from the branch"
+        },
+        {
+          "id": "e",
+          "text": "Connect Ship-Dev to a different Git repository"
+        }
+      ],
+      "answer": [
+        "a",
+        "d",
+        "c"
+      ],
+      "explanation": "Commit, update and branch out are open to Contributors and above, given the matching Git permissions. Only a workspace Admin can connect a workspace to a Git repository, and adding people to a workspace needs the Member or Admin role.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/git-integration/git-integration-process",
+      "case": "tidewater-releases",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
+    },
+    {
+      "id": "1.3.1-q12",
+      "type": "single",
+      "stem": "At Brightwater, which workspace role do you give the dispatch supervisors, with the least privilege?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Admin"
+        },
+        {
+          "id": "b",
+          "text": "Member"
+        },
+        {
+          "id": "c",
+          "text": "Viewer"
+        },
+        {
+          "id": "d",
+          "text": "Contributor"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Viewers can view and read the content of KQL databases and querysets but can't write eventhouses, KQL database schema or data, or eventstreams. Contributor and higher roles can change all of these.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/roles-workspaces",
+      "case": "brightwater-transit",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
+    },
+    {
+      "id": "1.3.1-q13",
+      "type": "single",
+      "stem": "At Quarry Hill, what is the least change that lets the operations team query the monitoring database?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Give them the Contributor role in the workspace"
+        },
+        {
+          "id": "b",
+          "text": "Give them the Admin role in the workspace"
+        },
+        {
+          "id": "c",
+          "text": "No change, because Viewers can already query it"
+        },
+        {
+          "id": "d",
+          "text": "Give them the Member role in the workspace"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Workspace users with at least the Contributor role can query the monitoring database, so Viewers can't. Member and Admin would also work but give more than needed.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/workspace-monitoring-overview",
+      "case": "quarry-hill-monitoring",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-20"
     }
   ]
 }

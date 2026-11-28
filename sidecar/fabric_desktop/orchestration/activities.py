@@ -74,7 +74,7 @@ def _until(a: Activity, ctx: CheckContext) -> list[Diagnostic]:
         out.append(_diag(a, "condition_not_expression", "error", f"{a.name}: the Until condition must be an "
                          "expression.", "expression"))
     t = tp.get("timeout")
-    if t is not None and not _is_expression(t) and not (isinstance(t, str) and _TIMESPAN.match(t)):
+    if t is not None and not _is_expression(t) and not (isinstance(t, str) and _TIMESPAN.fullmatch(t)):
         out.append(_diag(a, "timeout_format", "error", f"{a.name}: timeout must look like d.hh:mm:ss.", "timeout",
                          "For example 0.12:00:00 for twelve hours."))
     return out

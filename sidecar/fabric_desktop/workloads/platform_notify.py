@@ -24,7 +24,7 @@ from typing import Any, Callable, ContextManager
 
 from .. import redact, sqlitefile
 from . import deliver
-from .notify import DEFAULT_ROUTE, Outbox, Quiet, failure, flush
+from .notify import DEFAULT_ROUTE, Outbox, Quiet, flush, post_kept
 
 KINDS = ("request.waiting", "request.decided", "request.withdrawn", "shortcut.broken", "shortcut.fixed",
          "product.deprecated", "incident.impact", "product.changed", "exception.ending")
@@ -80,9 +80,9 @@ def validate(event: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(to, dict):
         raise ValueError("to is an object with people and roles")
     people, roles = _strs(to.get("people"), "to.people"), _strs(to.get("roles"), "to.roles")
-    if bad := [p for p in people if not _UPN.match(p)]:
+    if bad := [p for p in people if not _UPN.fullmatch(p)]:
         raise ValueError(f"to.people are UPNs (name@domain), not {bad[0]!r}")
-    if bad := [r for r in roles if not _ROLE.match(r)]:
+    if bad := [r for r in roles if not _ROLE.fullmatch(r)]:
         raise ValueError(f"to.roles are platform_admin, requester, domain_owner:<id>, product_owner:<id> or "
                          f"project:<name>, not {bad[0]!r}")
     if not people and not roles:
@@ -169,14 +169,17 @@ class PlatformRouting:
         return [default] if default and default.url else []
 
     @staticmethod
-    def parse(raw: dict[str, Any]) -> "PlatformRouting":
+    def parse(raw: dict[str, Any], saved: bool = False) -> "PlatformRouting":
+        """``saved``: read back from settings, where quiet hours an older build saved with seconds
+        still read (Quiet.parse_saved). Without it (saving), quiet hours are hours and minutes."""
         routes = [PlatformRoute.parse(r) for r in raw.get("routes") or []]
         names = [r.name for r in routes]
         if len(set(names)) != len(names):
             raise ValueError("route names are unique")
         quiet_text = str(raw.get("quiet") or "").strip()
         try:
-            quiet = Quiet.parse(quiet_text, tuple(_strs(raw.get("quiet_exempt"), "quiet_exempt"))) if quiet_text else None
+            read = Quiet.parse_saved if saved else Quiet.parse
+            quiet = read(quiet_text, tuple(_strs(raw.get("quiet_exempt"), "quiet_exempt"))) if quiet_text else None
         except ValueError:
             raise ValueError("quiet hours look like 22:00-07:00") from None
         return PlatformRouting(routes, quiet)
@@ -187,7 +190,6 @@ class Ledger:
 
     def __init__(self, path: Path, clock: Callable[[], float] = time.time):
         self.path, self.clock = Path(path), clock
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         # A file SQLite can't read is moved aside and the ledger starts empty. It forgets what was sent
         # and which breaks are open: an alert already sent may be sent once more, and a fix for a break
         # posted before isn't posted. Nothing else is lost.
@@ -203,19 +205,29 @@ class Ledger:
     def _db(self) -> ContextManager[sqlite3.Connection]:
         return sqlitefile.transaction(self.path)
 
-    def get(self, key: str) -> tuple[str, bool] | None:
-        with self._db() as db:
-            row = db.execute("SELECT kind, open FROM sent WHERE key = ?", (key,)).fetchone()
+    # ``db``: a transaction already open on this ledger's file, so a key changes together with the
+    # outbox rows of the same notice (send), or not at all.
+    def get(self, key: str, db: sqlite3.Connection | None = None) -> tuple[str, bool] | None:
+        if db is None:
+            with self._db() as conn:
+                return self.get(key, conn)
+        row = db.execute("SELECT kind, open FROM sent WHERE key = ?", (key,)).fetchone()
         return (row[0], bool(row[1])) if row else None
 
-    def mark(self, key: str, kind: str, is_open: bool) -> None:
-        with self._db() as db:
-            db.execute("INSERT OR REPLACE INTO sent (key, kind, at, open) VALUES (?, ?, ?, ?)",
-                       (key, kind, self.clock(), int(is_open)))
+    def mark(self, key: str, kind: str, is_open: bool, db: sqlite3.Connection | None = None) -> None:
+        if db is None:
+            with self._db() as conn:
+                return self.mark(key, kind, is_open, conn)
+        db.execute("INSERT OR REPLACE INTO sent (key, kind, at, open) VALUES (?, ?, ?, ?)",
+                   (key, kind, self.clock(), int(is_open)))
+        return None
 
-    def forget(self, key: str) -> None:
-        with self._db() as db:
-            db.execute("DELETE FROM sent WHERE key = ?", (key,))
+    def forget(self, key: str, db: sqlite3.Connection | None = None) -> None:
+        if db is None:
+            with self._db() as conn:
+                return self.forget(key, conn)
+        db.execute("DELETE FROM sent WHERE key = ?", (key,))
+        return None
 
     def prune(self, older_than: float) -> int:
         """Delete closed and one-off keys last marked more than ``older_than`` seconds ago. Open keys (a
@@ -237,76 +249,98 @@ def _opened_key(event: dict[str, Any]) -> str:
     return opener + key[len(event["kind"]):] if key.startswith(event["kind"]) else f"{opener}:{event['id']}"
 
 
-def decide(event: dict[str, Any], ledger: Ledger) -> str | None:
+def decide(event: dict[str, Any], ledger: Ledger, db: sqlite3.Connection | None = None) -> str | None:
     """Why this event isn't posted, or None when it should be."""
-    seen = ledger.get(event["dedupe"])
+    seen = ledger.get(event["dedupe"], db)
     if event["kind"] in OPENS:
         return "already posted and still open" if seen and seen[1] else None
     if seen:
         return "already posted"
     if event["kind"] == "shortcut.fixed":
-        opened = ledger.get(_opened_key(event))
+        opened = ledger.get(_opened_key(event), db)
         if not (opened and opened[1]):
             return "its break wasn't posted"
     return None
 
 
+def _settle(event: dict[str, Any], ledger: Ledger, db: sqlite3.Connection) -> None:
+    """The ledger after posting ``event``: its key, the waits it closes, and the fixes it makes news again."""
+    ledger.mark(event["dedupe"], event["kind"], event["kind"] in OPENS, db)
+    if event["kind"] in OPENS:  # waiting again after a decision: the next decision is news
+        for closer in (k for k, v in CLOSES.items() if v == event["kind"]):
+            ledger.forget(closer + event["dedupe"][len(event["kind"]):] if event["dedupe"].startswith(event["kind"])
+                          else f"{closer}:{event['id']}", db)
+    if event["kind"] in CLOSES:
+        opened = _opened_key(event)
+        if ledger.get(opened, db):
+            ledger.mark(opened, CLOSES[event["kind"]], False, db)
+        if event["kind"] == "shortcut.fixed":
+            ledger.forget(event["dedupe"], db)  # the next fix of the next break is news again
+            ledger.forget(opened, db)
+
+
 def send(events: list[dict[str, Any]], routing: PlatformRouting, outbox: Outbox, ledger: Ledger,
          post: Callable[[str, str, list[str]], None], now: dt.datetime | None = None) -> dict[str, Any]:
-    """Post what these (validated) events need, after anything still waiting. Never raises.
+    """Post what these (validated) events need, after anything still waiting. A failed post never
+    raises: the message waits in the outbox. The outbox and the ledger must be one file.
 
     Returns counts plus one result per event: ``sent``, ``queued`` (Teams unreachable, retried
-    on the next call), ``held`` (quiet hours), or ``skipped`` with the reason. ``dropped``,
+    on the next call), ``held`` (quiet hours), ``unconfirmed`` (sent with no answer, so it may have
+    arrived and isn't sent again) or ``skipped`` with the reason. ``dropped``, ``unconfirmed``,
     ``waiting``, ``error`` and a failing route's rest between tries are as for notify.send."""
+    if outbox.path != ledger.path:  # a caller's mistake, not a delivery problem
+        raise ValueError("the outbox and the ledger are one file, so a notice and its key are kept together")
     now = now or dt.datetime.fromtimestamp(outbox.clock()).astimezone()
     sent = queued = held = 0
     dropped = outbox.trim()  # never sent: the caller logs and counts them
     down = outbox.resting({r.name: r.url for r in routing.routes})
     failed: dict[str, str] = {}
-    sent += flush(outbox, routing.by_name, post, down, failed, "From {when}; it couldn't be sent then.")
+    unconfirmed: list[int] = []
+    sent += flush(outbox, routing.by_name, post, down, failed, "From {when}; it couldn't be sent then.", unconfirmed)
     results: list[dict[str, Any]] = []
     for event in events:
-        why = decide(event, ledger)
-        routes = routing.for_event(event) if why is None else []
-        if why is None and not routes:
-            why = "no route matches and no default route is set"
-        if why:
-            results.append({"dedupe": event["dedupe"], "result": "skipped", "reason": why})
-            continue
-        title, lines = message(event)
-        hold = routing.quiet.until(now, event["severity"]) if routing.quiet else None
-        outcome = "sent"
-        for r in routes:
-            if hold:
-                outbox.add(title, lines, "", route=r.name, not_before=hold.timestamp())
-                held += 1
-                outcome = "held"
+        live: list[tuple[int, PlatformRoute]] = []
+        # One transaction per notice: its key and its outbox rows are kept together or not at all, and
+        # IMMEDIATE makes another process sending the same notice wait, then find it already posted.
+        with sqlitefile.transaction(outbox.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            why = decide(event, ledger, db)
+            routes = routing.for_event(event) if why is None else []
+            if why is None and not routes:
+                why = "no route matches and no default route is set"
+            if why:
+                results.append({"dedupe": event["dedupe"], "result": "skipped", "reason": why})
                 continue
-            if r.name not in down:
-                try:
-                    post(r.url, title, lines)
-                    sent += 1
-                    outbox.route_ok(r.name)
-                    continue
-                except Exception as exc:  # noqa: BLE001 - a route that can't be sent to is kept in the outbox and marked down
-                    down[r.name] = failed[r.name] = failure(exc)
-                    outbox.route_failed(r.name, r.url, down[r.name])
-            outbox.add(title, lines, down[r.name], route=r.name)
-            queued += 1
-            outcome = "queued" if outcome == "sent" else outcome
-        # Queued and held messages are in the outbox and will go out: the key counts as posted.
-        ledger.mark(event["dedupe"], event["kind"], event["kind"] in OPENS)
-        if event["kind"] in OPENS:  # waiting again after a decision: the next decision is news
-            for closer in (k for k, v in CLOSES.items() if v == event["kind"]):
-                ledger.forget(closer + event["dedupe"][len(event["kind"]):] if event["dedupe"].startswith(event["kind"])
-                              else f"{closer}:{event['id']}")
-        if event["kind"] in CLOSES:
-            opened = _opened_key(event)
-            if ledger.get(opened):
-                ledger.mark(opened, CLOSES[event["kind"]], False)
-            if event["kind"] == "shortcut.fixed":
-                ledger.forget(event["dedupe"])  # the next fix of the next break is news again
-                ledger.forget(opened)
+            title, lines = message(event)
+            hold = routing.quiet.until(now, event["severity"]) if routing.quiet else None
+            outcome = "sent"
+            for r in routes:
+                if hold:
+                    outbox.add(title, lines, "", route=r.name, not_before=hold.timestamp(), db=db)
+                    held += 1
+                    outcome = "held"
+                elif r.name in down:
+                    outbox.add(title, lines, down[r.name], route=r.name, db=db)
+                    queued += 1
+                    outcome = "queued" if outcome == "sent" else outcome
+                else:
+                    live.append((outbox.sending(title, lines, route=r.name, db=db), r))
+            # Kept messages are in the outbox and will go out: the key counts as posted.
+            _settle(event, ledger, db)
+        for item_id, r in live:  # posted after the commit: a stop from here on leaves them in the outbox
+            if r.name in down:  # failed for an earlier notice in this call: it waits with the rest
+                outbox.not_sent(item_id, down[r.name])
+                ok = False
+            else:
+                ok = post_kept(outbox, item_id, r, title, lines, post, down, failed, unconfirmed)
+            sent += ok
+            if ok:
+                continue
+            if item_id in unconfirmed:
+                outcome = "unconfirmed" if outcome in ("sent", "queued") else outcome
+            else:
+                queued += 1
+                outcome = "queued" if outcome == "sent" else outcome
         results.append({"dedupe": event["dedupe"], "result": outcome, "routes": [r.name for r in routes]})
-    return {"sent": sent, "queued": queued, "held": held, "dropped": dropped, "waiting": outbox.count(),
-            "events": results, "error": next(iter(failed.values()), None)}
+    return {"sent": sent, "queued": queued, "held": held, "dropped": dropped, "unconfirmed": len(unconfirmed),
+            "waiting": outbox.count(), "events": results, "error": next(iter(failed.values()), None)}

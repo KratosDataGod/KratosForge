@@ -87,6 +87,8 @@ def _try(sql: str, setup: bool = False) -> tuple[str, str]:
             con.execute(_TABLES)
         con.execute(translation.duckdb_sql).fetchall()
     except duckdb.Error as exc:
+        if snowflake_sql.stopped_by_name(exc):  # a refusal only the run can tell (SFN-071, SFN-072)
+            return "refused", _first_line(exc).split("Error: ", 1)[-1]
         return "fails", _first_line(exc)
     finally:
         con.close()
@@ -128,6 +130,21 @@ def check(function: dict[str, Any], cases: dict[str, list[Any]]) -> tuple[str, s
     return _from_cases(mine) if mine else _probe(function)
 
 
+# Why each function still Not checked has no value check here (WR-307): its value varies, its page has no
+# example this PC can run as written, or the example needs something this PC doesn't have yet.
+_CLOCK = "its value is the clock's, so there's no documented value to compare"
+_SESSION = ("its value names the session's user, role, database or schema: Snowflake's examples show their own "
+            "account's, and here it is this PC's DuckDB session's")
+_TRADES = ("its page's only example reads a trades table whose rows the page doesn't give; the CUME_DIST and "
+           "PERCENT_RANK pages' outputs can't both come from one such table")
+NOT_CHECKED: dict[str, str] = {
+    "CUME_DIST": _TRADES, "NTILE": _TRADES, "PERCENT_RANK": _TRADES,
+    "CURRENT_DATE": _CLOCK, "CURRENT_TIME": _CLOCK, "LOCALTIME": _CLOCK,
+    "CURRENT_ROLE": _SESSION, "CURRENT_USER": _SESSION, "CURRENT_DATABASE": _SESSION, "CURRENT_SCHEMA": _SESSION,
+    "RANDOM": "its values are random; RANDOM with a seed is refused (SFN-076)",
+}
+
+
 def coverage() -> list[dict[str, Any]]:
     """Every listed function, operator and statement with its group and status, in list order."""
     from . import snowflake_sql_parity
@@ -138,6 +155,8 @@ def coverage() -> list[dict[str, Any]]:
     out = []
     for function in load():
         status, note = check(function, cases)
+        if status == "not checked" and not note:
+            note = NOT_CHECKED.get(function["name"], "")
         sample = "" if function["name"] in cases else function.get("probe", "")  # checks decide, not the sample
         out.append({"name": function["name"], "group": function["group"], "sample": sample, "status": status,
                     "note": note})
@@ -167,7 +186,7 @@ def markdown(rows: list[dict[str, Any]]) -> str:
         "- **Refused**: stops with a message saying it runs only in Snowflake, so nothing runs with another answer.",
         "- **Fails**: stops with an error, usually because DuckDB has no function of that name. Run it in Snowflake.",
         "- **Not checked**: DuckDB runs it, but no check compares its value with Snowflake's yet. Check",
-        "  results that use it in Snowflake.",
+        "  results that use it in Snowflake. The note says why it has no check here.",
         "",
         "Geospatial, Cortex AI, table, system and file functions aren't listed: they need Snowflake's own",
         "objects or services. [Engines](engines.md#snowflake-sql-on-this-pc-preview) lists the rules and",

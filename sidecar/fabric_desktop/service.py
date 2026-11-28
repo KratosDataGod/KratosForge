@@ -8,6 +8,7 @@ import logging
 import os
 import math
 import platform
+import re
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FutureTimeout
@@ -23,7 +24,7 @@ from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator, cached_account
 from .fabric_api import FabricClient
-from . import app_settings, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
+from . import app_settings, csv_cells, jsonfile, lakehouse, net_trust, schema_cache, sql, sql_compare, sql_dialects, sql_exec, sql_files, sql_format, sql_function_help, sql_view, sqlcompat, warehouse
 from .learn import evidence
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
@@ -39,6 +40,8 @@ from .schedule_service import ScheduleMixin
 from .side_by_side_service import SideBySideMixin
 from .prove_service import ProveMixin
 from .xray_service import XRayMixin
+from .opportunities_service import OpportunitiesMixin
+from .excellence_service import ExcellenceMixin
 from .preview_service import PreviewMixin
 from .central.service import PlatformMixin
 from .central.governance_service import GovernanceMixin
@@ -68,6 +71,7 @@ from .risk_service import RiskMixin
 from .model_bpa_service import ModelBpaMixin
 from .usage_service import UsageMixin
 from .optimize_service import OptimizeMixin
+from .controlplane_service import ControlPlaneMixin
 from .tenant_history_service import TenantHistoryMixin
 from .capacity_history_service import CapacityHistoryMixin
 from .validate_service import ValidateMixin
@@ -77,15 +81,18 @@ from .powerbi_embed_service import PowerBiEmbedMixin
 from .model_dictionary_service import ModelDictionaryMixin
 from .environment_service import EnvironmentMixin
 from .local_writes_service import LocalWritesMixin
+from .databricks_volumes_service import DatabricksVolumesMixin
 from .notebook_resources_service import NotebookResourcesMixin
 from .notebook_files_service import NotebookFilesMixin
 from .editor_service import EditorMixin
 from .notebook_folders_service import NotebookFoldersMixin
 from .notebook_formats_service import NotebookFormatsMixin
+from .prod_writes_service import ProdWritesMixin
 from .sql_templates_service import SqlTemplatesMixin
 from .sql_queries_service import SqlQueriesMixin
 from .warehouse_project_service import WarehouseProjectMixin
 from .warehouse_monitoring_service import WarehouseMonitoringMixin
+from .warehouse_ssms_service import WarehouseSsmsMixin
 from .notebook_versions_service import NotebookVersionsMixin
 from . import notebook_versions
 from .progress_service import ProgressMixin
@@ -95,6 +102,7 @@ from .appstudio_service import AppStudioMixin
 from .academy_exam_service import AcademyExamMixin
 from .comments_service import CommentsMixin
 from .engines_service import EnginesMixin
+from .compare_service import CompareMixin
 from .kernel_proc import ProcessKernel
 from .kernel_sessions import KernelSessions
 from .debugger import check_breakpoints
@@ -139,7 +147,7 @@ ENDORSED_FILTER_REASON = (
     "admin who is also a Fabric administrator chooses Scan now there), or in Fabric's own catalog (Open Fabric's catalog on OneLake > Catalog).")
 
 
-class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
+class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, FabricGitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, ControlPlaneMixin, OpportunitiesMixin, ExcellenceMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProdWritesMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, WarehouseSsmsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, DatabricksVolumesMixin, CompareMixin, PowerBiEmbedMixin, LearnMixin, AcademyMixin, AppStudioMixin, AcademyExamMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -156,6 +164,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         self._schema_cache: dict[str, bool] = {}
         self._tables: dict[str, Any] | None = None
         self._tables_lock = threading.Lock()
+        lakehouse.maintenance_guard = self._maintenance_refusal  # OPTIMIZE, VACUUM, RESTORE from notebook code
+        lakehouse.prod_guard = self._prod_write_refusal  # MERGE, UPDATE, DELETE, VACUUM, RESTORE in Prod: typed name
 
     @property
     def auth(self) -> Authenticator:
@@ -234,13 +244,15 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def support_bundle_preview(self) -> dict[str, Any]:
         from . import support_bundle
         shown = support_bundle.preview(self.root, self._bundle_agent_home())
-        return shown | {"folder": str(known_folders.downloads())}
+        return shown | {"folder": str(known_folders.export_folder())}
 
     def support_bundle_save(self, folder: str = "") -> dict[str, Any]:
         from . import support_bundle
-        target = Path(folder) if folder else known_folders.downloads()
+        target = Path(folder) if folder else known_folders.export_folder()
         if not target.is_absolute():
             raise ValueError("Choose a full folder path, such as C:\\Users\\you\\Downloads.")
+        if (refusal := known_folders.onedrive_refusal(target, "the support bundle")):
+            raise ValueError(refusal)
         try:
             path = support_bundle.create(target, self.root, self._bundle_agent_home())
         except OSError as exc:
@@ -302,8 +314,9 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
     def _start_retention_sweep(self) -> None:
         """From the engine's first call, in the background and then once a day while it runs: delete local
-        copies of lakehouse data unused for longer than the organization allows (retention.py). An app
-        left open for weeks is swept too, each time under the policy as it is then."""
+        copies of lakehouse data unused for longer than the organization allows (retention.py). Audit trails and
+        receipts past their limits go in the same pass (_prune_records). An app left open for weeks is
+        swept too, each time under the policy as it is then."""
         if getattr(self, "_swept", False):
             return
         self._swept = True
@@ -325,11 +338,41 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                     self._pn_tidy()  # closed Teams notices: their bell details now, ledger keys after a year
                 except Exception:  # noqa: BLE001 - nor a notice ledger cleanup
                     logging.getLogger(__name__).exception("Notice ledger cleanup failed")
+                try:
+                    self._prune_records()  # audit trails and receipts past IT's limits, if any
+                except Exception:  # noqa: BLE001 - e.g. the policy can't be read: tried again tomorrow
+                    logging.getLogger(__name__).exception("Audit trail and receipt cleanup failed")
                 if stop.wait(SWEEP_EVERY):
                     return
 
         self._sweeper = threading.Thread(target=run, name="retention-sweep", daemon=True)
         self._sweeper.start()
+
+    def _prune_records(self) -> None:
+        """The audit trails and run receipts past the organization's limits (audit_retention_days,
+        receipt_retention_days; both keep everything by default). Each cleanup is recorded in this
+        PC's audit trail first; when that line can't be written, nothing is deleted."""
+        import logging
+
+        from . import retention
+        log = logging.getLogger(__name__)
+
+        def record(action: str, params: dict[str, Any]) -> None:
+            self.audit.record(action, "ok", 0.0, params)
+        audit_days = int(app_settings.value("audit_retention_days") or 0)
+        for trail, folder in (("app", self.audit.folder), ("integrations", self.root / "integrations" / "audit")):
+            try:
+                gone = retention.prune_audit(folder, audit_days, record, trail)
+                if gone["files"]:
+                    log.info("Deleted %d audit lines (%s trail, through %s)", gone["lines"], trail, gone["through"])
+            except Exception:  # noqa: BLE001 - never stops the app; nothing went without its record
+                log.exception("Audit trail cleanup failed (%s)", trail)
+        try:
+            gone = retention.prune_receipts(self.root / "receipts", int(app_settings.value("receipt_retention_days") or 0), record)
+            if gone["removed"]:
+                log.info("Deleted %d run receipts", gone["removed"])
+        except Exception:  # noqa: BLE001 - a receipt cleanup never stops the app either
+            log.exception("Receipt cleanup failed")
 
     def _start_usage_send(self) -> None:
         """Once per engine start, in the background: send finished days of usage data, if it's on."""
@@ -514,7 +557,30 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         from .http_session import clock_offset
         return readiness.checks(user, fabric.list_workspaces if fabric else unreachable if offline else list,
                                 capacities, self.app_settings(),
-                                clock=clock_offset, folder=self.root)
+                                clock=clock_offset, folder=self.root, local_folders=self._local_folders())
+
+    def _local_folders(self) -> dict[str, str]:
+        """The folders the app keeps files in, for the OneDrive row: what each holds, and where."""
+        folders = {"The app's data folder": str(self.root)}
+        settings = self._settings()
+        if settings.get("meta_project"):
+            folders["The metadata project"] = str(settings["meta_project"])
+        if settings.get("meta_project_moved_from"):  # copied out of OneDrive; the original is left to delete
+            folders["The metadata project's old copy, which you can delete"] = str(settings["meta_project_moved_from"])
+        from .app_settings import sql_limits
+        sql_temp = str(sql_limits().get("sql_temp_dir") or "")
+        if sql_temp:
+            folders["The SQL page's temp folder"] = sql_temp
+        try:
+            for p in self.list_local_projects():
+                if p.get("folder"):
+                    folders[f"Local data project {p.get('name')}"] = str(p["folder"])
+        except Exception as exc:  # noqa: BLE001 - the row lists what it can read
+            _log.info("Local data projects not read for the OneDrive row: %s", describe(exc))
+        for r in self._git_saved().get("repos", []):
+            if r.get("path"):
+                folders[f"Repository {Path(r['path']).name}"] = str(r["path"])
+        return folders
 
     def readiness_write_test(self, workspace_id: str, lakehouse_id: str, workspace_name: str) -> dict[str, Any]:
         """Write, read back and delete one small file in a lakehouse's Files area (asked for first)."""
@@ -704,7 +770,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
     def run_job(self, path: str) -> dict[str, Any]:
         record = run_job(Job.load(path), self.fabric, self.auth.storage_token,
-                         work_dir=self.root, history_file=self.history_file, guard=self._job_guard)
+                         work_dir=self.root, history_file=self.history_file, guard=self._job_guard,
+                         capacity_gate=self._job_v_order_refusal)
         return record.__dict__
 
     def history(self, limit: int = 50) -> list[dict[str, Any]]:
@@ -774,6 +841,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             kernel.resources_dir = self._resources_dir(notebook)
             kernel.onelake_writes = self._onelake_writes(notebook)
             kernel.write_check = write_check
+            kernel.prod_allowed = self._take_prod_allowance(notebook)  # one run only (prod_writes_service.py)
             if isinstance(kernel, ProcessKernel):
                 return kernel.start(code, time_limit=time_limit, watches=check_watches(watches),
                                     breakpoints=breakpoints, step=bool(step))
@@ -809,14 +877,22 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def kernel_complete(self, code: str, cursor: int | None = None, notebook: str | None = None) -> dict[str, Any]:
         return self.sessions.kernel(notebook).complete(code, cursor)
 
-    def kernel_inspect(self, code: str, cursor: int | None = None, call: bool = False) -> dict[str, Any] | None:
+    def kernel_inspect(self, code: str, cursor: int | None = None, call: bool = False,
+                       notebook: str | None = None) -> dict[str, Any] | None:
         """Hover docs or signature help for the notebook editor (intellisense.py); runs no code."""
-        return self.kernel.inspect(code, cursor, bool(call))
+        return self.sessions.kernel(notebook).inspect(code, cursor, bool(call))
 
     def notebook_syntax(self, source: str) -> list[dict[str, Any]]:
         """The first Python syntax error in a cell, for the editor's red underline."""
         from .intellisense import syntax_problems
         return syntax_problems(source)
+
+    def notebook_symbol(self, cells: list[dict[str, Any]], cell: int = 0, offset: int = 0,
+                        name: str | None = None) -> dict[str, Any]:
+        """Where a notebook-level Python name is defined and used across the cells, for go to
+        definition, find references and rename (nbsymbols.py); reads the cells, runs nothing."""
+        from .nbsymbols import find_symbol
+        return find_symbol(cells, int(cell), int(offset), name if isinstance(name, str) and name else None)
 
     def notebook_format(self, sources: list[str]) -> list[dict[str, Any]]:
         """Format cells (Python with ruff, %%sql with the SQL formatter) without running them."""
@@ -841,46 +917,64 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         from .notebook_practices import rules
         return rules()
 
-    def kernel_variable_detail(self, name: str) -> dict[str, Any]:
-        return self.kernel.variable_detail(str(name))
+    def kernel_variable_detail(self, name: str, notebook: str | None = None) -> dict[str, Any]:
+        session = self.sessions.session(notebook, create=False)
+        if session is None:
+            return {"name": str(name), "missing": True}
+        return session.kernel.variable_detail(str(name))
 
     # ---- the result viewer behind a cell's table output (frames.py)
 
+    def _frame_kernel(self, notebook: str | None) -> Any:
+        """The kernel holding a cell's result: the notebook's own session when the app names it (with a
+        process per notebook, the open one may be another), else the open notebook's. A notebook with
+        no session holds no results."""
+        if notebook is None:
+            return self.kernel
+        session = self.sessions.session(notebook, create=False)
+        if session is None:
+            raise FrameGone(GONE)
+        return session.kernel
+
     def notebook_frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
-                            desc: bool = False, q: str = "") -> dict[str, Any]:
-        """A page of a cell's whole result, searched and sorted over every row."""
+                            desc: bool = False, q: str = "", notebook: str | None = None,
+                            filters: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        """A page of a cell's whole result, searched, filtered (a filter box per column, as the SQL page's
+        result grid: sql_view.py) and sorted over every row."""
         try:
-            return self.kernel.frame_page(frame=frame, offset=offset, limit=limit, sort=sort, desc=desc, q=q)
+            return self._frame_kernel(notebook).frame_page(frame=frame, offset=offset, limit=limit, sort=sort, desc=desc, q=q,
+                                                           filters=filters)
         except (FrameGone, RuntimeError) as exc:
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
 
     def notebook_frame_chart(self, frame: str, kind: str = "bar", x: int | None = None, y: int | None = None,
-                             agg: str = "sum", series: int | None = None, bins: int = 20) -> dict[str, Any]:
+                             agg: str = "sum", series: int | None = None, bins: int = 20,
+                             notebook: str | None = None) -> dict[str, Any]:
         """The Chart view's numbers, aggregated over every row of a cell's result."""
         try:
-            return self.kernel.frame_chart(frame=frame, kind=kind, x=x, y=y, agg=agg, series=series, bins=bins)
+            return self._frame_kernel(notebook).frame_chart(frame=frame, kind=kind, x=x, y=y, agg=agg, series=series, bins=bins)
         except (FrameGone, RuntimeError) as exc:
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
 
-    def notebook_frame_profile(self, frame: str) -> dict[str, Any]:
+    def notebook_frame_profile(self, frame: str, notebook: str | None = None) -> dict[str, Any]:
         """Inspect: a profile of every row of a cell's result (display(df, summary=True))."""
         try:
-            return self.kernel.frame_profile(frame=frame)
+            return self._frame_kernel(notebook).frame_profile(frame=frame)
         except (FrameGone, RuntimeError) as exc:
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
 
-    def notebook_frame_query_profile(self, frame: str) -> dict[str, Any]:
+    def notebook_frame_query_profile(self, frame: str, notebook: str | None = None) -> dict[str, Any]:
         """Query profile: the query behind a cell's spark or %%sql result, run again under DuckDB's
         profiler, step by step (rows, time, share of the total). Reads only. ``notes`` are what the
         profile measured that a best-practice rule explains (learn/evidence.py, GD-04)."""
         try:
-            profile = self.kernel.frame_query_profile(frame=frame)
+            profile = self._frame_kernel(notebook).frame_query_profile(frame=frame)
             if not profile.get("gone"):
                 profile["notes"] = evidence.notes(profile)
             return profile
@@ -889,11 +983,12 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
 
-    def notebook_frame_wrangle(self, frame: str, steps: list[dict[str, Any]] | None = None, name: str = "df") -> dict[str, Any]:
+    def notebook_frame_wrangle(self, frame: str, steps: list[dict[str, Any]] | None = None, name: str = "df",
+                              notebook: str | None = None) -> dict[str, Any]:
         """Data Wrangler: Polars code for the cleaning steps and a preview of it on a cell's result.
         Reads only; the notebook changes when the person adds the code as a cell and runs it."""
         try:
-            return self.kernel.frame_wrangle(frame=frame, steps=list(steps or []), name=name)
+            return self._frame_kernel(notebook).frame_wrangle(frame=frame, steps=list(steps or []), name=name)
         except (FrameGone, RuntimeError) as exc:
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}
@@ -911,16 +1006,19 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             return {"gone": True, "message": WIDGET_GONE}
         return session.kernel.ipywidget_event(model=str(model), event=dict(event or {}), root=root)
 
-    def notebook_frame_download(self, frame: str, format: str = "csv", name: str = "") -> dict[str, Any]:
-        """Write a cell's whole result to a new file in Downloads (CSV, Excel or Parquet); never replaces a file."""
+    def notebook_frame_download(self, frame: str, format: str = "csv", name: str = "",
+                                notebook: str | None = None, raw: bool = False) -> dict[str, Any]:
+        """Write a cell's whole result to a new file in Downloads (CSV, Excel or Parquet); never replaces a file.
+        A CSV protects text cells that start like a formula unless ``raw`` (Keep raw values, WR-228)."""
         if format not in DOWNLOAD_FORMATS:
             raise ValueError(f"Download as {', '.join(DOWNLOAD_FORMATS)}.")
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name or 'notebook')} result {time.strftime('%Y-%m-%d %H%M%S')}"
         path = sql_exec._reserve(folder, base, "." + format)
         try:
-            return self.kernel.frame_download(frame=frame, format=format, path=str(path))
+            return self._frame_kernel(notebook).frame_download(frame=frame, format=format, path=str(path),
+                                                               **({"raw": True} if raw else {}))
         except BaseException as exc:
             sql_exec._discard(path.with_name(path.name + ".partial"), path)
             if isinstance(exc, FrameGone) or str(exc) == GONE:
@@ -980,6 +1078,11 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """Format SQL without running it; the original comes back with a warning when that isn't safe."""
         return sql_format.format_sql(query, dialect)
 
+    def sql_function_help(self, name: str, dialect: str = "spark") -> dict[str, Any] | None:
+        """A function's forms and what it does, for the SQL editor's hover card and signature help.
+        Read on this PC (sql_function_help.py); nothing runs and Fabric isn't called."""
+        return sql_function_help.function_help(dialect, name)
+
     def sql_analyze(self, query: str, target: str = "spark") -> dict[str, Any]:
         """Check SQL against a Fabric engine's documented rules, without running it or calling Fabric."""
         return sqlcompat.analyze(query, target)
@@ -1006,7 +1109,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
         Never replaces a file: a name that is taken gets a number."""
         report = sqlcompat.analyze(query, target)
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name)} compatibility {report['target']['id']} {time.strftime('%Y-%m-%d %H%M%S')}"
         text = sqlcompat.report_json(report, query)
@@ -1019,6 +1122,66 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 continue
             return {"path": str(path), "outcome": report["outcome"]["status"], "counts": report["counts"]}
         raise ValueError("Couldn't find a free file name in Downloads for the report.")
+
+    # A table diagram as the SQL page draws it: an <svg> with its colors written in. It is parsed and
+    # checked against what the page draws (an allowlist of SVG elements and attributes, no namespaced
+    # attribute, no script URL or url() in a value), and anything else is refused rather than cleaned,
+    # since the page never makes it. Doctypes, entities, comments and processing instructions are
+    # refused before parsing, so nothing expands.
+    DIAGRAM_SVG_MAX = 4 * 1024 * 1024
+    _SVG_NS = "{http://www.w3.org/2000/svg}"
+    _DIAGRAM_TAGS = frozenset({"svg", "g", "rect", "path", "text", "title"})
+    _DIAGRAM_ATTRS = frozenset({"viewBox", "width", "height", "font-family", "font-size", "font-weight", "role", "aria-label",
+                                "x", "y", "rx", "fill", "stroke", "stroke-width", "stroke-dasharray", "d"})
+    _DIAGRAM_BAD_VALUE = re.compile(r"javascript\s*:|url\s*\(", re.IGNORECASE)
+
+    @classmethod
+    def _diagram_problem(cls, svg: str) -> str | None:
+        import xml.etree.ElementTree as ET
+        if "<!" in svg or "<?" in svg:
+            return "a doctype, comment or processing instruction"
+        try:
+            root = ET.fromstring(svg)
+        except ET.ParseError:
+            return "text that isn't well-formed SVG"
+        if root.tag != f"{cls._SVG_NS}svg":
+            return "a root that isn't svg"
+        for el in root.iter():
+            if not isinstance(el.tag, str) or not el.tag.startswith(cls._SVG_NS) or el.tag[len(cls._SVG_NS):] not in cls._DIAGRAM_TAGS:
+                return f"an element a diagram never has ({el.tag})"
+            for name, value in el.attrib.items():
+                if name not in cls._DIAGRAM_ATTRS:
+                    return f"an attribute a diagram never has ({name})"
+                if cls._DIAGRAM_BAD_VALUE.search(value):
+                    return f"a link in {name}"
+        return None
+
+    def sql_diagram_export(self, svg: str, name: str = "") -> dict[str, Any]:
+        """Write a table diagram as a new .svg file in the Downloads folder. Never replaces a file."""
+        if not isinstance(svg, str) or not svg.startswith("<svg ") or not svg.rstrip().endswith("</svg>"):
+            raise ValueError("That isn't a diagram from the SQL page.")
+        try:
+            size = len(svg.encode("utf-8"))
+        except UnicodeEncodeError:  # a lone surrogate, which JSON allows and a file can't hold
+            raise ValueError("The diagram wasn't saved, because it holds a character that can't be written "
+                             "to a file. Draw the diagram again on the SQL page.") from None
+        if size > self.DIAGRAM_SVG_MAX:
+            raise ValueError("The diagram is too big to save (over 4 MB).")
+        problem = self._diagram_problem(svg)
+        if problem:
+            raise ValueError(f"The diagram has {problem}, so it wasn't saved.")
+        folder = known_folders.export_folder()
+        folder.mkdir(parents=True, exist_ok=True)
+        base = f"{file_stem(name, 'Diagram')} {time.strftime('%Y-%m-%d %H%M%S')}"
+        for n in range(1, 1000):
+            path = folder / (f"{base}.svg" if n == 1 else f"{base} ({n}).svg")
+            try:
+                with open(path, "x", encoding="utf-8") as f:
+                    f.write(svg)
+            except FileExistsError:
+                continue
+            return {"path": str(path)}
+        raise ValueError("Couldn't find a free file name in Downloads for the diagram.")
 
     # Managed runs (SQL-003, sql_exec.py): each query in a process of its own, with Stop, a time
     # limit, a memory limit, pages read from a snapshot and streamed export. run_sql below stays for
@@ -1055,7 +1218,9 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                   allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
                   confirm: bool = False, dry_run: bool = False,
                   warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
-                  estimated_plan: bool = False, precondition: dict[str, Any] | None = None) -> dict[str, Any]:
+                  estimated_plan: bool = False, precondition: dict[str, Any] | None = None,
+                  profile: bool = False, statements: list[str] | None = None,
+                  params: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """Queue a query on this PC. ``allow`` adds "local_mutation" after the person confirmed it;
         lakehouse writes and Fabric changes are never allowed here (sql_policy.py).
 
@@ -1068,10 +1233,18 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         (a deploy change's, from wh_project_deploy_plan) only if that object is still as the preview saw it.
 
         ``dry_run`` only says what each statement would do; nothing runs. ``estimated_plan`` (warehouse,
-        a query that reads) returns Fabric's estimated plan as showplan XML instead of running it."""
+        a query that reads) returns Fabric's estimated plan as showplan XML instead of running it; on a
+        lakehouse, DuckDB's plan for one query that reads, as JSON, with nothing run. ``profile`` (a
+        lakehouse query that reads) runs it under DuckDB's profiler and returns its steps as JSON.
+
+        ``statements`` (S14, Preview) runs the script as these statements, one after the other in one
+        session, each with a result of its own (``parts`` in the status; ``part`` in sql_page and
+        sql_export), stopping at the first that fails. ``params`` (S17, Preview) are the query's ``:name``
+        and ``{{name}}`` parameters, [{name, type, value}], bound as typed values and never kept."""
         return self.sql_runs.start(query, lakehouse_ref, dialect, allow, target=target, project=project,
                                    confirm=confirm, dry_run=dry_run, warehouse_ref=warehouse_ref,
-                                   confirm_name=confirm_name, estimated_plan=estimated_plan, precondition=precondition)
+                                   confirm_name=confirm_name, estimated_plan=estimated_plan, precondition=precondition,
+                                   profile=profile, statements=statements, params=params)
 
     def sql_status(self, execution: str) -> dict[str, Any]:
         return self.sql_runs.status(execution)
@@ -1080,18 +1253,74 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """This session's runs, newest first: states and timings, never the SQL."""
         return self.sql_runs.recent()
 
-    def sql_page(self, execution: str, offset: int = 0, limit: int | None = None) -> dict[str, Any]:
+    def sql_page(self, execution: str, offset: int = 0, limit: int | None = None, sort: list[dict[str, Any]] | None = None,
+                 filters: list[dict[str, Any]] | None = None, part: int | None = None) -> dict[str, Any]:
+        """A page of a run's result; with ``sort`` or ``filters``, of every row sorted and filtered on
+        this PC (the result grid, S19 and S20); with ``part``, of that statement's result (S14). A filter
+        box that can't be read answers ``filter_error`` with its column, and no rows."""
         try:
-            return self.sql_runs.page(execution, offset, limit)
+            return self.sql_runs.page(execution, offset, limit, sort, filters, part)
         except sql_exec.RerunNeeded as exc:
             return {"id": execution, "rerun_needed": True, "message": str(exc)}
+        except sql_view.FilterError as exc:
+            return {"id": execution, "filter_error": {"column": exc.column, "message": str(exc)}}
+
+    def sql_column_stats(self, execution: str, column: int, part: int | None = None) -> dict[str, Any]:
+        """One column's statistics over every row of a run's result (the result grid, S26), read from
+        the run's snapshot on this PC; with ``part``, of that statement's result (S14). Nothing runs again."""
+        try:
+            return self.sql_runs.column_stats(execution, column, part)
+        except sql_exec.RerunNeeded as exc:
+            return {"id": execution, "rerun_needed": True, "message": str(exc)}
+
+    def sql_pin(self, execution: str, pinned: bool = True) -> dict[str, Any]:
+        """Keep a run's result on this PC until it is unpinned (S27, the SQL page's result history), or let
+        it go. Runs nothing."""
+        return self.sql_runs.pin(execution, bool(pinned))
+
+    def sql_file_info(self, path: str) -> dict[str, Any]:
+        """A .sql file's version, without reading it (S38, Preview): the page asks when it comes back into
+        view, to say the file changed on disk."""
+        return sql_files.info(path)
+
+    def sql_file_read(self, path: str) -> dict[str, Any]:
+        """Open a .sql file the user picked: its text, encoding, line endings and version."""
+        return sql_files.read(path)
+
+    def sql_file_write(self, path: str, text: str, expect: str = "", encoding: str = "utf-8",
+                       newline: str = "\r\n", overwrite: bool = False) -> dict[str, Any]:
+        """Save a tab to a .sql file. A file that changed on disk since ``expect`` (or one already there
+        on Save as, without ``overwrite``) is not written: the answer says ``conflict`` and the page asks."""
+        try:
+            return sql_files.write(path, text, expect, encoding, newline, bool(overwrite))
+        except sql_files.Conflict as exc:
+            return {**sql_files.info(path), "conflict": True, "message": str(exc)}
 
     def sql_cancel(self, execution: str) -> dict[str, Any]:
         """Stop one run: ends that run's own process and nothing else."""
         return self.sql_runs.cancel(execution)
 
-    def sql_export(self, execution: str, format: str = "csv", name: str = "") -> dict[str, Any]:
-        return self.sql_runs.export(execution, format, name)
+    def sql_compare(self, a: str, b: str, keys: list[str] | None = None, tolerance: dict[str, Any] | None = None,
+                    status: str | None = None, offset: int = 0) -> dict[str, Any]:
+        """Compare data (editor parity S34, Preview): the rows of two finished runs that only read, A beside B,
+        matched on ``keys``, numbers within ``tolerance`` (sql_compare.py). Reads their results on this PC;
+        runs nothing and changes nothing."""
+        try:
+            return sql_compare.compare(self.sql_runs, a, b, keys, tolerance, status, offset)
+        except sql_exec.RerunNeeded as exc:
+            return {"rerun_needed": True, "message": str(exc).replace("compare it", "compare them")}
+
+    def sql_compare_export(self, a: str, b: str, keys: list[str] | None = None, tolerance: dict[str, Any] | None = None,
+                           name: str = "") -> dict[str, Any]:
+        """Every row Compare data found different, to a new CSV file in Downloads (S34)."""
+        try:
+            return sql_compare.export(self.sql_runs, a, b, keys, tolerance, name)
+        except sql_exec.RerunNeeded as exc:
+            return {"rerun_needed": True, "message": str(exc).replace("compare it", "export the rows that differ")}
+
+    def sql_export(self, execution: str, format: str = "csv", name: str = "", part: int | None = None,
+                   raw: bool = False) -> dict[str, Any]:
+        return self.sql_runs.export(execution, format, name, part, raw=bool(raw))
 
     def sql_export_status(self, export: str) -> dict[str, Any]:
         return self.sql_runs.export_status(export)
@@ -1110,21 +1339,38 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 "row_count": row_count, "seconds": round(time.monotonic() - started, 2)}
 
     def save_sql(self, query: str, lakehouse_ref: dict[str, str], table: str, mode: str = "new",
-                 dialect: str = "spark") -> dict[str, Any]:
+                 dialect: str = "spark", confirm_name: str = "") -> dict[str, Any]:
         """Write the query result as a table. "new" (the default) writes nothing when the table
-        exists and says so, so the page can ask before replacing it."""
+        exists and says so, so the page can ask before replacing it. Replacing a table that exists ("overwrite")
+        needs ``confirm_name``, the table's name as the person typed it on the page (WR-248): the engine checks it,
+        so no caller replaces a table's rows without it. In a workspace marked Prod (WR-249) every write needs
+        the workspace's name typed instead, as a notebook cell's change there does: "new" then writes nothing and
+        answers with ``prod`` (the name to type) and whether the table exists, and any other mode without that
+        name is refused. In Prod the workspace's typed name covers a replace too: it is the stronger check."""
         self._attach(lakehouse_ref)
+        if mode not in ("new", "overwrite", "append"):
+            raise ValueError(f"mode must be new, overwrite or append, not {mode!r}")
+        attached = lakehouse._attached
+        prod = (attached.workspace_name or attached.workspace_id) if (
+            attached is not None and self._prod_marked(attached.workspace_id)) else ""
         if mode == "new":
-            if lakehouse.table_exists(table):
-                return {"table": table, "exists": True}
+            exists = lakehouse.table_exists(table)
+            if exists or (prod and confirm_name != prod):  # "new" never replaces, and asks first in Prod
+                return {"table": table, "exists": exists, **({"prod": prod} if prod else {})}
             mode = "overwrite"
+        elif prod and confirm_name != prod:
+            raise PermissionError(f"{prod} is a Prod workspace, so writing {table} there runs only after you type "
+                                  "the workspace's name to confirm. Nothing was written.")
+        elif mode == "overwrite" and not prod and confirm_name != table and lakehouse.table_exists(table):
+            raise PermissionError(f"Replacing {table} deletes all of its rows, so it runs only after you type its "
+                                  "name to confirm. Nothing was written.")
         written = lakehouse.write_table(sql.run(query, dialect), table, mode)
         return {"table": written.table, "rows": written.rows, "message": repr(written)}
 
     def export_sql_csv(self, query: str, lakehouse_ref: dict[str, str], dialect: str = "spark") -> dict[str, Any]:
         """Write the full result to the Downloads folder, a batch at a time (sql.Stream)."""
         self._attach(lakehouse_ref)
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         # The lakehouse name is cleaned as sql_compat_export cleans its name, so it can't leave the
         # folder (HD-038, finding EN-11), and an existing file is never replaced.
@@ -1140,11 +1386,16 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 break
             else:
                 raise ValueError("Couldn't find a free file name in Downloads for the export.")
-            with sink, pa_csv.CSVWriter(sink, result.schema or pa.schema([])) as out:
+            # Binary goes out as hex and lists as JSON text, as the SQL page's export writes them (WR-221):
+            # Arrow wrote binary as its raw bytes, past the protection below.
+            header, protected = csv_cells.protect_header(sql_exec.csv_ready_schema(result.schema or pa.schema([])))
+            with sink, pa_csv.CSVWriter(sink, header) as out:
                 for batch in result:
+                    batch, n = csv_cells.protect_batch(sql_exec.csv_ready_batch(batch))  # WR-228
                     out.write_batch(batch)
-                    rows += batch.num_rows
-        return {"path": str(path), "rows": rows}
+                    rows, protected = rows + batch.num_rows, protected + n
+        return {"path": str(path), "rows": rows, "protected": protected,
+                "notes": [csv_cells.note(protected, can_keep_raw=False)] if protected else []}
 
     def table_columns(self, lakehouse_ref: dict[str, str], table: str) -> list[dict[str, str]]:
         self._attach(lakehouse_ref)
@@ -1184,6 +1435,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
     def open_notebook(self, name: str) -> dict[str, Any]:
         nb = self.notebooks.load(name)
+        self._remember_base(name, nb["disk_stamp"], nb["cells"])
         self.sessions.active = name  # its session, if it has one, is the one Run, Stop and proofs use
         self.sessions.reap_idle()
         return self._with_place(nb) | {"check": compute_check(nb["cells"], nb["lakehouse"], **self._checks(name)),
@@ -1269,12 +1521,16 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         ``disk_stamp`` (from open_notebook or the last save): when another program, such as VS Code,
         changed the file since, nothing is saved and ``changed_on_disk`` comes back. Both the file's
         version and these cells are kept under Versions first, so whichever the person picks, or
-        if they pick neither, nothing is lost. ``outside_copy`` is where a file that isn't a
+        if they pick neither, nothing is lost. When the cells both sides started from are known,
+        ``merge`` holds both sides merged by cell and any named conflicts (notebook_sync.merge_cells);
+        notebook_sync_merge saves it. ``outside_copy`` is where a file that isn't a
         notebook any more (Git conflict markers) was copied."""
         out = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace, disk_stamp)
         if out.get("changed_on_disk"):
             copy = self._keep_both_sides(name, cells, lakehouse_ref, compute, workspace, bool(out.get("unreadable")))
-            return out | ({"outside_copy": copy} if copy else {})
+            merge = None if out.get("unreadable") else self._sync_preview(name, cells, disk_stamp)
+            return out | ({"outside_copy": copy} if copy else {}) | ({"merge": merge} if merge else {})
+        self._remember_base(name, out.get("disk_stamp"), cells, out.get("cell_ids"))
         self._keep_version(name)
         return out | {"check": compute_check(cells, lakehouse_ref, **self._checks(name))}
 
@@ -1307,6 +1563,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             ("environment", lambda: self.environments.rename_notebook(name, new_name)),
             ("Fabric link", lambda: self.workload_store.rename_link(name, new_name)),  # its Fabric item stays linked
             ("versions", lambda: notebook_versions.rename(self._versions_root, name, new_name)),
+            ("merge bases", lambda: self._sync_bases.forget(name)),  # the next open records one under the new name
             ("schedules", lambda: out.__setitem__("schedules_moved", self.pc_schedules.rename_notebook(name, new_name))),
             ("pin", lambda: self._rename_item_pin("notebook", name, new_name)),
         ]

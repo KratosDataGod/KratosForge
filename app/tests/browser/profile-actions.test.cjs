@@ -165,6 +165,14 @@ test("Save summary sends exactly the summary typed; Save Markdown sends the peri
   assert.deepStrictEqual(writes(from), [{ method: "profile_save", params: { report_summary: "Moved the sales loads to Fabric." } }]);
   assert.strictEqual(onDisk().report.summary, "Moved the sales loads to Fabric.");
   // A different period and the achievements box, as shown.
+  // The report asked for before the box was checked comes back first, the one with achievements later:
+  // the page must show the second, never the first, whichever lands last.
+  await page().evaluate(() => {
+    const core = window.__TAURI__.core;
+    const send = core.invoke;
+    core.invoke = (cmd, args) => (cmd === "rpc" && args.method === "profile_report" && args.params.days === 365
+      ? new Promise((done) => setTimeout(done, args.params.include_achievements ? 1500 : 300)).then(() => send(cmd, args)) : send(cmd, args));
+  });
   await page().getByRole("combobox", { name: "Reporting period" }).selectOption("365");
   await page().getByRole("checkbox", { name: "Include KratosForge achievements" }).check();
   await page().waitForFunction(() => profilePage.report && profilePage.days === 365 && profilePage.achievements);

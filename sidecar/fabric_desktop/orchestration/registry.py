@@ -285,8 +285,8 @@ def check_entry(e: ActivitySupport) -> list[str]:
         problems.append(f"a {e.classification} activity can't be fabric_only")
     if e.planned is not None:
         if e.planned.classification not in CLASSIFICATIONS:
-            problems.append("planned classification is unknown")
-        if _RANK[e.planned.classification] >= _RANK.get(e.classification, 9):
+            problems.append("planned classification is unknown")  # and it can't be ranked against today's
+        elif _RANK[e.planned.classification] >= _RANK.get(e.classification, 9):
             problems.append("planned must be more capable than today's classification")
         if not e.planned.stage:
             problems.append("planned needs the stage that will build it")

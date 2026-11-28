@@ -33,9 +33,9 @@ def specs(args: list[str], read_file: Callable[[str], str]) -> list[str]:
     out: list[str] = []
     it = iter(args)
     for arg in it:
-        if arg in _QUIET or _SHORT_QUIET.match(arg):
+        if arg in _QUIET or _SHORT_QUIET.fullmatch(arg):
             continue
-        if m := _REQUIREMENT.match(arg):
+        if m := _REQUIREMENT.fullmatch(arg):
             out += _requirements(read_file(m[1]))
             continue
         if arg in ("-r", "--requirement"):
@@ -92,7 +92,7 @@ def run(line: str, engine_call: Callable[..., Any] | None, read_file: Callable[[
         raise ValueError("%pip runs install, list, freeze and show on this PC.")
     wanted = specs(rest, read_file)
     if engine_call is None:
-        print("Note: %pip install needs Run notebooks in their own process (Settings > Preview features), so "
+        print("Note: %pip install needs Run notebooks in their own process (Settings > Advanced > Notebooks), so "
               "packages go to the notebook's own environment, not the app's. This line was skipped.")
         return
     job = engine_call("install_packages", wanted)

@@ -54,13 +54,16 @@ def test_a_refusal_a_difference_and_a_failure_are_told_apart(rows):
     status = {r["name"]: r["status"] for r in rows}
     assert status["IFF"] == "runs"
     assert status["/"] == "runs"  # it stops on a zero divisor, as in Snowflake (SFX-010)
-    assert status["TYPEOF"] == "differs" and status["LATERAL FLATTEN"] == "runs"  # SFD-007; SFX-001 checks
+    assert status["SKEW"] == "differs" and status["LATERAL FLATTEN"] == "runs"  # SFD-013; SFX-001 checks
+    # a refusal only the run can tell (a stored JSON number with a fraction, SFN-072) is a refusal too
+    assert status["TYPEOF"] == "refused" and status["IS_DECIMAL"] == "refused"
     assert status["CREATE STREAM"] == "refused" and status["PARSE_URL"] == "refused"
     assert status["TO_DECFLOAT"] == "refused" and status["GROUPING"] == "runs"  # SFN-018; probes need groups
     assert status["CONDITIONAL_CHANGE_EVENT"] == "runs" and status["INTERPOLATE_LINEAR"] == "runs"  # SFX-018
     assert status["SOUNDEX_P123"] == "runs" and status["PARSE_XML"] == "refused"  # SFX-015, SFN-017
     assert status["HLL"] == "runs" and status["HLL_ACCUMULATE"] == "refused"  # SFX-014, SFN-016
-    assert status["MONTH"] == "not checked"  # runs, but no check compares its value yet
+    assert status["RANDOM"] == "not checked"  # runs, but no check compares its value (random)
+    assert status["UUID_STRING"] == "runs"  # a named UUID is the same every time
 
 
 def test_sqlglot_stopping_while_it_writes_is_a_refusal_not_a_crash():

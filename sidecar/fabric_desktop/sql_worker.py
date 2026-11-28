@@ -35,9 +35,13 @@ PROGRESS_SECONDS = 0.25
 
 
 _say_lock = threading.Lock()  # the memory watch's thread says its error while the run may be mid-event
+_statement_now = 0  # S14: the statement running now (1-based), named in the error if it fails
 
 
 def _say(event: str, **fields: Any) -> None:
+    global _statement_now
+    if event == "statement":
+        _statement_now = int(fields.get("statement") or 0)
     line = json.dumps({"event": event, **fields}, default=str) + "\n"
     with _say_lock:
         sys.stdout.write(line)
@@ -53,8 +57,8 @@ def run(job: dict[str, Any]) -> None:
     import pyarrow as pa
     import pyarrow.ipc as ipc
 
-    from . import lakehouse, sql, sql_policy
-    from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
+    from . import lakehouse, spark_hash, sql, sql_params, sql_policy
+    from .duckdb_rows import for_arrow, keep_try_cast, run_through
 
     lh = job["lakehouse"]
     lakehouse.attach(lakehouse.Attached(
@@ -66,18 +70,33 @@ def run(job: dict[str, Any]) -> None:
         root = Path(job["local_root"])
         setattr(lakehouse, "open_table", lambda name: DeltaTable(str(root / lakehouse.table_ref(name).table)))  # noqa: B010 - tests only
 
-    statements = sql.parse(job["query"], job["dialect"])
+    values = sql_params.typed(job.get("params"))  # S17: bound by name to each statement that uses them
+    units: list[str] = list(job.get("statements") or [])  # S14: each statement's result is a part of its own
+    if units:
+        per_unit = [_parse_unit(sql, u, job["dialect"], n) for n, u in enumerate(units, 1)]
+        statements = [st for sts in per_unit for st in sts]
+        owner = [n for n, sts in enumerate(per_unit, 1) for _ in sts]  # each parsed statement's own statement
+    else:
+        statements = sql.parse(job["query"], job["dialect"])
     verdicts = sql_policy.classify(statements)
     stop = sql_policy.refused(verdicts, tuple(job["allow"]))
     if stop is not None:
-        _say("error", kind="permission", permission=stop.kind, statement=stop.statement,
-             message=f"Statement {stop.statement} {sql_policy.LABELS[stop.kind]} ({stop.reason}), so nothing ran. "
+        number = owner[stop.statement - 1] if units else stop.statement
+        _say("error", kind="permission", permission=stop.kind, statement=number,
+             message=f"Statement {number} {sql_policy.LABELS[stop.kind]} ({stop.reason}), so nothing ran. "
                      + _advice(stop.kind))
+        return
+
+    explain = job.get("explain")  # "plan" or "profile" (editor parity S39, S40): one query that reads
+    if explain and (len(statements) != 1 or sql_policy.strongest(verdicts) != "read_only"):
+        _say("error", kind="plan", message=("A plan or profile is for one query that reads. Select just that "
+                                            "query, then ask again."))
         return
 
     if job.get("memory_cap_mb"):
         _hold_to(int(job["memory_cap_mb"]), job)
     con = keep_try_cast(duckdb.connect())
+    spark_hash.register(con)  # sha2 at 224, 384 and 512 bits, as Spark SQL translated here asks for
     con.execute("SET TimeZone = 'UTC'")  # as in sql.run: Fabric's Spark sessions are UTC
     if job.get("memory_mb"):
         con.execute(f"SET memory_limit = '{int(job['memory_mb'])}MB'")
@@ -86,21 +105,86 @@ def run(job: dict[str, Any]) -> None:
     temp = Path(job["temp_dir"])
     temp.mkdir(parents=True, exist_ok=True)
     con.execute(f"SET temp_directory = '{_quote(str(temp))}'")
+    if explain == "profile":  # before the settings lock; to a file, never stdout (this process's channel)
+        con.execute("SET profiling_output = '" + _quote(str(temp / "profile.txt")) + "'")  # .txt: any profile type
+        con.execute("PRAGMA enable_profiling = 'json'")
     con.execute("SET enable_external_access = false")
     con.execute("SET lock_configuration = true")
     _say("started", permission=sql_policy.strongest(verdicts))
 
     views: dict[str, str] = {}
     result = None
+    if explain:
+        sql.bind_tables(statements[0], con, views, lambda name: sql.is_local(con, name))
+        answer = explain_query(con, sql.duckdb_sql(statements[0]), explain)
+        table = pa.table({explain: [json.dumps(answer)]})
+        with ipc.new_file(str(Path(job["out"])), table.schema) as writer:
+            writer.write_table(table)
+        _say("done", rows=1, batches=[1], columns=[{"name": explain, "type": "string"}])
+        return
+    if units:
+        rows, batches, schema = 0, list[int](), pa.schema([])
+        for n, sts in enumerate(per_unit, 1):
+            _say("statement", statement=n)
+            began = time.monotonic()
+            result = None
+            for i, statement in enumerate(sts):
+                sql.bind_tables(statement, con, views, lambda name: sql.is_local(con, name))
+                text = sql.duckdb_sql(statement)
+                bound = _bound(statement, values)
+                if i == len(sts) - 1:
+                    result = for_arrow(con, text, *([bound] if bound else []))
+                else:
+                    run_through(con, text, *([bound] if bound else []))
+            rows, batches, schema = _snapshot(result, Path(job["parts_dir"]) / f"result-{n}.arrow")
+            _say("part", statement=n, rows=rows, batches=batches, seconds=round(time.monotonic() - began, 2),
+                 columns=[{"name": f.name, "type": str(f.type)} for f in schema])
+        _say("done", rows=rows, batches=batches, columns=[{"name": f.name, "type": str(f.type)} for f in schema])
+        return
     for i, statement in enumerate(statements):
         sql.bind_tables(statement, con, views, lambda name: sql.is_local(con, name))
         text = sql.duckdb_sql(statement)
+        bound = _bound(statement, values)
         if i == len(statements) - 1:
-            result = for_arrow(con, text)
+            result = for_arrow(con, text, *([bound] if bound else []))
         else:
-            run_through(con, text)
+            run_through(con, text, *([bound] if bound else []))
 
-    out = Path(job["out"])
+    rows, batches, schema = _snapshot(result, Path(job["out"]))
+    _say("done", rows=rows, batches=batches,
+         columns=[{"name": f.name, "type": str(f.type)} for f in schema])
+
+
+def _bound(statement: Any, values: dict[str, Any]) -> dict[str, Any] | None:
+    """The values of the parameters ``statement`` uses, by name, for DuckDB to bind (S17); None when it uses none."""
+    from sqlglot import exp
+
+    used = list(dict.fromkeys(p.name for p in statement.find_all(exp.Placeholder) if p.name))
+    if not used:
+        return None
+    missing = [n for n in used if n not in values]
+    if missing:
+        raise ValueError(f"Give a value for :{missing[0]} before running the query.")
+    return {n: values[n] for n in used}
+
+
+def _parse_unit(sql: Any, text: str, dialect: str, n: int) -> list[Any]:
+    """One of a split script's statements, read; an error names which statement it is (S14)."""
+    _say("statement", statement=n)  # so a statement that can't be read is the one the page marks
+    try:
+        return list(sql.parse(text, dialect))
+    except ValueError as exc:
+        raise ValueError(f"Statement {n}: {exc}") from None
+
+
+def _snapshot(result: Any, out: Path) -> tuple[int, list[int], Any]:
+    """Stream a statement's result, batch by batch, into the Arrow IPC file ``out``: its rows, the rows in
+    each batch and its schema. A statement with no result (a change, a view made) writes an empty file."""
+    import pyarrow as pa
+    import pyarrow.ipc as ipc
+
+    from .duckdb_rows import arrow_reader
+
     rows, batches, last = 0, [], time.monotonic()
     reader = None
     if result is not None and result.description:
@@ -118,8 +202,46 @@ def run(job: dict[str, Any]) -> None:
             if time.monotonic() - last >= PROGRESS_SECONDS:
                 _say("progress", rows=rows)
                 last = time.monotonic()
-    _say("done", rows=rows, batches=batches,
-         columns=[{"name": f.name, "type": str(f.type)} for f in schema])
+    return rows, batches, schema
+
+
+PLAN_NODES = 200  # operators a plan lists; a bigger plan says how many it left out
+
+
+def explain_query(con: Any, text: str, mode: str) -> dict[str, Any]:
+    """How DuckDB runs ``text``: ``mode`` "plan" (EXPLAIN, nothing runs) gives each operator with its
+    estimated rows; "profile" (EXPLAIN ANALYZE, the query runs) gives spark_local.query_profile's answer.
+    A profile needs JSON profiling turned on first, before the connection's settings are locked (run)."""
+    if mode == "plan":
+        rows = con.execute("EXPLAIN (FORMAT JSON) " + text).fetchall()
+        return plan_steps(json.loads(rows[0][1]) if rows else [])
+    from .spark_local import _read_profile
+
+    rows = con.execute("EXPLAIN ANALYZE " + text).fetchall()
+    return _read_profile(json.loads(rows[0][1]))
+
+
+def plan_steps(roots: list[dict[str, Any]]) -> dict[str, Any]:
+    """DuckDB's JSON plan as a list of steps, top first: {depth, name, rows (estimated, or None), details}."""
+    steps: list[dict[str, Any]] = []
+    total = 0
+
+    def walk(node: dict[str, Any], depth: int) -> None:
+        nonlocal total
+        total += 1
+        extra = node.get("extra_info") or {}
+        if len(steps) < PLAN_NODES:
+            estimate = str(extra.get("Estimated Cardinality") or "")
+            details = {k: (", ".join(map(str, v)) if isinstance(v, list) else str(v))
+                       for k, v in extra.items() if k != "Estimated Cardinality" and v not in ("", None)}
+            steps.append({"depth": depth, "name": str(node.get("name") or ""),
+                          "rows": int(estimate) if estimate.isdigit() else None, "details": details})
+        for child in node.get("children") or []:
+            walk(child, depth + 1)
+
+    for root in roots:
+        walk(root, 0)
+    return {"steps": steps, "more_steps": total - len(steps)}
 
 
 MEMORY_WATCH_SECONDS = 0.2
@@ -244,6 +366,10 @@ def error_message(exc: BaseException, job: dict[str, Any]) -> tuple[str, str]:
     """The kind and message a failed run reports: DuckDB's own words, except where they mislead."""
     from . import disk_full
     message = str(exc).strip() or type(exc).__name__
+    if job.get("target") == "warehouse":
+        from . import warehouse
+        if isinstance(exc, warehouse.Interrupted):  # named, with what was kept and what to do next (WR-207)
+            return exc.kind, message
     if "configuration has been locked" in message:
         return "sql", ("A query can't change the run's settings (memory, threads, files). They come from "
                        "Settings › SQL.")
@@ -251,6 +377,10 @@ def error_message(exc: BaseException, job: dict[str, Any]) -> tuple[str, str]:
         return "disk", disk_full.spill_message(job.get("temp_dir"))
     if disk_full.is_disk_full(exc):
         return "disk", disk_full.message(job.get("out"), "Nothing was saved.")
+    if "out of memory error" in message.lower():  # DuckDB's advice (SET threads or memory_limit) can't apply here
+        return "memory", ("Stopped: the query needed more memory than the share of this PC's memory set in "
+                          "Settings > SQL allows. Nothing was saved. Narrow the query (a filter, fewer columns "
+                          "or tables), or raise the share, and run it again.")
     return "sql", message
 
 
@@ -271,7 +401,9 @@ def main() -> None:
         run(job)
     except BaseException as exc:  # noqa: BLE001 - every failure goes back to the engine as a message
         kind, message = error_message(exc, job)
-        _say("error", kind=kind, message=message[:4000])
+        batch = getattr(exc, "batch", None) if job.get("target") == "warehouse" and not job.get("statements") else None
+        _say("error", kind=kind, message=message[:4000], **({"batch": batch} if isinstance(batch, int) else {}),
+             **({"statement": _statement_now} if job.get("statements") and _statement_now else {}))
     # Leave without the interpreter's shutdown. _listen is still blocked reading stdin, which the
     # engine keeps open until this process ends; on Windows closing stdin then waits for that read
     # to finish, so a normal exit would hang every finished run.

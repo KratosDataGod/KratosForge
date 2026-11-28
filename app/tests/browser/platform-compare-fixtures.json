@@ -1,0 +1,1336 @@
+{
+ "three": {
+  "workloads": [
+   {
+    "key": "meta:customer_dedupe",
+    "name": "Customer dedupe"
+   },
+   {
+    "key": "meta:daily_sales",
+    "name": "Daily sales rollup"
+   }
+  ],
+  "scenarios": [
+   {
+    "scenario": "Default price",
+    "sku": "",
+    "region": "",
+    "currency": "USD",
+    "rate_per_cu_hour": 0.18,
+    "pricing_model": "assumption",
+    "effective_from": "2000-01-01T00:00:00+00:00",
+    "effective_to": null,
+    "source": "Optimize > Cost and savings > Prices",
+    "confidence": "assumption",
+    "pricing_version": "pv-37b92b4957f8402f"
+   },
+   {
+    "scenario": "List prices, Nov 2026",
+    "sku": "",
+    "region": "",
+    "currency": "USD",
+    "rate_per_cu_hour": 0.18,
+    "pricing_model": "assumption",
+    "effective_from": "2026-11-03T00:00:00+00:00",
+    "effective_to": null,
+    "source": "Each platform's public price page",
+    "confidence": "assumption",
+    "rate_per_dbu": {
+     "JOBS_COMPUTE": 0.15
+    },
+    "rate_per_credit": 2.0,
+    "pricing_version": "pv-a0a0addb854824eb"
+   }
+  ],
+  "connections": {
+   "databricks": [
+    {
+     "key": "cli:prod",
+     "label": "prod (Databricks CLI)",
+     "host": "https://adb-1.azuredatabricks.net",
+     "warehouse_id": "wh-reporting"
+    }
+   ],
+   "snowflake": [
+    {
+     "key": "profile:p1:sf",
+     "label": "Work · Snowflake",
+     "account": "myorg-acct",
+     "warehouse": "REPORTING_XS"
+    }
+   ]
+  },
+  "days": 30,
+  "unavailable": {},
+  "workload": "meta:daily_sales",
+  "links": {
+   "databricks": [
+    {
+     "job_id": "8841",
+     "name": "daily_sales_rollup"
+    }
+   ],
+   "snowflake": [
+    "kf:daily-sales"
+   ]
+  },
+  "databricks_connection": "cli:prod",
+  "snowflake_connection": "profile:p1:sf",
+  "databricks_read": {},
+  "snowflake_read": {},
+  "comparison": {
+   "workload": {
+    "key": "meta:daily_sales",
+    "name": "daily_sales",
+    "definition_version": "v12",
+    "input_scope": "regular load"
+   },
+   "period": {
+    "days": 30,
+    "start": "2026-10-25T10:00:00+00:00",
+    "end": "2026-11-24T10:00:00+00:00"
+   },
+   "scenario": {
+    "scenario": "List prices, Nov 2026",
+    "pricing_version": "pv-a0a0addb854824eb",
+    "currency": "USD",
+    "source": "Each platform's public price page",
+    "confidence": "assumption",
+    "pricing_model": "assumption",
+    "effective_from": "2026-11-03T00:00:00+00:00",
+    "rate_per_cu_hour": 0.18,
+    "rate_per_dbu": {
+     "JOBS_COMPUTE": 0.15
+    },
+    "rate_per_credit": 2.0
+   },
+   "cards": [
+    {
+     "platform": "pc",
+     "label": "This PC",
+     "unit": "seconds",
+     "unit_label": "time",
+     "status": "ok",
+     "figure": {
+      "classification": "measured",
+      "label": "Measured",
+      "value": 252.0,
+      "unit": "seconds",
+      "unit_label": "wall-clock seconds",
+      "text": "4 min 12 s",
+      "method": "Wall-clock time, averaged per run",
+      "source": "Measured on this PC as each run ran",
+      "collected_at": "2026-11-23T10:00:00+00:00",
+      "assumptions": [],
+      "reason": "",
+      "runs": 4,
+      "runs_total": 4,
+      "period": {
+       "days": 30,
+       "start": "2026-10-25T10:00:00+00:00",
+       "end": "2026-11-24T10:00:00+00:00"
+      }
+     },
+     "sub": "Wall-clock time",
+     "matched_by": "4 runs of the workload here.",
+     "input": "12.4 M rows read",
+     "volume": null,
+     "details": [
+      {
+       "label": "CPU",
+       "classification": "measured",
+       "value": 580.0,
+       "unit": "cpu_seconds",
+       "text": "9 min 40 s",
+       "reason": ""
+      },
+      {
+       "label": "Peak memory",
+       "classification": "measured",
+       "value": 3100000000.0,
+       "unit": "bytes",
+       "text": "3.1 GB",
+       "reason": ""
+      }
+     ],
+     "excluded": [],
+     "connect": "",
+     "money": {
+      "status": "not_priced",
+      "text": "Not priced. This PC's hardware and power aren't counted."
+     },
+     "priced": []
+    },
+    {
+     "platform": "fabric",
+     "label": "Fabric",
+     "unit": "fabric_cu_seconds",
+     "unit_label": "CU",
+     "status": "ok",
+     "figure": {
+      "classification": "estimated",
+      "label": "Estimated",
+      "value": 2880.0,
+      "unit": "fabric_cu_seconds",
+      "unit_label": "Fabric capacity unit seconds",
+      "text": "2,880 CU seconds",
+      "method": "Run time × configured CUs",
+      "source": "Fabric job API",
+      "collected_at": "2026-11-23T10:00:00+00:00",
+      "assumptions": [
+       "Run time 6 min times 8 CU (Spark starter pool)"
+      ],
+      "reason": "",
+      "runs": 3,
+      "runs_total": 3,
+      "period": {
+       "days": 30,
+       "start": "2026-10-25T10:00:00+00:00",
+       "end": "2026-11-24T10:00:00+00:00"
+      }
+     },
+     "sub": "0.80 CU hours",
+     "matched_by": "3 runs of the same workload, definition v12, input scope regular load.",
+     "input": "12.1 M rows. Within 25% of this PC's runs.",
+     "volume": {
+      "status": "passed",
+      "reason": "Its input rows are within 25% of this run's."
+     },
+     "details": [],
+     "excluded": [],
+     "connect": "",
+     "money": {
+      "classification": "scenario",
+      "label": "Scenario",
+      "value": 0.144,
+      "currency": "USD",
+      "status": "priced",
+      "text": "$0.14",
+      "price_line": "0.80 CU hours × $0.18 per CU hour",
+      "pricing_version": "pv-a0a0addb854824eb",
+      "assumptions": [
+       "A price applied to what was used, not a charge",
+       "List prices, Nov 2026: 0.18 USD per CU hour (assumption, assumption)"
+      ],
+      "source": "Each platform's public price page",
+      "reason": ""
+     },
+     "priced": []
+    },
+    {
+     "platform": "databricks",
+     "label": "Databricks",
+     "unit": "databricks_dbu",
+     "unit_label": "DBU",
+     "status": "ok",
+     "figure": {
+      "classification": "measured",
+      "label": "Measured",
+      "value": 1.42,
+      "unit": "databricks_dbu",
+      "unit_label": "Databricks units (DBU)",
+      "text": "1.42 DBU",
+      "method": "Billed DBUs for the job's runs, averaged",
+      "source": "Billed usage, system.billing.usage",
+      "collected_at": "2026-11-24T08:55:00Z",
+      "assumptions": [],
+      "reason": "",
+      "runs": 3,
+      "runs_total": 3,
+      "period": {
+       "days": 30,
+       "start": "2026-10-25T10:00:00+00:00",
+       "end": "2026-11-24T10:00:00+00:00"
+      }
+     },
+     "sub": "JOBS_COMPUTE",
+     "matched_by": "Job daily_sales_rollup (8841), linked to this workload by you. 3 runs.",
+     "input": "Not recorded, so the volume check didn't run.",
+     "volume": {
+      "status": "not_run",
+      "reason": "Databricks billing has no input rows or bytes."
+     },
+     "details": [],
+     "excluded": [],
+     "connect": "",
+     "money": {
+      "classification": "scenario",
+      "label": "Scenario",
+      "value": 0.213,
+      "currency": "USD",
+      "status": "priced",
+      "text": "$0.21",
+      "price_line": "1.42 DBU × $0.15 per DBU",
+      "pricing_version": "pv-a0a0addb854824eb",
+      "assumptions": [
+       "A price applied to what was used, not a charge",
+       "List prices, Nov 2026: 0.15 USD per DBU (JOBS_COMPUTE) (assumption, assumption)"
+      ],
+      "source": "Each platform's public price page",
+      "reason": ""
+     },
+     "priced": [
+      {
+       "sku": "JOBS_COMPUTE",
+       "amount": 1.42
+      }
+     ],
+     "read_at": "2026-11-24T08:55:00Z"
+    },
+    {
+     "platform": "snowflake",
+     "label": "Snowflake",
+     "unit": "snowflake_credits",
+     "unit_label": "credits",
+     "status": "ok",
+     "figure": {
+      "classification": "estimated",
+      "label": "Estimated",
+      "value": 0.27,
+      "unit": "snowflake_credits",
+      "unit_label": "Snowflake credits",
+      "text": "0.27 credits",
+      "method": "Warehouse time 16 min 12 s × 1 credit per hour",
+      "source": "QUERY_HISTORY for queries tagged kf:daily-sales",
+      "collected_at": "2026-11-24T09:12:00Z",
+      "assumptions": [
+       "A standard warehouse uses the credits per hour Snowflake publishes for its size (X-Small 1, Small 2, Medium 4, and so on).",
+       "Each time the warehouse resumes, at least 60 seconds is billed. That minimum isn't added here, so a run that resumed the warehouse may have used more.",
+       "Nothing else ran on the warehouse at the same time. If it did, this figure is too high.",
+       "Cloud services credits aren't counted.",
+       "Each query that carries the tag is counted as one run."
+      ],
+      "reason": "",
+      "runs": 3,
+      "runs_total": 3,
+      "period": {
+       "days": 30,
+       "start": "2026-10-25T10:00:00+00:00",
+       "end": "2026-11-24T10:00:00+00:00"
+      }
+     },
+     "sub": "X-Small, 1 credit per hour",
+     "matched_by": "Queries tagged kf:daily-sales on warehouse REPORTING_XS. 3 runs.",
+     "input": "Not recorded, so the volume check didn't run.",
+     "volume": {
+      "status": "not_run",
+      "reason": "The data volume check couldn't run: neither input rows nor input bytes were recorded for both this run and the Fabric run."
+     },
+     "details": [],
+     "excluded": [],
+     "connect": "",
+     "money": {
+      "classification": "scenario",
+      "label": "Scenario",
+      "value": 0.54,
+      "currency": "USD",
+      "status": "priced",
+      "text": "$0.54",
+      "price_line": "0.27 credits × $2.00 per credit",
+      "pricing_version": "pv-a0a0addb854824eb",
+      "assumptions": [
+       "A price applied to what was used, not a charge",
+       "List prices, Nov 2026: 2 USD per credit (assumption, assumption)"
+      ],
+      "source": "Each platform's public price page",
+      "reason": ""
+     },
+     "priced": [
+      {
+       "sku": "",
+       "amount": 0.27
+      }
+     ],
+     "read_at": "2026-11-24T09:12:00Z",
+     "note": "WAREHOUSE_METERING_HISTORY has what a warehouse was billed, for the whole warehouse per hour. It can't be split into single runs, and it can be up to 3 hours late."
+    }
+   ],
+   "comparison": {
+    "classification": "scenario",
+    "label": "Scenario",
+    "pricing_version": "pv-a0a0addb854824eb",
+    "text": "At these prices, the Fabric estimate ($0.14) is lower than the Databricks figure ($0.21) and the Snowflake estimate ($0.54).",
+    "platforms": [
+     "fabric",
+     "databricks",
+     "snowflake"
+    ],
+    "left_out": []
+   },
+   "note": ""
+  }
+ },
+ "not_connected": {
+  "workloads": [
+   {
+    "key": "meta:customer_dedupe",
+    "name": "Customer dedupe"
+   },
+   {
+    "key": "meta:daily_sales",
+    "name": "Daily sales rollup"
+   }
+  ],
+  "scenarios": [
+   {
+    "scenario": "Default price",
+    "sku": "",
+    "region": "",
+    "currency": "USD",
+    "rate_per_cu_hour": 0.18,
+    "pricing_model": "assumption",
+    "effective_from": "2000-01-01T00:00:00+00:00",
+    "effective_to": null,
+    "source": "Optimize > Cost and savings > Prices",
+    "confidence": "assumption",
+    "pricing_version": "pv-37b92b4957f8402f"
+   },
+   {
+    "scenario": "List prices, Nov 2026",
+    "sku": "",
+    "region": "",
+    "currency": "USD",
+    "rate_per_cu_hour": 0.18,
+    "pricing_model": "assumption",
+    "effective_from": "2026-11-03T00:00:00+00:00",
+    "effective_to": null,
+    "source": "Each platform's public price page",
+    "confidence": "assumption",
+    "rate_per_dbu": {
+     "JOBS_COMPUTE": 0.15
+    },
+    "rate_per_credit": 2.0,
+    "pricing_version": "pv-a0a0addb854824eb"
+   }
+  ],
+  "connections": {
+   "databricks": [
+    {
+     "key": "cli:prod",
+     "label": "prod (Databricks CLI)",
+     "host": "https://adb-1.azuredatabricks.net",
+     "warehouse_id": "wh-reporting"
+    }
+   ],
+   "snowflake": []
+  },
+  "days": 30,
+  "unavailable": {},
+  "workload": "meta:daily_sales",
+  "links": {
+   "databricks": [
+    {
+     "job_id": "8841",
+     "name": "daily_sales_rollup"
+    }
+   ],
+   "snowflake": [
+    "kf:daily-sales"
+   ]
+  },
+  "databricks_connection": "cli:prod",
+  "snowflake_connection": "",
+  "databricks_read": {},
+  "snowflake_read": {},
+  "comparison": {
+   "workload": {
+    "key": "meta:daily_sales",
+    "name": "daily_sales",
+    "definition_version": "v12",
+    "input_scope": "regular load"
+   },
+   "period": {
+    "days": 30,
+    "start": "2026-10-25T10:00:00+00:00",
+    "end": "2026-11-24T10:00:00+00:00"
+   },
+   "scenario": {
+    "scenario": "List prices, Nov 2026",
+    "pricing_version": "pv-a0a0addb854824eb",
+    "currency": "USD",
+    "source": "Each platform's public price page",
+    "confidence": "assumption",
+    "pricing_model": "assumption",
+    "effective_from": "2026-11-03T00:00:00+00:00",
+    "rate_per_cu_hour": 0.18,
+    "rate_per_dbu": {
+     "JOBS_COMPUTE": 0.15
+    },
+    "rate_per_credit": 2.0
+   },
+   "cards": [
+    {
+     "platform": "pc",
+     "label": "This PC",
+     "unit": "seconds",
+     "unit_label": "time",
+     "status": "ok",
+     "figure": {
+      "classification": "measured",
+      "label": "Measured",
+      "value": 252.0,
+      "unit": "seconds",
+      "unit_label": "wall-clock seconds",
+      "text": "4 min 12 s",
+      "method": "Wall-clock time, averaged per run",
+      "source": "Measured on this PC as each run ran",
+      "collected_at": "2026-11-23T10:00:00+00:00",
+      "assumptions": [],
+      "reason": "",
+      "runs": 4,
+      "runs_total": 4,
+      "period": {
+       "days": 30,
+       "start": "2026-10-25T10:00:00+00:00",
+       "end": "2026-11-24T10:00:00+00:00"
+      }
+     },
+     "sub": "Wall-clock time",
+     "matched_by": "4 runs of the workload here.",
+     "input": "12.4 M rows read",
+     "volume": null,
+     "details": [
+      {
+       "label": "CPU",
+       "classification": "measured",
+       "value": 580.0,
+       "unit": "cpu_seconds",
+       "text": "9 min 40 s",
+       "reason": ""
+      },
+      {
+       "label": "Peak memory",
+       "classification": "measured",
+       "value": 3100000000.0,
+       "unit": "bytes",
+       "text": "3.1 GB",
+       "reason": ""
+      }
+     ],
+     "excluded": [],
+     "connect": "",
+     "money": {
+      "status": "not_priced",
+      "text": "Not priced. This PC's hardware and power aren't counted."
+     },
+     "priced": []
+    },
+    {
+     "platform": "fabric",
+     "label": "Fabric",
+     "unit": "fabric_cu_seconds",
+     "unit_label": "CU",
+     "status": "ok",
+     "figure": {
+      "classification": "estimated",
+      "label": "Estimated",
+      "value": 2880.0,
+      "unit": "fabric_cu_seconds",
+      "unit_label": "Fabric capacity unit seconds",
+      "text": "2,880 CU seconds",
+      "method": "Run time × configured CUs",
+      "source": "Fabric job API",
+      "collected_at": "2026-11-23T10:00:00+00:00",
+      "assumptions": [
+       "Run time 6 min times 8 CU (Spark starter pool)"
+      ],
+      "reason": "",
+      "runs": 3,
+      "runs_total": 3,
+      "period": {
+       "days": 30,
+       "start": "2026-10-25T10:00:00+00:00",
+       "end": "2026-11-24T10:00:00+00:00"
+      }
+     },
+     "sub": "0.80 CU hours",
+     "matched_by": "3 runs of the same workload, definition v12, input scope regular load.",
+     "input": "12.1 M rows. Within 25% of this PC's runs.",
+     "volume": {
+      "status": "passed",
+      "reason": "Its input rows are within 25% of this run's."
+     },
+     "details": [],
+     "excluded": [],
+     "connect": "",
+     "money": {
+      "classification": "scenario",
+      "label": "Scenario",
+      "value": 0.144,
+      "currency": "USD",
+      "status": "priced",
+      "text": "$0.14",
+      "price_line": "0.80 CU hours × $0.18 per CU hour",
+      "pricing_version": "pv-a0a0addb854824eb",
+      "assumptions": [
+       "A price applied to what was used, not a charge",
+       "List prices, Nov 2026: 0.18 USD per CU hour (assumption, assumption)"
+      ],
+      "source": "Each platform's public price page",
+      "reason": ""
+     },
+     "priced": []
+    },
+    {
+     "platform": "databricks",
+     "label": "Databricks",
+     "unit": "databricks_dbu",
+     "unit_label": "DBU",
+     "status": "ok",
+     "figure": {
+      "classification": "measured",
+      "label": "Measured",
+      "value": 1.42,
+      "unit": "databricks_dbu",
+      "unit_label": "Databricks units (DBU)",
+      "text": "1.42 DBU",
+      "method": "Billed DBUs for the job's runs, averaged",
+      "source": "Billed usage, system.billing.usage",
+      "collected_at": "2026-11-24T08:55:00Z",
+      "assumptions": [],
+      "reason": "",
+      "runs": 3,
+      "runs_total": 3,
+      "period": {
+       "days": 30,
+       "start": "2026-10-25T10:00:00+00:00",
+       "end": "2026-11-24T10:00:00+00:00"
+      }
+     },
+     "sub": "JOBS_COMPUTE",
+     "matched_by": "Job daily_sales_rollup (8841), linked to this workload by you. 3 runs.",
+     "input": "Not recorded, so the volume check didn't run.",
+     "volume": {
+      "status": "not_run",
+      "reason": "Databricks billing has no input rows or bytes."
+     },
+     "details": [],
+     "excluded": [],
+     "connect": "",
+     "money": {
+      "classification": "scenario",
+      "label": "Scenario",
+      "value": 0.213,
+      "currency": "USD",
+      "status": "priced",
+      "text": "$0.21",
+      "price_line": "1.42 DBU × $0.15 per DBU",
+      "pricing_version": "pv-a0a0addb854824eb",
+      "assumptions": [
+       "A price applied to what was used, not a charge",
+       "List prices, Nov 2026: 0.15 USD per DBU (JOBS_COMPUTE) (assumption, assumption)"
+      ],
+      "source": "Each platform's public price page",
+      "reason": ""
+     },
+     "priced": [
+      {
+       "sku": "JOBS_COMPUTE",
+       "amount": 1.42
+      }
+     ],
+     "read_at": "2026-11-24T08:55:00Z"
+    },
+    {
+     "platform": "snowflake",
+     "label": "Snowflake",
+     "unit": "snowflake_credits",
+     "unit_label": "credits",
+     "status": "not_connected",
+     "figure": {
+      "classification": "unknown",
+      "label": "Unknown",
+      "value": null,
+      "unit": "snowflake_credits",
+      "unit_label": "Snowflake credits",
+      "text": "Not known",
+      "method": "",
+      "source": "",
+      "collected_at": null,
+      "assumptions": [],
+      "reason": "There's no Snowflake connection on this PC, so nothing was read.",
+      "runs": 0,
+      "runs_total": 0,
+      "period": {
+       "days": 30,
+       "start": "2026-10-25T10:00:00+00:00",
+       "end": "2026-11-24T10:00:00+00:00"
+      }
+     },
+     "sub": "",
+     "matched_by": "",
+     "input": "",
+     "volume": null,
+     "details": [],
+     "excluded": [],
+     "connect": "To connect, add a Snowflake connection in Settings > Connections. Reading credits also needs a role that can read query history.",
+     "money": {
+      "pricing_version": null,
+      "currency": "USD",
+      "text": "No figure. Snowflake isn't connected.",
+      "price_line": "",
+      "classification": "unknown",
+      "value": null,
+      "status": "no_figure",
+      "reason": "Not connected."
+     },
+     "priced": []
+    }
+   ],
+   "comparison": {
+    "classification": "scenario",
+    "label": "Scenario",
+    "pricing_version": "pv-a0a0addb854824eb",
+    "text": "At these prices, the Fabric estimate ($0.14) is lower than the Databricks figure ($0.21). Snowflake isn't compared because it isn't connected.",
+    "platforms": [
+     "fabric",
+     "databricks"
+    ],
+    "left_out": [
+     "Snowflake isn't compared because it isn't connected."
+    ]
+   },
+   "note": ""
+  }
+ },
+ "not_known": {
+  "workloads": [
+   {
+    "key": "meta:customer_dedupe",
+    "name": "Customer dedupe"
+   },
+   {
+    "key": "meta:daily_sales",
+    "name": "Daily sales rollup"
+   }
+  ],
+  "scenarios": [
+   {
+    "scenario": "Default price",
+    "sku": "",
+    "region": "",
+    "currency": "USD",
+    "rate_per_cu_hour": 0.18,
+    "pricing_model": "assumption",
+    "effective_from": "2000-01-01T00:00:00+00:00",
+    "effective_to": null,
+    "source": "Optimize > Cost and savings > Prices",
+    "confidence": "assumption",
+    "pricing_version": "pv-37b92b4957f8402f"
+   },
+   {
+    "scenario": "List prices, Nov 2026",
+    "sku": "",
+    "region": "",
+    "currency": "USD",
+    "rate_per_cu_hour": 0.18,
+    "pricing_model": "assumption",
+    "effective_from": "2026-11-03T00:00:00+00:00",
+    "effective_to": null,
+    "source": "Each platform's public price page",
+    "confidence": "assumption",
+    "rate_per_dbu": {
+     "JOBS_COMPUTE": 0.15
+    },
+    "rate_per_credit": 2.0,
+    "pricing_version": "pv-a0a0addb854824eb"
+   }
+  ],
+  "connections": {
+   "databricks": [
+    {
+     "key": "cli:prod",
+     "label": "prod (Databricks CLI)",
+     "host": "https://adb-1.azuredatabricks.net",
+     "warehouse_id": "wh-reporting"
+    }
+   ],
+   "snowflake": [
+    {
+     "key": "profile:p1:sf",
+     "label": "Work · Snowflake",
+     "account": "myorg-acct",
+     "warehouse": "REPORTING_XS"
+    }
+   ]
+  },
+  "days": 30,
+  "unavailable": {},
+  "workload": "meta:daily_sales",
+  "links": {
+   "databricks": [
+    {
+     "job_id": "8841",
+     "name": "daily_sales_rollup"
+    }
+   ],
+   "snowflake": [
+    "kf:daily-sales"
+   ]
+  },
+  "databricks_connection": "cli:prod",
+  "snowflake_connection": "profile:p1:sf",
+  "databricks_read": {},
+  "snowflake_read": {},
+  "comparison": {
+   "workload": {
+    "key": "meta:daily_sales",
+    "name": "daily_sales",
+    "definition_version": "v12",
+    "input_scope": "regular load"
+   },
+   "period": {
+    "days": 30,
+    "start": "2026-10-25T10:00:00+00:00",
+    "end": "2026-11-24T10:00:00+00:00"
+   },
+   "scenario": {
+    "scenario": "List prices, Nov 2026",
+    "pricing_version": "pv-a0a0addb854824eb",
+    "currency": "USD",
+    "source": "Each platform's public price page",
+    "confidence": "assumption",
+    "pricing_model": "assumption",
+    "effective_from": "2026-11-03T00:00:00+00:00",
+    "rate_per_cu_hour": 0.18,
+    "rate_per_dbu": {
+     "JOBS_COMPUTE": 0.15
+    },
+    "rate_per_credit": 2.0
+   },
+   "cards": [
+    {
+     "platform": "pc",
+     "label": "This PC",
+     "unit": "seconds",
+     "unit_label": "time",
+     "status": "ok",
+     "figure": {
+      "classification": "measured",
+      "label": "Measured",
+      "value": 252.0,
+      "unit": "seconds",
+      "unit_label": "wall-clock seconds",
+      "text": "4 min 12 s",
+      "method": "Wall-clock time, averaged per run",
+      "source": "Measured on this PC as each run ran",
+      "collected_at": "2026-11-23T10:00:00+00:00",
+      "assumptions": [],
+      "reason": "",
+      "runs": 4,
+      "runs_total": 4,
+      "period": {
+       "days": 30,
+       "start": "2026-10-25T10:00:00+00:00",
+       "end": "2026-11-24T10:00:00+00:00"
+      }
+     },
+     "sub": "Wall-clock time",
+     "matched_by": "4 runs of the workload here.",
+     "input": "12.4 M rows read",
+     "volume": null,
+     "details": [
+      {
+       "label": "CPU",
+       "classification": "measured",
+       "value": 580.0,
+       "unit": "cpu_seconds",
+       "text": "9 min 40 s",
+       "reason": ""
+      },
+      {
+       "label": "Peak memory",
+       "classification": "measured",
+       "value": 3100000000.0,
+       "unit": "bytes",
+       "text": "3.1 GB",
+       "reason": ""
+      }
+     ],
+     "excluded": [],
+     "connect": "",
+     "money": {
+      "status": "not_priced",
+      "text": "Not priced. This PC's hardware and power aren't counted."
+     },
+     "priced": []
+    },
+    {
+     "platform": "fabric",
+     "label": "Fabric",
+     "unit": "fabric_cu_seconds",
+     "unit_label": "CU",
+     "status": "ok",
+     "figure": {
+      "classification": "estimated",
+      "label": "Estimated",
+      "value": 2880.0,
+      "unit": "fabric_cu_seconds",
+      "unit_label": "Fabric capacity unit seconds",
+      "text": "2,880 CU seconds",
+      "method": "Run time × configured CUs",
+      "source": "Fabric job API",
+      "collected_at": "2026-11-23T10:00:00+00:00",
+      "assumptions": [
+       "Run time 6 min times 8 CU (Spark starter pool)"
+      ],
+      "reason": "",
+      "runs": 3,
+      "runs_total": 3,
+      "period": {
+       "days": 30,
+       "start": "2026-10-25T10:00:00+00:00",
+       "end": "2026-11-24T10:00:00+00:00"
+      }
+     },
+     "sub": "0.80 CU hours",
+     "matched_by": "3 runs of the same workload, definition v12, input scope regular load.",
+     "input": "12.1 M rows. Within 25% of this PC's runs.",
+     "volume": {
+      "status": "passed",
+      "reason": "Its input rows are within 25% of this run's."
+     },
+     "details": [],
+     "excluded": [],
+     "connect": "",
+     "money": {
+      "classification": "scenario",
+      "label": "Scenario",
+      "value": 0.144,
+      "currency": "USD",
+      "status": "priced",
+      "text": "$0.14",
+      "price_line": "0.80 CU hours × $0.18 per CU hour",
+      "pricing_version": "pv-a0a0addb854824eb",
+      "assumptions": [
+       "A price applied to what was used, not a charge",
+       "List prices, Nov 2026: 0.18 USD per CU hour (assumption, assumption)"
+      ],
+      "source": "Each platform's public price page",
+      "reason": ""
+     },
+     "priced": []
+    },
+    {
+     "platform": "databricks",
+     "label": "Databricks",
+     "unit": "databricks_dbu",
+     "unit_label": "DBU",
+     "status": "unknown",
+     "figure": {
+      "classification": "unknown",
+      "label": "Unknown",
+      "value": null,
+      "unit": "databricks_dbu",
+      "unit_label": "Databricks units (DBU)",
+      "text": "Not known",
+      "method": "",
+      "source": "",
+      "collected_at": "2026-11-24T08:55:00Z",
+      "assumptions": [],
+      "reason": "No billing rows for this job's runs yet. Billing rows can arrive hours after a run.",
+      "runs": 0,
+      "runs_total": 0,
+      "period": {
+       "days": 30,
+       "start": "2026-10-25T10:00:00+00:00",
+       "end": "2026-11-24T10:00:00+00:00"
+      }
+     },
+     "sub": "",
+     "matched_by": "Job daily_sales_rollup (8841), linked to this workload by you.",
+     "input": "",
+     "volume": null,
+     "details": [],
+     "excluded": [],
+     "connect": "",
+     "money": {
+      "pricing_version": null,
+      "currency": "USD",
+      "text": "Not known",
+      "price_line": "",
+      "classification": "unknown",
+      "value": null,
+      "status": "unknown",
+      "reason": "There's no DBU figure to price."
+     },
+     "priced": [],
+     "read_at": "2026-11-24T08:55:00Z"
+    },
+    {
+     "platform": "snowflake",
+     "label": "Snowflake",
+     "unit": "snowflake_credits",
+     "unit_label": "credits",
+     "status": "ok",
+     "figure": {
+      "classification": "estimated",
+      "label": "Estimated",
+      "value": 0.27,
+      "unit": "snowflake_credits",
+      "unit_label": "Snowflake credits",
+      "text": "0.27 credits",
+      "method": "Warehouse time 16 min 12 s × 1 credit per hour",
+      "source": "QUERY_HISTORY for queries tagged kf:daily-sales",
+      "collected_at": "2026-11-24T09:12:00Z",
+      "assumptions": [
+       "A standard warehouse uses the credits per hour Snowflake publishes for its size (X-Small 1, Small 2, Medium 4, and so on).",
+       "Each time the warehouse resumes, at least 60 seconds is billed. That minimum isn't added here, so a run that resumed the warehouse may have used more.",
+       "Nothing else ran on the warehouse at the same time. If it did, this figure is too high.",
+       "Cloud services credits aren't counted.",
+       "Each query that carries the tag is counted as one run."
+      ],
+      "reason": "",
+      "runs": 3,
+      "runs_total": 3,
+      "period": {
+       "days": 30,
+       "start": "2026-10-25T10:00:00+00:00",
+       "end": "2026-11-24T10:00:00+00:00"
+      }
+     },
+     "sub": "X-Small, 1 credit per hour",
+     "matched_by": "Queries tagged kf:daily-sales on warehouse REPORTING_XS. 3 runs.",
+     "input": "Not recorded, so the volume check didn't run.",
+     "volume": {
+      "status": "not_run",
+      "reason": "The data volume check couldn't run: neither input rows nor input bytes were recorded for both this run and the Fabric run."
+     },
+     "details": [],
+     "excluded": [],
+     "connect": "",
+     "money": {
+      "classification": "scenario",
+      "label": "Scenario",
+      "value": 0.54,
+      "currency": "USD",
+      "status": "priced",
+      "text": "$0.54",
+      "price_line": "0.27 credits × $2.00 per credit",
+      "pricing_version": "pv-a0a0addb854824eb",
+      "assumptions": [
+       "A price applied to what was used, not a charge",
+       "List prices, Nov 2026: 2 USD per credit (assumption, assumption)"
+      ],
+      "source": "Each platform's public price page",
+      "reason": ""
+     },
+     "priced": [
+      {
+       "sku": "",
+       "amount": 0.27
+      }
+     ],
+     "read_at": "2026-11-24T09:12:00Z",
+     "note": "WAREHOUSE_METERING_HISTORY has what a warehouse was billed, for the whole warehouse per hour. It can't be split into single runs, and it can be up to 3 hours late."
+    }
+   ],
+   "comparison": {
+    "classification": "scenario",
+    "label": "Scenario",
+    "pricing_version": "pv-a0a0addb854824eb",
+    "text": "At these prices, the Fabric estimate ($0.14) is lower than the Snowflake estimate ($0.54). Databricks isn't compared because its figure isn't known.",
+    "platforms": [
+     "fabric",
+     "snowflake"
+    ],
+    "left_out": [
+     "Databricks isn't compared because its figure isn't known."
+    ]
+   },
+   "note": ""
+  }
+ },
+ "no_scenario": {
+  "workloads": [
+   {
+    "key": "meta:customer_dedupe",
+    "name": "Customer dedupe"
+   },
+   {
+    "key": "meta:daily_sales",
+    "name": "Daily sales rollup"
+   }
+  ],
+  "scenarios": [
+   {
+    "scenario": "Default price",
+    "sku": "",
+    "region": "",
+    "currency": "USD",
+    "rate_per_cu_hour": 0.18,
+    "pricing_model": "assumption",
+    "effective_from": "2000-01-01T00:00:00+00:00",
+    "effective_to": null,
+    "source": "Optimize > Cost and savings > Prices",
+    "confidence": "assumption",
+    "pricing_version": "pv-37b92b4957f8402f"
+   },
+   {
+    "scenario": "List prices, Nov 2026",
+    "sku": "",
+    "region": "",
+    "currency": "USD",
+    "rate_per_cu_hour": 0.18,
+    "pricing_model": "assumption",
+    "effective_from": "2026-11-03T00:00:00+00:00",
+    "effective_to": null,
+    "source": "Each platform's public price page",
+    "confidence": "assumption",
+    "rate_per_dbu": {
+     "JOBS_COMPUTE": 0.15
+    },
+    "rate_per_credit": 2.0,
+    "pricing_version": "pv-a0a0addb854824eb"
+   }
+  ],
+  "connections": {
+   "databricks": [
+    {
+     "key": "cli:prod",
+     "label": "prod (Databricks CLI)",
+     "host": "https://adb-1.azuredatabricks.net",
+     "warehouse_id": "wh-reporting"
+    }
+   ],
+   "snowflake": [
+    {
+     "key": "profile:p1:sf",
+     "label": "Work · Snowflake",
+     "account": "myorg-acct",
+     "warehouse": "REPORTING_XS"
+    }
+   ]
+  },
+  "days": 30,
+  "unavailable": {},
+  "workload": "meta:daily_sales",
+  "links": {
+   "databricks": [
+    {
+     "job_id": "8841",
+     "name": "daily_sales_rollup"
+    }
+   ],
+   "snowflake": [
+    "kf:daily-sales"
+   ]
+  },
+  "databricks_connection": "cli:prod",
+  "snowflake_connection": "profile:p1:sf",
+  "databricks_read": {},
+  "snowflake_read": {},
+  "comparison": {
+   "workload": {
+    "key": "meta:daily_sales",
+    "name": "daily_sales",
+    "definition_version": "v12",
+    "input_scope": "regular load"
+   },
+   "period": {
+    "days": 30,
+    "start": "2026-10-25T10:00:00+00:00",
+    "end": "2026-11-24T10:00:00+00:00"
+   },
+   "scenario": null,
+   "cards": [
+    {
+     "platform": "pc",
+     "label": "This PC",
+     "unit": "seconds",
+     "unit_label": "time",
+     "status": "ok",
+     "figure": {
+      "classification": "measured",
+      "label": "Measured",
+      "value": 252.0,
+      "unit": "seconds",
+      "unit_label": "wall-clock seconds",
+      "text": "4 min 12 s",
+      "method": "Wall-clock time, averaged per run",
+      "source": "Measured on this PC as each run ran",
+      "collected_at": "2026-11-23T10:00:00+00:00",
+      "assumptions": [],
+      "reason": "",
+      "runs": 4,
+      "runs_total": 4,
+      "period": {
+       "days": 30,
+       "start": "2026-10-25T10:00:00+00:00",
+       "end": "2026-11-24T10:00:00+00:00"
+      }
+     },
+     "sub": "Wall-clock time",
+     "matched_by": "4 runs of the workload here.",
+     "input": "12.4 M rows read",
+     "volume": null,
+     "details": [
+      {
+       "label": "CPU",
+       "classification": "measured",
+       "value": 580.0,
+       "unit": "cpu_seconds",
+       "text": "9 min 40 s",
+       "reason": ""
+      },
+      {
+       "label": "Peak memory",
+       "classification": "measured",
+       "value": 3100000000.0,
+       "unit": "bytes",
+       "text": "3.1 GB",
+       "reason": ""
+      }
+     ],
+     "excluded": [],
+     "connect": "",
+     "money": {
+      "status": "not_priced",
+      "text": "Not priced. This PC's hardware and power aren't counted."
+     },
+     "priced": []
+    },
+    {
+     "platform": "fabric",
+     "label": "Fabric",
+     "unit": "fabric_cu_seconds",
+     "unit_label": "CU",
+     "status": "ok",
+     "figure": {
+      "classification": "estimated",
+      "label": "Estimated",
+      "value": 2880.0,
+      "unit": "fabric_cu_seconds",
+      "unit_label": "Fabric capacity unit seconds",
+      "text": "2,880 CU seconds",
+      "method": "Run time × configured CUs",
+      "source": "Fabric job API",
+      "collected_at": "2026-11-23T10:00:00+00:00",
+      "assumptions": [
+       "Run time 6 min times 8 CU (Spark starter pool)"
+      ],
+      "reason": "",
+      "runs": 3,
+      "runs_total": 3,
+      "period": {
+       "days": 30,
+       "start": "2026-10-25T10:00:00+00:00",
+       "end": "2026-11-24T10:00:00+00:00"
+      }
+     },
+     "sub": "0.80 CU hours",
+     "matched_by": "3 runs of the same workload, definition v12, input scope regular load.",
+     "input": "12.1 M rows. Within 25% of this PC's runs.",
+     "volume": {
+      "status": "passed",
+      "reason": "Its input rows are within 25% of this run's."
+     },
+     "details": [],
+     "excluded": [],
+     "connect": "",
+     "money": null,
+     "priced": []
+    },
+    {
+     "platform": "databricks",
+     "label": "Databricks",
+     "unit": "databricks_dbu",
+     "unit_label": "DBU",
+     "status": "ok",
+     "figure": {
+      "classification": "measured",
+      "label": "Measured",
+      "value": 1.42,
+      "unit": "databricks_dbu",
+      "unit_label": "Databricks units (DBU)",
+      "text": "1.42 DBU",
+      "method": "Billed DBUs for the job's runs, averaged",
+      "source": "Billed usage, system.billing.usage",
+      "collected_at": "2026-11-24T08:55:00Z",
+      "assumptions": [],
+      "reason": "",
+      "runs": 3,
+      "runs_total": 3,
+      "period": {
+       "days": 30,
+       "start": "2026-10-25T10:00:00+00:00",
+       "end": "2026-11-24T10:00:00+00:00"
+      }
+     },
+     "sub": "JOBS_COMPUTE",
+     "matched_by": "Job daily_sales_rollup (8841), linked to this workload by you. 3 runs.",
+     "input": "Not recorded, so the volume check didn't run.",
+     "volume": {
+      "status": "not_run",
+      "reason": "Databricks billing has no input rows or bytes."
+     },
+     "details": [],
+     "excluded": [],
+     "connect": "",
+     "money": null,
+     "priced": [
+      {
+       "sku": "JOBS_COMPUTE",
+       "amount": 1.42
+      }
+     ],
+     "read_at": "2026-11-24T08:55:00Z"
+    },
+    {
+     "platform": "snowflake",
+     "label": "Snowflake",
+     "unit": "snowflake_credits",
+     "unit_label": "credits",
+     "status": "ok",
+     "figure": {
+      "classification": "estimated",
+      "label": "Estimated",
+      "value": 0.27,
+      "unit": "snowflake_credits",
+      "unit_label": "Snowflake credits",
+      "text": "0.27 credits",
+      "method": "Warehouse time 16 min 12 s × 1 credit per hour",
+      "source": "QUERY_HISTORY for queries tagged kf:daily-sales",
+      "collected_at": "2026-11-24T09:12:00Z",
+      "assumptions": [
+       "A standard warehouse uses the credits per hour Snowflake publishes for its size (X-Small 1, Small 2, Medium 4, and so on).",
+       "Each time the warehouse resumes, at least 60 seconds is billed. That minimum isn't added here, so a run that resumed the warehouse may have used more.",
+       "Nothing else ran on the warehouse at the same time. If it did, this figure is too high.",
+       "Cloud services credits aren't counted.",
+       "Each query that carries the tag is counted as one run."
+      ],
+      "reason": "",
+      "runs": 3,
+      "runs_total": 3,
+      "period": {
+       "days": 30,
+       "start": "2026-10-25T10:00:00+00:00",
+       "end": "2026-11-24T10:00:00+00:00"
+      }
+     },
+     "sub": "X-Small, 1 credit per hour",
+     "matched_by": "Queries tagged kf:daily-sales on warehouse REPORTING_XS. 3 runs.",
+     "input": "Not recorded, so the volume check didn't run.",
+     "volume": {
+      "status": "not_run",
+      "reason": "The data volume check couldn't run: neither input rows nor input bytes were recorded for both this run and the Fabric run."
+     },
+     "details": [],
+     "excluded": [],
+     "connect": "",
+     "money": null,
+     "priced": [
+      {
+       "sku": "",
+       "amount": 0.27
+      }
+     ],
+     "read_at": "2026-11-24T09:12:00Z",
+     "note": "WAREHOUSE_METERING_HISTORY has what a warehouse was billed, for the whole warehouse per hour. It can't be split into single runs, and it can be up to 3 hours late."
+    }
+   ],
+   "comparison": null,
+   "note": "Choose a pricing scenario to see money. Until then each platform shows its own unit, and nothing is compared."
+  }
+ }
+}

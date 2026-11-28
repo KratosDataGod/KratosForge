@@ -258,7 +258,7 @@ class Repository:
 
     def add_remote(self, name: str, url: str) -> list[dict[str, Any]]:
         name = (name or "origin").strip()
-        if not _REMOTE_NAME.match(name):
+        if not _REMOTE_NAME.fullmatch(name):
             raise GitError("A remote name is letters, numbers, . _ and -, such as origin.", kind="invalid")
         if name in [r["name"] for r in self.remotes()]:
             raise GitError(f"This repository already has a remote called {name}.", kind="exists")
@@ -278,7 +278,7 @@ class Repository:
         name, email = (name or "").strip(), (email or "").strip()
         if not name or "\n" in name or len(name) > 200:
             raise GitError("Enter your name as it should appear on commits.", kind="invalid")
-        if not re.match(r"^[^@\s]+@[^@\s]+$", email):
+        if not re.fullmatch(r"^[^@\s]+@[^@\s]+$", email):
             raise GitError("Enter an email address, such as you@company.com.", kind="invalid")
         self.git("config", "--local", "user.name", name)
         self.git("config", "--local", "user.email", email)
@@ -647,7 +647,7 @@ class Repository:
 
     def restore_stash(self, ref: str) -> dict[str, Any]:
         """Brings back changes put aside before a switch (git stash pop); kept if it can't apply cleanly."""
-        if not re.match(r"^stash@\{\d+\}$", ref or ""):
+        if not re.fullmatch(r"^stash@\{\d+\}$", ref or ""):
             raise GitError("Choose a set of put-aside changes.", kind="invalid")
         self.git(*_STASH, "pop", "--index", ref)
         return self.status()
@@ -768,7 +768,7 @@ def parse_unified(text: str) -> dict[str, Any]:
     cur: dict[str, Any] | None = None
     old = new = 0
     for line in text.splitlines():
-        m = _HUNK.match(line)
+        m = _HUNK.fullmatch(line)
         if m:
             old, new = int(m.group(1)), int(m.group(3))
             cur = {"header": line, "old_start": old, "new_start": new, "context": m.group(5), "lines": []}

@@ -254,8 +254,113 @@ fn is_lock(e: &std::io::Error) -> bool {
     e.kind() == std::io::ErrorKind::PermissionDenied || matches!(e.raw_os_error(), Some(5 | 32 | 33))
 }
 
+/// Waits, for about as long as rename_retrying, until nothing else has `path` open. Antivirus,
+/// the search indexer and OneDrive open a download that was just written to look at it, and while
+/// they do Windows refuses to rename it. Elsewhere there's nothing to wait for. A file that can't
+/// be opened for another reason (missing) returns at once: the rename that follows reports it.
+pub fn wait_until_unused(path: &Path) {
+    wait_until_unused_with(path, 60, Duration::from_millis(250));
+}
+
+fn wait_until_unused_with(path: &Path, attempts: u32, pause: Duration) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        for attempt in 0..=attempts {
+            // Share mode 0: this open fails with a sharing violation while any other handle is open.
+            match std::fs::OpenOptions::new().read(true).share_mode(0).open(path) {
+                Err(e) if attempt < attempts && is_lock(&e) => std::thread::sleep(pause),
+                _ => return,
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (path, attempts, pause);
+}
+
+/// Whether this exe can replace itself: an update renames it and puts the new build in its folder,
+/// so the folder must be one this account can change. An exe IT copied into `C:\Program Files`
+/// can't; finding that out before the download saves the download and the 15 s of retries
+/// rename_retrying would spend on "Access is denied". Any other trouble with the probe lets the
+/// update go ahead and report what goes wrong.
+pub fn can_update_in_place(exe: &Path) -> Result<(), String> {
+    let Some(dir) = exe.parent() else { return Ok(()) };
+    match probe_writable(dir) {
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => Err(format!(
+            "KratosForge is in {}, a folder your account can't change, so it can't update itself. \
+             Ask IT to deploy the new build, or install KratosForge for your account with the MSI.",
+            dir.display()
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Creates and removes an empty file in `dir`.
+fn probe_writable(dir: &Path) -> std::io::Result<()> {
+    let probe = dir.join(format!(".kratosforge-update-probe-{}", std::process::id()));
+    std::fs::OpenOptions::new().write(true).create_new(true).open(&probe)?;
+    let _ = std::fs::remove_file(&probe);
+    Ok(())
+}
+
 /// Puts `new` in place of `exe`, keeping the running exe as `old`.
+///
+/// The download is waited on first, while the running exe is still in place: moving the exe aside
+/// and then waiting up to 15 s for a scanner to let go of the download would leave no exe at its
+/// path for that long, and a PC shut down or a power cut then leaves the Start menu shortcut
+/// pointing at nothing. Waiting first keeps the two renames back to back.
+#[cfg(test)] // the app swaps with swap_in_checked; tests use this for the renames alone
 pub fn swap_in(exe: &Path, new: &Path, old: &Path) -> Result<(), String> {
+    swap_in_checked(exe, new, old, |_| Ok(()))
+}
+
+/// Opens `path` once nothing else has it open, so that until the handle is dropped nobody can
+/// write to it. On Windows the handle shares read and delete only, so a scanner can still read it
+/// and this process can still rename it. Elsewhere it is a plain read handle.
+pub fn hold_unchanged(path: &Path) -> std::io::Result<std::fs::File> {
+    wait_until_unused(path);
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 1;
+        const FILE_SHARE_DELETE: u32 = 4;
+        options.share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE);
+    }
+    options.open(path)
+}
+
+/// swap_in, after `check` has read the download through a handle that keeps it from being written
+/// until it is in place. The download was checked before the wait (its checksum and signer), and
+/// something could have written to it while it was waited on; `check` confirms it is still that
+/// file. A failed check leaves the running exe where it is.
+///
+/// The held handle has to share delete, or this process couldn't rename the file, so another
+/// program could still move it away and put a different exe.new in its place. `check` therefore
+/// runs again on what is at `exe` once the renames are done, and a file that fails it is swapped
+/// back out for the previous build.
+pub fn swap_in_checked(
+    exe: &Path,
+    new: &Path,
+    old: &Path,
+    mut check: impl FnMut(&mut dyn std::io::Read) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut held = hold_unchanged(new).map_err(|e| format!("Could not open the new build {}: {e}", new.display()))?;
+    check(&mut held)?;
+    swap_renames(exe, new, old)?;
+    let placed = std::fs::File::open(exe)
+        .map_err(|e| format!("Could not read the new build to check it again: {e}"))
+        .and_then(|mut f| check(&mut f));
+    drop(held);
+    if let Err(why) = placed {
+        restore_previous(exe, old)?;
+        return Err(why);
+    }
+    Ok(())
+}
+
+fn swap_renames(exe: &Path, new: &Path, old: &Path) -> Result<(), String> {
     let _ = std::fs::remove_file(old);
     rename_retrying(exe, old).map_err(|e| format!("Could not move {} aside: {e}", exe.display()))?;
     if let Err(e) = rename_retrying(new, exe) {
@@ -622,6 +727,148 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn swap_waits_for_a_scanner_to_let_go_of_the_download_before_moving_the_exe_aside() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = scratch("swapbusy");
+        let (exe, new, old) = (dir.join("app.exe"), dir.join("app.exe.new"), dir.join("app.exe.old"));
+        std::fs::write(&exe, "previous").unwrap();
+        std::fs::write(&new, "next").unwrap();
+        // A virus scanner reading the download: it shares read only, so the download can't be renamed.
+        let scanner = std::fs::OpenOptions::new().read(true).share_mode(1).open(&new).unwrap();
+        let swap = {
+            let (exe, new, old) = (exe.clone(), new.clone(), old.clone());
+            std::thread::spawn(move || swap_in(&exe, &new, &old))
+        };
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "previous", "the exe was moved aside while the download was busy");
+        assert!(!old.exists());
+        drop(scanner);
+        swap.join().unwrap().unwrap();
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "next");
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), "previous");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_failed_check_leaves_the_running_exe_in_place() {
+        let dir = scratch("swapcheck");
+        let (exe, new, old) = (dir.join("app.exe"), dir.join("app.exe.new"), dir.join("app.exe.old"));
+        std::fs::write(&exe, "previous").unwrap();
+        std::fs::write(&new, "changed").unwrap();
+        let err = swap_in_checked(&exe, &new, &old, |r| {
+            let mut seen = String::new();
+            r.read_to_string(&mut seen).map_err(|e| e.to_string())?;
+            if seen == "next" { Ok(()) } else { Err("The new build changed after it was checked.".into()) }
+        })
+        .unwrap_err();
+        assert!(err.contains("changed"));
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "previous");
+        assert!(!old.exists() && new.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_check_reads_the_download_that_is_then_put_in_place() {
+        let dir = scratch("swapchecked");
+        let (exe, new, old) = (dir.join("app.exe"), dir.join("app.exe.new"), dir.join("app.exe.old"));
+        std::fs::write(&exe, "previous").unwrap();
+        std::fs::write(&new, "next").unwrap();
+        let mut seen = Vec::new();
+        swap_in_checked(&exe, &new, &old, |r| {
+            let mut s = String::new();
+            r.read_to_string(&mut s).map_err(|e| e.to_string())?;
+            seen.push(s);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(seen, ["next", "next"], "checked when held, and again once in place");
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "next");
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), "previous");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_different_file_swapped_in_under_the_held_one_is_put_back_out() {
+        let dir = scratch("swapreplaced");
+        let (exe, new, old) = (dir.join("app.exe"), dir.join("app.exe.new"), dir.join("app.exe.old"));
+        std::fs::write(&exe, "previous").unwrap();
+        std::fs::write(&new, "next").unwrap();
+        let mut calls = 0;
+        // The first check passes on the held file; what lands at exe turns out to be another file.
+        let err = swap_in_checked(&exe, &new, &old, |r| {
+            calls += 1;
+            let mut seen = String::new();
+            r.read_to_string(&mut seen).map_err(|e| e.to_string())?;
+            if calls == 2 { Err("The new build changed after it was checked.".into()) } else { Ok(()) }
+        })
+        .unwrap_err();
+        assert!(err.contains("changed"));
+        assert_eq!(calls, 2);
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "previous");
+        assert!(!old.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn nothing_can_write_to_the_download_between_the_check_and_the_swap() {
+        let dir = scratch("swapheld");
+        let (exe, new, old) = (dir.join("app.exe"), dir.join("app.exe.new"), dir.join("app.exe.old"));
+        std::fs::write(&exe, "previous").unwrap();
+        std::fs::write(&new, "next").unwrap();
+        swap_in_checked(&exe, &new, &old, |_| {
+            // Another program trying to change the checked download while it is held.
+            match std::fs::OpenOptions::new().write(true).open(&new) {
+                Ok(_) => Err("the download could be written while held".into()),
+                Err(_) => Ok(()),
+            }
+        })
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "next");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn waiting_on_a_missing_download_returns_at_once_and_the_swap_reports_it() {
+        let dir = scratch("swapmissing");
+        let started = std::time::Instant::now();
+        wait_until_unused_with(&dir.join("app.exe.new"), 60, Duration::from_millis(250));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_exe_in_a_folder_it_can_change_can_update_itself_and_the_probe_is_gone() {
+        let dir = scratch("probeok");
+        assert_eq!(can_update_in_place(&dir.join("app.exe")), Ok(()));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0, "the probe file was left behind");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_probe_that_fails_for_another_reason_lets_the_update_try() {
+        let dir = scratch("probemissing");
+        assert_eq!(can_update_in_place(&dir.join("no-such-folder").join("app.exe")), Ok(()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_exe_in_a_folder_it_cant_change_says_so_before_downloading() {
+        let dir = scratch("probedenied");
+        let target = dir.to_string_lossy().into_owned();
+        // Everyone may not add files here: the folder an exe copied into Program Files is in.
+        let deny = std::process::Command::new("icacls").args([&target, "/deny", "*S-1-1-0:(AD,WD)"]).output().unwrap();
+        assert!(deny.status.success(), "{}", String::from_utf8_lossy(&deny.stdout));
+        let result = can_update_in_place(&dir.join("app.exe"));
+        let _ = std::process::Command::new("icacls").args([&target, "/remove:d", "*S-1-1-0"]).output();
+        let err = result.unwrap_err();
+        assert!(err.contains("can't update itself") && err.contains(&target), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_failed_swap_leaves_the_running_exe_in_place() {
         let dir = scratch("swapfail");
@@ -653,6 +900,59 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&exe).unwrap(), "next", "the new build is still there to start");
         assert_eq!(std::fs::read_to_string(&old).unwrap(), "previous");
         assert!(!exe.with_extension("exe.failed").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_restore_that_cant_move_the_new_exe_aside_leaves_both_builds_where_they_are() {
+        let dir = scratch("restoreheld");
+        let (exe, old) = (dir.join("app.exe"), dir.join("app.exe.old"));
+        std::fs::write(&exe, "next").unwrap();
+        std::fs::write(&old, "previous").unwrap();
+        // The ended process still holds the new exe, so it can't be moved aside on any attempt.
+        let held = exe.clone();
+        let mut tries = 0;
+        let rename = |from: &Path, to: &Path| {
+            if from == held {
+                tries += 1;
+                Err(std::io::Error::other("still running"))
+            } else {
+                std::fs::rename(from, to)
+            }
+        };
+        assert!(restore_with(&exe, &old, rename, Duration::ZERO).unwrap_err().contains("still running"));
+        assert_eq!(tries, 20);
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "next");
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), "previous", "the previous build is kept to try again");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_restore_after_the_new_exe_is_gone_just_puts_the_previous_one_back() {
+        let dir = scratch("restoregone");
+        let (exe, old) = (dir.join("app.exe"), dir.join("app.exe.old"));
+        std::fs::write(&old, "previous").unwrap();
+        restore_previous(&exe, &old).unwrap();
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "previous");
+        assert!(!old.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_a_locked_file_is_retried() {
+        use std::io::{Error, ErrorKind};
+        for locked in [Error::from_raw_os_error(5), Error::from_raw_os_error(32), Error::from_raw_os_error(33),
+                       Error::from(ErrorKind::PermissionDenied)] {
+            assert!(super::is_lock(&locked), "{locked:?}");
+        }
+        for other in [Error::from(ErrorKind::NotFound), Error::from(ErrorKind::AlreadyExists), Error::other("disk full")] {
+            assert!(!super::is_lock(&other), "{other:?}");
+        }
+        // A missing file fails at once, without the 15 seconds of retries.
+        let dir = scratch("renamemissing");
+        let started = std::time::Instant::now();
+        assert!(rename_retrying(&dir.join("gone.exe"), &dir.join("to.exe")).is_err());
+        assert!(started.elapsed() < Duration::from_secs(2));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

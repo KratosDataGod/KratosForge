@@ -28,6 +28,7 @@ import uuid
 import zipfile
 from collections import OrderedDict
 from pathlib import Path
+from collections.abc import Callable, Iterable
 from typing import Any, cast
 from xml.sax.saxutils import escape
 
@@ -35,7 +36,7 @@ import pyarrow as pa
 
 from .redact import describe
 from .duckdb_rows import for_arrow, one_row
-from . import jsonfile
+from . import csv_cells, jsonfile
 
 _log = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ MAX_FRAMES = 20
 PAGE_ROWS = 100
 MAX_PAGE_ROWS = 1000
 EXCEL_MAX_ROWS = 1_048_575  # a sheet's 1,048,576 rows less the header
+EXCEL_MAX_COLUMNS = 16_384  # a sheet's columns, A to XFD: past them Excel opens the file only to repair it
 DOWNLOAD_FORMATS = ("csv", "xlsx", "parquet")
 PROFILE_COLUMNS = 200
 CHART_KINDS = ("bar", "stacked", "line", "area", "scatter", "pie", "histogram", "box")
@@ -258,25 +260,34 @@ class Frames:
     # ---- the viewer
 
     def page(self, fid: str, offset: int = 0, limit: int = PAGE_ROWS, sort: int | None = None,
-             desc: bool = False, q: str = "") -> dict[str, Any]:
-        """One page of the result, searched and sorted over every row."""
+             desc: bool = False, q: str = "", filters: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        """One page of the result, searched, filtered and sorted over every row. ``filters`` are the
+        grid's filter boxes ({column, text}, read as the SQL page's: sql_view.py); one that can't be
+        read answers ``filter_error`` instead of rows."""
         import duckdb
+
+        from . import sql_view  # it reads frames.py's helpers, so not at the top
         table = self.table(fid)
         offset = max(0, int(offset))
         limit = min(max(1, int(limit)), MAX_PAGE_ROWS)
         cols = [f"c{i}" for i in range(table.num_columns)]
+        try:
+            boxes, params = sql_view.where_parts(table, cols, filters)
+        except sql_view.FilterError as exc:
+            return {"frame": fid, "filter_error": {"column": exc.column, "message": str(exc)}}
         con = duckdb.connect()
         try:
             con.register("t", table.rename_columns(cols))
-            where, params = "", []
+            parts = list(boxes)
             if q:
-                where = " WHERE " + " OR ".join(f"CAST({c} AS VARCHAR) ILIKE ? ESCAPE '\\'" for c in cols)
+                parts.insert(0, "(" + " OR ".join(f"CAST({c} AS VARCHAR) ILIKE ? ESCAPE '\\'" for c in cols) + ")")
                 like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-                params = [like] * len(cols)
+                params = [like] * len(cols) + params
+            where = (" WHERE " + " AND ".join(parts)) if parts else ""
             order = ""
             if sort is not None and 0 <= int(sort) < len(cols):
                 order = f" ORDER BY {cols[int(sort)]} {'DESC' if desc else 'ASC'} NULLS LAST"
-            total = one_row(con.execute(f"SELECT count(*) FROM t{where}", params))[0] if q else table.num_rows
+            total = one_row(con.execute(f"SELECT count(*) FROM t{where}", params))[0] if where else table.num_rows
             rows = _rows(for_arrow(con, f"SELECT * FROM t{where}{order} LIMIT {limit} OFFSET {offset}", params))
         finally:
             con.close()
@@ -501,21 +512,27 @@ class Frames:
 
     # ---- downloads
 
-    def download(self, fid: str, fmt: str, path: str) -> dict[str, Any]:
-        """Write the whole result to ``path`` (a name the engine reserved, empty) in ``fmt``."""
+    def download(self, fid: str, fmt: str, path: str, raw: bool = False) -> dict[str, Any]:
+        """Write the whole result to ``path`` (a name the engine reserved, empty) in ``fmt``. A CSV protects text
+        cells that start like a formula unless ``raw`` (Keep raw values, WR-228)."""
         if fmt not in DOWNLOAD_FORMATS:
             raise ValueError(f"Download as {', '.join(DOWNLOAD_FORMATS)}.")
         table = self.table(fid)
         if fmt == "xlsx" and table.num_rows > EXCEL_MAX_ROWS:
             raise ValueError(f"Excel holds at most {EXCEL_MAX_ROWS:,} rows and this result has "
                              f"{table.num_rows:,}. Download it as CSV or Parquet instead.")
+        if fmt == "xlsx" and table.num_columns > EXCEL_MAX_COLUMNS:
+            raise ValueError(f"Excel holds at most {EXCEL_MAX_COLUMNS:,} columns and this result has "
+                             f"{table.num_columns:,}. Download it as CSV or Parquet instead.")
         target = Path(path)
         partial = target.with_name(target.name + ".partial")
+        protected = 0
         try:
-            with open(partial, "xb") as sink:
+            with jsonfile.long_path_named(target, "downloaded"), open(partial, "xb") as sink:
                 if fmt == "csv":
                     import pyarrow.csv as pa_csv
-                    pa_csv.write_csv(_csv_ready(table), sink)
+                    ready, protected = csv_cells.protect_table(_csv_ready(table), raw=raw)
+                    pa_csv.write_csv(ready, sink)
                 elif fmt == "parquet":
                     import pyarrow.parquet as pq
                     pq.write_table(table.rename_columns(_unique(table.schema.names)), sink)
@@ -525,17 +542,42 @@ class Frames:
         except BaseException:
             with_suppressed_unlink(partial)
             raise
-        return {"path": str(target), "rows": table.num_rows, "format": fmt}
+        return {"path": str(target), "rows": table.num_rows, "format": fmt, "raw": bool(raw) and fmt == "csv",
+                "protected": protected, "notes": [csv_cells.note(protected)] if protected else []}
 
 
 def _csv_ready(table: pa.Table) -> pa.Table:
-    """Arrow's CSV writer refuses lists, structs and maps: those columns go out as JSON text."""
+    """Arrow's CSV writer refuses lists, structs and maps: those columns go out as JSON text. Binary would go out
+    as its raw bytes, and stops the file when they aren't UTF-8: it goes out as hex, 0x00FF (WR-221)."""
     for i, f in enumerate(table.schema):
-        if pa.types.is_nested(f.type):
-            text = pa.array([None if v is None else json.dumps(v, default=str) for v in table.column(i).to_pylist()],
-                            pa.string())
-            table = table.set_column(i, pa.field(f.name, pa.string()), text)
+        if csv_text_type(f.type):
+            table = table.set_column(i, pa.field(f.name, pa.string()), csv_text(table.column(i).to_pylist(), f.type))
     return table
+
+
+def csv_text_type(t: pa.DataType) -> bool:
+    """Whether a column goes into a CSV file as text made here, not as Arrow writes it."""
+    return pa.types.is_nested(t) or pa.types.is_binary(t) or pa.types.is_large_binary(t) \
+        or pa.types.is_fixed_size_binary(t)
+
+
+def csv_text(values: list[Any], t: pa.DataType) -> pa.Array:
+    if pa.types.is_nested(t):
+        return pa.array([None if v is None else json.dumps(v, default=str) for v in values], pa.string())
+    return pa.array([None if v is None else hex_bytes(v) for v in values], pa.string())
+
+
+def csv_ready_batch(batch: pa.RecordBatch) -> pa.RecordBatch:
+    """A batch as _csv_ready makes a table, for an export that streams batch by batch."""
+    if not any(csv_text_type(f.type) for f in batch.schema):
+        return batch
+    columns = [csv_text(c.to_pylist(), f.type) if csv_text_type(f.type) else c
+               for c, f in zip(batch.columns, batch.schema, strict=True)]
+    return pa.RecordBatch.from_arrays(columns, schema=csv_ready_schema(batch.schema))
+
+
+def csv_ready_schema(schema: pa.Schema) -> pa.Schema:
+    return pa.schema([pa.field(f.name, pa.string()) if csv_text_type(f.type) else f for f in schema])
 
 
 def with_suppressed_unlink(path: Path) -> None:
@@ -579,7 +621,8 @@ def _excel_exact(v: float | decimal.Decimal) -> bool:
         return True  # a float shows as Excel rounds it, as any spreadsheet does
     if isinstance(v, int):
         return abs(v) < 10 ** 15
-    digits = v.normalize().as_tuple().digits
+    # Not normalize(): it rounds to the context's 28 digits, so a DECIMAL(38, 6) went in as 1E+32 (WR-221).
+    digits = "".join(map(str, v.as_tuple().digits)).strip("0")
     return len(digits) <= 15
 
 
@@ -592,7 +635,69 @@ def _col(n: int) -> str:
     return s
 
 
-def _xlsx_cell(ref: str, v: Any) -> str:
+# What a file can't hold as it is (WR-221): counted per column while it's written, and said with the export.
+NOTE_KEY = b"kf_export_note"  # a field's own note, from where the value was read (warehouse._schema)
+_NOTES = {  # kind: (one value, several), {n} the count
+    "digits": ("1 number has more than 15 digits, which Excel can't hold, so it's saved as text with every digit",
+               ("{n} numbers have more than 15 digits, which Excel can't hold, so they're saved as text with every "
+                "digit")),
+    "fraction": ("1 time has digits below the millisecond, which Excel can't show, so it's saved as text",
+                 "{n} times have digits below the millisecond, which Excel can't show, so they're saved as text"),
+    "before1900": ("1 date is before 1900, which Excel can't hold, so it's saved as text",
+                   "{n} dates are before 1900, which Excel can't hold, so they're saved as text"),
+    "utc": ("Excel has no time zones, so these times are saved as clock times in UTC",) * 2,
+    "zone": ("Excel has no time zones, so these times are saved as their clock time, without the zone",) * 2,
+    "blank": ("Excel shows an empty text and a NULL the same way, as an empty cell",) * 2,
+    "cut": ("1 text is longer than 32,767 characters, Excel's limit for a cell, so it's cut there",
+            "{n} texts are longer than 32,767 characters, Excel's limit for a cell, so they're cut there"),
+    "control": ("1 text has control characters that an Excel file can't hold, so they're left out",
+                "{n} texts have control characters that an Excel file can't hold, so they're left out"),
+    "big": (("1 whole number is beyond 9,007,199,254,740,991. It's exact in the file, but JavaScript and Power "
+             "Query read it rounded"),
+            ("{n} whole numbers are beyond 9,007,199,254,740,991. They're exact in the file, but JavaScript and "
+             "Power Query read them rounded")),
+}
+MAX_NOTES = 4  # three notes and "And N more": the page shows them in a toast
+
+
+class ExportNotes:
+    """What an export couldn't keep exactly, once per column and kind: by column, in the result's order, then in
+    the order found."""
+
+    def __init__(self, schema: pa.Schema | None = None):
+        self._counts: dict[tuple[str, str], int] = {}
+        self._fields: list[str] = []
+        self._order = {name: i for i, name in reversed(list(enumerate(schema.names if schema else [])))}
+        for f in schema or []:
+            note = (f.metadata or {}).get(NOTE_KEY)
+            if note:
+                self._fields.append(f"{f.name}: {note.decode('utf-8')}.")
+
+    def add(self, column: str, kind: str) -> None:
+        self._counts[(column, kind)] = self._counts.get((column, kind), 0) + 1
+
+    def sentences(self) -> list[str]:
+        out = list(self._fields)
+        found = list(self._counts.items())
+        found.sort(key=lambda item: self._order.get(item[0][0], len(self._order)))  # stable: kinds stay as found
+        for (column, kind), n in found:
+            one, many = _NOTES[kind]
+            out.append(f"{column}: {(one if n == 1 else many).replace('{n}', f'{n:,}')}.")
+        if len(out) > MAX_NOTES:
+            out = out[:MAX_NOTES - 1] + [f"And {len(out) - MAX_NOTES + 1} more notes like these."]
+        return out
+
+
+def hex_bytes(v: bytes | bytearray | memoryview) -> str:
+    """Binary as T-SQL and SSMS show it: 0x and two upper-case hex digits a byte (0x for no bytes)."""
+    return "0x" + bytes(v).hex().upper()
+
+
+def _xlsx_cell(ref: str, v: Any, mark: Callable[[str], None] | None = None) -> str:
+    def note(kind: str) -> None:
+        if mark is not None:
+            mark(kind)
+
     if v is None:
         return ""
     if isinstance(v, bool):
@@ -601,34 +706,66 @@ def _xlsx_cell(ref: str, v: Any) -> str:
         if isinstance(v, float) and v in (float("inf"), float("-inf")):
             return _text(ref, str(v))
         if not _excel_exact(v):  # Excel keeps 15 digits: an ID like 1234567890123456789 would end in 000
+            note("digits")
             return _text(ref, str(v))
         return f'<c r="{ref}"><v>{v}</v></c>'
     if isinstance(v, dt.datetime):
+        if v.tzinfo:  # its clock time, as written; a result's times are in UTC
+            note("utc" if v.utcoffset() == dt.timedelta(0) else "zone")
         naive = v.replace(tzinfo=None) if v.tzinfo else v
         if naive < _EXCEL_FIRST:
-            return _text(ref, str(v))
+            note("before1900")
+            return _text(ref, naive.isoformat(sep=" "))
+        if naive.microsecond % 1000:  # Excel keeps times to the millisecond
+            note("fraction")
+            return _text(ref, naive.isoformat(sep=" "))
         serial = (naive - _EPOCH).total_seconds() / 86400 - (naive < _EXCEL_LEAP)
-        return f'<c r="{ref}" s="2"><v>{serial}</v></c>'
+        return f'<c r="{ref}" s="{4 if naive.microsecond else 2}"><v>{serial!r}</v></c>'
     if isinstance(v, dt.date):
         day = dt.datetime(v.year, v.month, v.day)
         if day < _EXCEL_FIRST:
+            note("before1900")
             return _text(ref, v.isoformat())
         return f'<c r="{ref}" s="3"><v>{(day - _EPOCH).days - (day < _EXCEL_LEAP)}</v></c>'
-    return _text(ref, v if isinstance(v, str) else str(v))
+    if isinstance(v, (bytes, bytearray, memoryview)):
+        return _text(ref, hex_bytes(v))
+    text = v if isinstance(v, str) else str(v)
+    if text == "":
+        note("blank")
+    return _text(ref, text, note)
 
 
 _BAD_XML = dict.fromkeys(c for c in range(32) if c not in (9, 10, 13))
+EXCEL_CELL_CHARS = 32767
 
 
-def _text(ref: str, s: str) -> str:
+def _text(ref: str, s: str, note: Callable[[str], None] | None = None) -> str:
     # Excel would run text starting with = + - @ as a formula only if it were a formula cell; inline
     # strings are always text, so a value like "=HYPERLINK(...)" stays text.
-    s = escape(s.translate(_BAD_XML)[:32767])
+    kept = s.translate(_BAD_XML)
+    if note is not None and len(kept) != len(s):
+        note("control")
+    if note is not None and len(kept) > EXCEL_CELL_CHARS:
+        note("cut")
+    s = escape(kept[:EXCEL_CELL_CHARS])
     return f'<c r="{ref}" t="inlineStr"><is><t xml:space="preserve">{s}</t></is></c>'
 
 
+def _marker(notes: ExportNotes | None, column: str) -> Callable[[str], None] | None:
+    if notes is None:
+        return None
+    return lambda kind: notes.add(column, kind)
+
+
 def write_xlsx(table: pa.Table, sink: Any) -> None:
-    names = table.schema.names
+    write_xlsx_batches(table.schema.names, table.to_batches(max_chunksize=8192), sink)
+
+
+def write_xlsx_batches(names: list[str], batches: Iterable[pa.RecordBatch], sink: Any,
+                       on_batch: Callable[[int], None] | None = None, notes: ExportNotes | None = None) -> None:
+    """One sheet, "Result", with a bold frozen header row, written a batch at a time (the SQL page's
+    export streams its snapshot through here). ``on_batch`` gets each batch's row count after it is
+    written, and may raise to stop."""
     with zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("[Content_Types].xml",
                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -658,13 +795,15 @@ def write_xlsx(table: pa.Table, sink: Any) -> None:
         z.writestr("xl/styles.xml",
                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-                   '<numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm:ss"/></numFmts>'
+                   '<numFmts count="2"><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm:ss"/>'
+                   '<numFmt numFmtId="165" formatCode="yyyy-mm-dd hh:mm:ss.000"/></numFmts>'
                    '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'
                    '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
                    '<borders count="1"><border/></borders>'
                    '<cellStyleXfs count="1"><xf/></cellStyleXfs>'
-                   '<cellXfs count="4"><xf/><xf fontId="1" applyFont="1"/>'
-                   '<xf numFmtId="164" applyNumberFormat="1"/><xf numFmtId="14" applyNumberFormat="1"/></cellXfs>'
+                   '<cellXfs count="5"><xf/><xf fontId="1" applyFont="1"/>'
+                   '<xf numFmtId="164" applyNumberFormat="1"/><xf numFmtId="14" applyNumberFormat="1"/>'
+                   '<xf numFmtId="165" applyNumberFormat="1"/></cellXfs>'
                    '</styleSheet>')
         with z.open("xl/worksheets/sheet1.xml", "w", force_zip64=True) as sheet:
             sheet.write(b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -674,10 +813,13 @@ def write_xlsx(table: pa.Table, sink: Any) -> None:
             head = "".join(_text(f"{_col(i)}1", n).replace('t="inlineStr"', 't="inlineStr" s="1"') for i, n in enumerate(names))
             sheet.write(f'<row r="1">{head}</row>'.encode())
             r = 2
-            for batch in table.to_batches(max_chunksize=8192):
+            marks = [_marker(notes, n) for n in names]
+            for batch in batches:
                 cols = [c.to_pylist() for c in batch.columns]
                 for i in range(batch.num_rows):
-                    cells = "".join(_xlsx_cell(f"{_col(j)}{r}", col[i]) for j, col in enumerate(cols))
+                    cells = "".join(_xlsx_cell(f"{_col(j)}{r}", col[i], marks[j]) for j, col in enumerate(cols))
                     sheet.write(f'<row r="{r}">{cells}</row>'.encode("utf-8"))
                     r += 1
+                if on_batch is not None:
+                    on_batch(batch.num_rows)
             sheet.write(b"</sheetData></worksheet>")

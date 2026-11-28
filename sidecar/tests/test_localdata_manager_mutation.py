@@ -33,6 +33,9 @@ class _Clock:
     def time(self):
         return self.now
 
+    def monotonic(self):  # elapsed comes from the monotonic clock; this fake keeps both at ``now``
+        return self.now
+
 
 def test_a_folder_already_added_is_refused(local, pid, tmp_path):
     data = tmp_path / "data"
@@ -63,7 +66,8 @@ def test_the_status_of_an_unknown_query_says_so(local):
 
 
 def test_elapsed_is_seconds_since_the_start_to_a_tenth(local, monkeypatch):
-    local._queries["q"] = {"query_id": "q", "project": "p", "state": "running", "started_at": 100.0}
+    local._queries["q"] = {"query_id": "q", "project": "p", "state": "running", "started_at": 100.0,
+                           "_clock": 100.0}
     monkeypatch.setattr(M, "time", _Clock(102.26))
     out = local.status("q")
     assert out == {"query_id": "q", "project": "p", "state": "running", "elapsed": 2.3}
@@ -121,3 +125,29 @@ def test_a_failed_background_query_reports_its_error(local, pid, monkeypatch):
     out = local.status(qid)
     assert out["state"] == "error" and "no_such_table" in out["error"]
     assert abs(time.time() - out["finished_at"]) < 60
+
+
+def test_a_query_that_fails_is_never_collected_before_its_error_is_in(local, pid, monkeypatch):
+    # The query's thread finishes its record while status() reads it: the state and the error go in together,
+    # so a poll in between sees "running", not an "error" with no message that is then collected and lost.
+    entered, release = threading.Event(), threading.Event()
+
+    class SlowToSay(Exception):
+        def __str__(self):
+            entered.set()
+            release.wait(10)
+            return "boom"
+
+    def execute(self, sql, **options):
+        raise SlowToSay()
+    monkeypatch.setattr(M.LocalEngine, "execute", execute)
+    qid = local.start(pid, "SELECT 1")["query_id"]
+    assert entered.wait(10)
+    try:
+        assert local.status(qid)["state"] == "running"
+    finally:
+        release.set()
+    deadline = time.time() + 10
+    while (out := local.status(qid))["state"] == "running" and time.time() < deadline:
+        time.sleep(0.01)
+    assert out["state"] == "error" and out["error"] == "boom"

@@ -16,6 +16,10 @@ storage levels, comparing plans and observed metrics. Nothing here starts Spark.
   keeps the answer. ``df.observe("name", ...)`` with a name, whose metrics only reach a listener,
   is refused: listeners run in Fabric. ``StreamingQueryListener`` imports, so a notebook that defines
   one still runs, and ``spark.streams`` refuses by name (it is DuckDB's not-implemented error without it).
+- ``pyspark.sql.streaming.state`` (``GroupState``, ``GroupStateTimeout``) imports, so a notebook that
+  defines a state function still runs; ``groupBy(...).applyInPandasWithState`` keeps state across a
+  stream's micro-batches and refuses by name, as does ``F.input_file_name()``, which names the file
+  each row came from: both run in Fabric.
 
 spark_local.install() calls ``install()`` after spark_api's and spark_stream's.
 """
@@ -239,6 +243,30 @@ ADDED: dict[str, Any] = {
 }
 
 
+class GroupStateTimeout:
+    """``pyspark.sql.streaming.state.GroupStateTimeout``."""
+    NoTimeout: str = "NoTimeout"
+    ProcessingTimeTimeout: str = "ProcessingTimeTimeout"
+    EventTimeTimeout: str = "EventTimeTimeout"
+
+
+class GroupState:
+    """``pyspark.sql.streaming.state.GroupState``: importable for a notebook's type hints and
+    isinstance checks. Only applyInPandasWithState makes one, and that runs in Fabric."""
+    NO_TIMESTAMP: int = -1
+
+
+def _apply_in_pandas_with_state(self: Any, *_args: Any, **_kwargs: Any) -> Any:  # noqa: ARG001
+    raise NotImplementedError("applyInPandasWithState keeps each group's state across a stream's micro-batches, "
+                              "which runs in Fabric. On this PC, use applyInPandas on the rows read so far.")
+
+
+def _input_file_name() -> Any:
+    raise NotImplementedError("input_file_name() names the file each row was read from, which runs in Fabric: "
+                              "this PC's Spark doesn't track it. Add the file name as a column when you read, or "
+                              "run the cell in Fabric.")
+
+
 def install() -> None:
     """Add the calls to DuckDB's DataFrame and the classes to ``pyspark`` (once)."""
     for name, fn in ADDED.items():
@@ -262,3 +290,14 @@ def install() -> None:
     if sys.modules.get("pyspark") is spark_pkg:  # DuckDB's API stands in for PySpark (spark_local._alias_pyspark)
         sys.modules.setdefault("pyspark.storagelevel", module)
         sys.modules.setdefault("pyspark.sql.streaming", spark_streaming)  # else imported afresh, without the listener
+    state = sys.modules.get("pyspark.sql.streaming.state") or types.ModuleType("pyspark.sql.streaming.state")
+    state.GroupState, state.GroupStateTimeout = GroupState, GroupStateTimeout  # type: ignore[attr-defined]
+    spark_streaming.state = state  # type: ignore[attr-defined]
+    sys.modules.setdefault("duckdb.experimental.spark.sql.streaming.state", state)
+    if sys.modules.get("pyspark") is spark_pkg:
+        sys.modules.setdefault("pyspark.sql.streaming.state", state)
+    from duckdb.experimental.spark.sql import functions as F
+    from duckdb.experimental.spark.sql.group import GroupedData
+    GroupedData.applyInPandasWithState = _apply_in_pandas_with_state  # type: ignore[attr-defined]
+    if not hasattr(F, "input_file_name"):
+        F.input_file_name = _input_file_name  # type: ignore[attr-defined]

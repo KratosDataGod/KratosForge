@@ -108,7 +108,7 @@ def split_name(name: str) -> tuple[str | None, str]:
 
 def check_name(schema: str, table: str) -> None:
     for kind, value in (("schema", schema), ("table", table)):
-        if not NAME.match(value or "") or value.lower().startswith("__fd_"):
+        if not NAME.fullmatch(value or "") or value.lower().startswith("__fd_"):
             raise ValueError(f"{value!r} can't be a Delta {kind} name: use letters, digits and underscores, "
                              "starting with a letter (as Fabric lakehouse tables do).")
 

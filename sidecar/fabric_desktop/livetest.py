@@ -70,6 +70,11 @@ EXTRA_CHECKS = {
     "delta.merge_profile": "Runs a MERGE INTO dbo.livetest_merge in the test lakehouse the way the app's SQL does "
                            "(delta_dml), under the table's lease, and checks the table stays in the Fabric-safe "
                            "Delta profile. Writes 4 rows to OneLake, which uses capacity.",
+    "model.bpa": "Runs the semantic model best practices check (semantic-link-labs Best Practice Analyzer) on a "
+                 "semantic model already in the workspace, read only: publishes the check notebook as "
+                 "fdlt_<run id>_bpa, runs it once with its findings saved in the test lakehouse, reads them back and "
+                 "deletes the notebook. Never creates or changes a model. Spends capacity, so it only runs with "
+                 "--run-in-fabric.",
 }
 ALL_CHECKS = ("delta.concurrent", "notebook.publish", "pipeline.definition", "pipeline.mailbox", "lease.onelake",
               "delta.merge_profile")  # what --all selects
@@ -191,8 +196,9 @@ class LiveTest:
                  extra: set[str] | tuple[str, ...] = (), run_in_fabric: bool = False,
                  write_table: Callable[[TableRef, Any, str], Any] | None = None,
                  sleep: Callable[[float], None] = time.sleep, mailbox_control: Callable[[], Any] | None = None,
-                 lease_backend: Callable[[], leases.Backend] | None = None):
+                 lease_backend: Callable[[], leases.Backend] | None = None, bpa_model: str = ""):
         self.workspace_id = workspace_id
+        self.bpa_model = bpa_model.strip()  # model.bpa: the semantic model to check; empty for the only one there
         # The control files pipeline.mailbox writes: the test lakehouse's Files area; tests pass a local folder.
         self.mailbox_control = mailbox_control or self._onelake_control
         self.fabric, self.files, self.credential = fabric, files, credential
@@ -235,6 +241,8 @@ class LiveTest:
               for id in EXTRA_CHECKS if id in self.extra],
             *(["Opt-in notebook.run: skipped; add --run-in-fabric to run the notebook in Fabric (spends capacity)."]
               if "notebook.publish" in self.extra and not self.run_in_fabric else []),
+            *(["Opt-in model.bpa: skipped; add --run-in-fabric to run the check in Fabric (spends capacity)."]
+              if "model.bpa" in self.extra and not self.run_in_fabric else []),
             f"Delete the lakehouse {self.name}{' and the items above' if self.extra else ''}, and check it is gone.",
             f"Write the results to {self.dir}.",
         ]
@@ -441,6 +449,14 @@ class LiveTest:
             else:
                 self._skip("pipeline.mailbox", "A pipeline run request is taken, cancelled and kept to one agent",
                            "Needs the lakehouse, which couldn't be created.")
+        if "model.bpa" in self.extra:
+            title = "Check a semantic model's best practices in Fabric"
+            if not self.run_in_fabric:
+                self._skip("model.bpa", title, "skipped: needs --run-in-fabric (it spends capacity).")
+            elif not self.lakehouse_id:
+                self._skip("model.bpa", title, "Needs the lakehouse, which couldn't be created.")
+            else:
+                self._check("model.bpa", title, self._model_bpa)
         for id, title, fn in (("lease.onelake", "A second writer is refused while a lease is held", self._lease),
                               ("delta.merge_profile", "A MERGE keeps the table in the Fabric-safe Delta profile",
                                self._merge_profile)):
@@ -545,12 +561,13 @@ class LiveTest:
         source = pa.table({"id": [2, 4], "amount": [200, 40]})
         # The same lease the write path takes on this table, so no other KratosForge writer overlaps.
         with leases.table_lease(self.lease_backend(), "dbo", "livetest_merge", owner=f"live test {self.run_id}"):
-            table = delta_profile.open_target(uri, opts)  # refuses a table outside the profile before writing
+            # The check is that a MERGE from this PC never upgrades the table: so the strictest profile.
+            table = delta_profile.open_target(uri, opts, "conservative")  # refused before writing if outside
             if table is None:
                 raise RuntimeError("The seeded table couldn't be opened")
             changed = delta_dml.apply(change, table, source, source.column_names)
         after = DeltaTable(uri, storage_options=opts)
-        delta_profile.check_table(after)
+        delta_profile.check_table(after, "conservative")
         rows = {r["id"]: r["amount"] for r in after.to_pyarrow_table().to_pylist()}
         if rows != {1: 10, 2: 200, 3: 30, 4: 40}:
             raise RuntimeError(f"After the MERGE the table holds {rows}")
@@ -601,6 +618,70 @@ class LiveTest:
                 self.fabric.cancel_job(self.workspace_id, self.notebook_id, job_id)
                 raise RuntimeError(f"Job {job_id} hadn't finished after {_RUN_TIMEOUT // 60} minutes; cancelled it.")
             self.sleep(10)
+
+    def _bpa_target(self) -> dict[str, Any]:
+        """The semantic model model.bpa checks: the one named, or the only one in the workspace."""
+        models = sorted(self.fabric.list_semantic_models(self.workspace_id), key=lambda m: str(m.get("displayName")))
+        if self.bpa_model:
+            model = next((m for m in models if m.get("displayName") == self.bpa_model), None)
+            if model is None:
+                raise RuntimeError(f"No semantic model named {self.bpa_model!r} in this workspace; the live test "
+                                   "never creates one.")
+            return model
+        if len(models) != 1:
+            raise RuntimeError(f"The workspace has {len(models)} semantic models; name the one to check with "
+                               "--bpa-model. The live test never creates one." if models else
+                               "The workspace has no semantic model to check; the live test never creates one.")
+        return models[0]
+
+    def _model_bpa(self) -> str:
+        from . import model_bpa
+        from .fabric_run import TERMINAL
+        model = self._bpa_target()
+        name = self._new_item_name("bpa", "Notebook")
+        # The same notebook and run parameters as the app's check (model_bpa_service), with the findings saved
+        # in this run's lakehouse, so deleting it takes the result file too.
+        ipynb = model_bpa.bpa_ipynb(self.workspace_id, self.lakehouse_id, self.name)
+        item = self.fabric.save_notebook(self.workspace_id, name, json.dumps(ipynb).encode())
+        if not item.get("id"):
+            item = next((n for n in self.fabric.list_notebooks(self.workspace_id) if n["displayName"] == name), item)
+        nb_id = str(item.get("id") or "")
+        if not nb_id:
+            raise RuntimeError("Fabric didn't return the check notebook's id")
+        self.ledger.add(kind="notebook", workspace_id=self.workspace_id, id=nb_id, name=name)
+        request_id = f"{self.name}_bpa"
+        params = model_bpa.run_parameters(str(model["id"]), self.workspace_id, request_id, self.lakehouse_id)
+        job_id = self.fabric.run_item_job(self.workspace_id, nb_id, "RunNotebook", params)
+        deadline = self.clock() + _RUN_TIMEOUT
+        while True:
+            job = self.fabric.job_instance(self.workspace_id, nb_id, job_id)
+            status = job.get("status")
+            if status in TERMINAL:
+                break
+            if self.clock() > deadline:
+                self.fabric.cancel_job(self.workspace_id, nb_id, job_id)
+                raise RuntimeError(f"Job {job_id} hadn't finished after {_RUN_TIMEOUT // 60} minutes; cancelled it.")
+            self.sleep(15)
+        data = model_bpa.read_results(self.files, self.workspace_id, self.lakehouse_id, request_id)
+        record = json.loads(data) if data else None
+        error = model_bpa.error(record) if isinstance(record, dict) else None
+        out = {"model": model.get("displayName"), "model_id": model.get("id"), "job_id": job_id, "status": status,
+               "error": error, "result": None if error or not isinstance(record, dict) else model_bpa.findings(record)}
+        jsonfile.write_json(self.dir / "model_bpa.json", out)  # redacted and capped by model_bpa.error
+        if error:
+            raise RuntimeError(f"The check failed in Fabric: {error['type']}: {error['message']} "
+                               f"(traceback and pip output in model_bpa.json)")
+        if status != "Completed" and out["result"] is not None:  # findings saved, then the run failed after
+            raise RuntimeError(f"Job {job_id} ended {status} after saving its findings; they're in model_bpa.json, "
+                               "but the run itself didn't succeed.")
+        if status != "Completed" or out["result"] is None:
+            reason = (job.get("failureReason") or {}).get("message", "") if isinstance(job.get("failureReason"), dict) else ""
+            raise RuntimeError(f"Job {job_id} ended {status} and saved no findings. "
+                               f"{redact.one_line(reason or '', 600)}".strip())
+        counts = out["result"]["counts"]
+        return (f"{model.get('displayName')}: {sum(counts.values())} findings ({counts['Error']} errors, "
+                f"{counts['Warning']} warnings, {counts['Info']} info), semantic-link-labs "
+                f"{out['result']['version'] or '?'}; details in model_bpa.json.")
 
     def _pipeline_definition(self) -> str:
         from .orchestration import definition

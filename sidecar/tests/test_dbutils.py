@@ -19,16 +19,28 @@ def test_dbutils_is_a_global_and_importable_like_databricks(tmp_path):
                 f"print(dbutils.fs.head('file:{folder}/a.txt'))\n"
                 "from databricks.sdk.runtime import dbutils as d\n"
                 f"[f.name for f in d.fs.ls('file:{folder}')]")
-    assert out["outputs"][0] == {"type": "stream", "text": "hello\n"}
+    # the first use of dbutils in a session names the ANSI mode Spark answers with here (WR-112)
+    # and put says how many bytes it wrote, as in Databricks
+    assert out["outputs"][0] == {"type": "stream", "text": f"{dbutils_local.DATABRICKS_ANSI_NOTE}\nWrote 5 bytes.\nhello\n"}
     assert _last(out) == "['a.txt']"
     assert "dbutils" not in {v["name"] for v in k.variables()}
+    again = k.run("print(dbutils.fs.head('file:" + folder + "/a.txt'))")
+    assert again["outputs"][0] == {"type": "stream", "text": "hello\n"}
 
 
-@pytest.mark.parametrize("path", ["dbfs:/tmp/x", "/dbfs/tmp/x", "/Volumes/main/raw/x"])
+@pytest.mark.parametrize("path", ["dbfs:/tmp/x", "/dbfs/tmp/x"])
 def test_databricks_storage_says_it_isnt_reachable(path):
     out = Kernel().run(f"dbutils.fs.ls({path!r})")
     assert out["status"] == "error"
     assert "Databricks storage" in out["outputs"][-1]["evalue"]
+
+
+def test_a_volume_this_pc_lacks_says_so(tmp_path, monkeypatch):
+    """/Volumes/ is a Unity Catalog volume on this PC (databricks_volumes, tests/test_databricks_volumes.py)."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    out = Kernel().run("dbutils.fs.ls('/Volumes/main/raw/x')")
+    assert out["status"] == "error"
+    assert out["outputs"][-1]["evalue"].startswith("The volume main.raw.x cannot be found")
 
 
 def test_widgets_defaults_values_and_errors():
@@ -115,7 +127,8 @@ def test_secrets_read_key_vault_as_you(monkeypatch):
     k = Kernel(token=lambda audience: f"token-{audience}")
     out = k.run("pw = dbutils.secrets.get('kv', 'db-password')\n"
                 "([s.key for s in dbutils.secrets.list('kv')], dbutils.secrets.getBytes('kv', 'db-password'))")
-    assert _last(out) == "(['a', 'b'], b's3cret')"
+    # Shown as [REDACTED], as Databricks shows a secret's value in a cell's output.
+    assert _last(out) == "(['a', 'b'], b'[REDACTED]')"
     assert calls[0] == ("https://kv.vault.azure.net/secrets/db-password", "Bearer token-keyvault")
     # A secret read through dbutils is hidden in Variables, like notebookutils' getSecret.
     assert next(v for v in k.variables() if v["name"] == "pw")["value"] == "hidden"

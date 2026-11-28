@@ -30,6 +30,7 @@ from typing import Any
 
 import polars as pl
 
+from .. import delta_profile
 from . import freshness as freshness_mod
 from . import objectives as objectives_mod
 from . import keys as keys_mod
@@ -96,7 +97,7 @@ def parse_lookback(value: Any) -> dt.timedelta | int | None:
         if value < 0:
             raise ValueError(value)
         return value
-    m = _LOOKBACK.match(value) if isinstance(value, str) else None
+    m = _LOOKBACK.fullmatch(value) if isinstance(value, str) else None
     if not m:
         raise ValueError(value)
     n, unit = int(m.group(1)), m.group(2).lower()
@@ -114,7 +115,7 @@ def parse_max_deletes(value: Any) -> tuple[str, float]:
         if value < 0:
             raise ValueError(value)
         return "count", float(value)
-    m = _MAX_DELETES.match(value) if isinstance(value, str) else None
+    m = _MAX_DELETES.fullmatch(value) if isinstance(value, str) else None
     if not m or float(m.group(1)) > 100:
         raise ValueError(value)
     return "share", float(m.group(1)) / 100
@@ -216,6 +217,24 @@ class Entity:
         return self.spec.get("scd", {}).get("surrogate_key")
 
     @property
+    def delta_features(self) -> str | None:
+        """delta_features: which Delta table features a write may leave on, None for the default (Preview)."""
+        value = self.spec.get("delta_features")
+        return value if isinstance(value, str) else None
+
+    def delta_summary(self) -> dict[str, Any]:
+        """The table's Delta feature choice, its readers, and why each choice would break one of them."""
+        readers = list(delta_profile.table_readers(self.spec)) if not delta_profile.choice_problems(self.spec) \
+            else list(delta_profile.DEFAULT_READERS)
+        return {"features": self.delta_features, "readers": readers,
+                "reader_names": [delta_profile.READERS[r] for r in readers],
+                "accepted": list(self.spec.get("delta_accepted") or []),
+                "default": delta_profile.DEFAULT_PROFILE.name,
+                "reasons": {c or "default": delta_profile.choice_reasons(c, readers)
+                            for c in (None, *delta_profile.TABLE_CHOICES)},
+                "problems": delta_profile.choice_problems(self.spec)}
+
+    @property
     def date_column(self) -> str | None:
         """The date column that makes this dimension the semantic model's date table ([model] date_column)."""
         model = self.spec.get("model")
@@ -230,13 +249,24 @@ class Entity:
         return hashlib.sha1(json.dumps(logic, sort_keys=True, default=str).encode(), usedforsecurity=False).hexdigest()[:8]
 
     def sources(self) -> list[str]:
-        return as_list(self.spec.get("source", {}).get("entity"))
+        # Names only: an odd value saved by hand (a nested list, a table) is a save-gate error, not a crash.
+        return [s for s in as_list(self.spec.get("source", {}).get("entity")) if isinstance(s, str)]
+
+    def code_reads(self) -> list[str]:
+        """The entities ``[hooks] reads`` and ``[step] reads`` let custom code read. Names only: an odd value
+        saved by hand (a nested list, a table, a number) is a save-gate error, not a crash, and a bare string
+        is read as one name rather than split into its characters."""
+        out: list[str] = []
+        for section in ("hooks", "step"):
+            part = self.spec.get(section, {})
+            reads = part.get("reads") if isinstance(part, dict) else None
+            out += [r for r in as_list(reads) if isinstance(r, str) and r]
+        return out
 
     def reads(self) -> list[str]:
         """Every entity this one reads, from any part of its config."""
         out = list(self.sources())
-        out += self.spec.get("hooks", {}).get("reads", [])
-        out += self.spec.get("step", {}).get("reads", [])
+        out += self.code_reads()
         for chk in self.spec.get("check", []):
             if "exists_in" in chk:
                 out.append(chk["exists_in"].rsplit(".", 1)[0])
@@ -285,6 +315,7 @@ class Entity:
             "objective": objectives_mod.objective(s), "criticality": (s.get("objectives") or {}).get("criticality")
             if isinstance(s.get("objectives"), dict) else None,
             "link": src.get("link"), "description": mesh_mod.entity_catalog(self)["description"],
+            "delta": self.delta_summary(),
         }
 
 
@@ -337,6 +368,12 @@ class Project:
             except tomllib.TOMLDecodeError as exc:
                 self.load_errors.append(f"{p.name}: not valid TOML ({exc})")
                 continue
+            except UnicodeDecodeError:
+                self.load_errors.append(f"{p.name}: not UTF-8 text")
+                continue
+            except OSError as exc:  # a folder named like an entity file, one that can't be opened
+                self.load_errors.append(f"{p.name}: can't be read ({exc.strerror or type(exc).__name__})")
+                continue
             name = spec.get("name") or p.stem
             if p.stem != name:
                 self.load_errors.append(f"{p.name}: file name must match its name ({one_line(name, 80)})")
@@ -346,6 +383,9 @@ class Project:
             if exc_file.exists() else []
         env_file = self.root / "environments.toml"
         self.environments = tomllib.loads(env_file.read_text(encoding="utf-8")) if env_file.exists() else {}
+        for env in ENVIRONMENTS:  # edited by hand (dev = "x"): said here, not an AttributeError wherever it is read
+            if not isinstance(self.environments.get(env, {}), dict):
+                raise ValueError(f"environments.toml: [{env}] isn't a table of settings")
         self.key_tables, self.key_errors = keys_mod.load_key_tables(self.root)
         self.source_systems, more = keys_mod.load_source_systems(self.root)
         self.key_errors += more
@@ -401,6 +441,12 @@ class Project:
     def layer(self, name: str) -> Layer:
         return self.layers[self.layer_index(name)]
 
+    def delta_policies(self) -> dict[tuple[str, str, str], tuple[delta_profile.Profile, tuple[str, ...]]]:
+        """Each entity table's Delta profile and readers, by (lakehouse, schema, table), for Store.delta_policies."""
+        names = set(self.layer_names())
+        return {(self.layer(e.layer).lakehouse, e.schema, e.table): delta_profile.table_policy(e.spec)
+                for e in self.entities.values() if e.layer in names}
+
     # ---- layer management
 
     def write_layers(self, layers: list[Layer]) -> None:
@@ -417,7 +463,7 @@ class Project:
         if len(set(names)) != len(names):
             problems.append("layer names must be unique")
         for l in layers:
-            if not _LAYER_NAME.match(l.name):
+            if not _LAYER_NAME.fullmatch(l.name):
                 problems.append(f"layer name {l.name!r} must be lowercase letters, digits or _ and start with a letter")
             if l.drift not in DRIFT_POLICIES:
                 problems.append(f"layer {l.name}: drift must be one of {', '.join(DRIFT_POLICIES)}")
@@ -523,9 +569,38 @@ def describe_exceptions(project: Project, today: dt.date | None = None,
 # --------------------------------------------------------------------------- gate 1: on save
 
 
+# Polars parses a chain of operators (a + b + c ...) recursively, and a long enough one overflows the
+# stack and kills the process instead of raising: about 2,000 links on an 8 MB stack, 250 on a 1 MB
+# thread stack. An expression with more operators than this is refused before Polars sees it.
+MAX_EXPR_OPERATORS = 200
+# Polars' parser takes exponential time on deep nesting (CAST(CAST(... 50 deep runs for minutes), with no operator.
+MAX_EXPR_DEPTH = 32
+_QUOTED_PART = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|`(?:[^`]|``)*`")
+_OPERATOR = re.compile(r"[-+*/%<>=|&^~!]+|\b(?:AND|OR|NOT|IS|IN|LIKE|ILIKE|BETWEEN)\b", re.IGNORECASE)
+
+
+def sql_expr(expr: str) -> pl.Expr:
+    """``pl.sql_expr``, but raising ValueError for an expression too long to parse without crashing."""
+    if not isinstance(expr, str):
+        raise TypeError("an expression must be text")
+    bare = _QUOTED_PART.sub("''", expr)
+    if len(_OPERATOR.findall(bare)) > MAX_EXPR_OPERATORS:
+        raise ValueError(f"expression has more than {MAX_EXPR_OPERATORS} operators, so split it into steps")
+    depth = deepest = 0
+    for ch in bare:
+        if ch == "(":
+            depth += 1
+            deepest = max(deepest, depth)
+        elif ch == ")":  # an unmatched ) never hides the nesting after it
+            depth = max(0, depth - 1)
+    if deepest > MAX_EXPR_DEPTH:
+        raise ValueError(f"expression nests more than {MAX_EXPR_DEPTH} brackets deep, so split it into steps")
+    return pl.sql_expr(expr)
+
+
 def check_expr(expr: str, available: set[str]) -> list[str]:
     try:
-        roots = pl.sql_expr(expr).meta.root_names()
+        roots = sql_expr(expr).meta.root_names()
     except Exception as ex:  # noqa: BLE001 - any parse failure is reported as a problem with the expression
         return [f"expression {expr!r} does not parse ({type(ex).__name__})"]
     return [f"uses unknown column {c}" for c in roots if c not in available]
@@ -640,6 +715,43 @@ def entity_name_problem(name: str) -> str | None:
         return "each part of the name needs at least one character, and none can hold / \\ or :"
     return None
 
+_DELTA_LINE = re.compile(r"^(" + "|".join(delta_profile.TABLE_KEYS) + r")\s*=")
+_TOML_HEADER = re.compile(r"^\s*\[")
+_TOML_KEY = re.compile(r"^[A-Za-z0-9_\"'-]+\s*=")
+
+
+def with_delta_choice(text: str, features: str | None, readers: list[str] | None, accepted: list[str]) -> str:
+    """The entity file ``text`` with its delta_features, delta_readers and delta_accepted set (each left
+    out when None or empty), and every other line as it was. They are top-level keys, so they go after
+    the name, before the first [section]. ValueError when the file's own layout of them can't be
+    changed line by line (a reader list over several lines): then nothing is changed."""
+    lines = text.splitlines()
+    first = next((i for i, line in enumerate(lines) if _TOML_HEADER.match(line)), len(lines))
+    top = [line for line in lines[:first] if not _DELTA_LINE.match(line.strip())]
+    new = ([f"delta_features = {json.dumps(features)}"] if features is not None else []) \
+        + ([f"delta_readers = {json.dumps(list(readers))}"] if readers else []) \
+        + ([f"delta_accepted = {json.dumps(list(accepted))}"] if accepted else [])
+    at = next((i + 1 for i, line in enumerate(top) if re.match(r"^name\s*=", line.strip())), None)
+    if at is None:
+        keys = [i + 1 for i, line in enumerate(top) if _TOML_KEY.match(line.strip())]
+        at = keys[-1] if keys else 0
+    top[at:at] = new
+    out = "\n".join(top + lines[first:]) + ("\n" if text.endswith("\n") or not text else "")
+    before = tomllib.loads(text)
+    try:
+        after = tomllib.loads(out)
+    except tomllib.TOMLDecodeError:
+        after = None
+    want = {k: v for k, v in before.items() if k not in delta_profile.TABLE_KEYS}
+    want |= {k: v for k, v in (("delta_features", features), ("delta_readers", list(readers or []) or None),
+                                ("delta_accepted", list(accepted) or None)) if v is not None}
+    if after != want:
+        raise ValueError("The Delta table features weren't changed, because the entity file sets them in a way "
+                         "KratosForge can't change line by line. Put each delta_ setting on one line in the file, "
+                         "then choose again.")
+    return out
+
+
 def validate(project: Project, today: dt.date | None = None) -> list[str]:
     """The save gate. Every problem in the project; an empty list means it is clean."""
     today = today or dt.date.today()
@@ -669,6 +781,16 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
         for k in e.keys:
             if k not in e.columns:
                 errors.append(f"{e.name}: key {k} is not a contract column")
+        if "entity" in s.get("source", {}):
+            try:
+                keys_mod.source_entity(e)
+            except ValueError as exc:
+                errors.append(str(exc))
+        for section in ("hooks", "step"):
+            part = s.get(section, {})
+            reads = part.get("reads", []) if isinstance(part, dict) else []
+            if not isinstance(reads, list) or not all(isinstance(r, str) and r for r in reads):
+                errors.append(f'{e.name}: [{section}] reads takes a list of entity names, like reads = ["silver.customers"]')
         if e.mode == "incremental" and not s.get("load", {}).get("watermark") and "entity" in s.get("source", {}):
             errors.append(f"{e.name}: incremental loads need a watermark column")
         wm, renames = s.get("load", {}).get("watermark"), s.get("source", {}).get("rename") or {}
@@ -693,13 +815,15 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
                 errors.append(f"{e.name}: [model] date_column {e.date_column} must be a contract column of type date "
                               "or datetime")
         files = s.get("source", {}).get("files", "") or s.get("source", {}).get("landing", "")
-        if files and (Path(files).is_absolute() or re.match(r"^[A-Za-z]:", files)):
+        # rooted ("/data", "\\data", "\\\\server") or a drive: on Windows "/data" has no drive, so isn't is_absolute()
+        if files and (Path(files).is_absolute() or files.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", files)):
             errors.append(f"{e.name}: source path {files} only exists on this PC; put the files in the "
                           f"lakehouse Files area and use a relative path")
         errors += freshness_mod.problems(e.name, s, ENVIRONMENTS)
         errors += objectives_mod.problems(e.name, s, ENVIRONMENTS)
         errors += _batch_by_problems(e)
         errors += _late_and_delete_problems(e)
+        errors += [f"{e.name}: {m}" for m in delta_profile.choice_problems(s)]
         own_drift = s.get("contract", {}).get("drift")
         if own_drift is not None and own_drift not in DRIFT_POLICIES:
             errors.append(f"{e.name}: contract drift must be one of {', '.join(DRIFT_POLICIES)}")
@@ -811,56 +935,83 @@ def _graph(project: Project) -> dict[str, list[str]]:
 
 
 def find_cycle(project: Project) -> list[str] | None:
+    # Depth first with an explicit stack, not recursion: a chain of thousands of entities is fine.
     graph = _graph(project)
     state: dict[str, int] = {}
-    stack: list[str] = []
-
-    def visit(n: str) -> list[str] | None:
-        state[n] = 1
-        stack.append(n)
-        for m in graph[n]:
-            if state.get(m) == 1:
-                return stack[stack.index(m):] + [m]
-            if m not in state and (c := visit(m)):
-                return c
-        stack.pop()
-        state[n] = 2
-        return None
-
-    for n in sorted(graph):
-        if n not in state and (c := visit(n)):
-            return c
+    for root in sorted(graph):
+        if root in state:
+            continue
+        state[root] = 1
+        stack, todo = [root], [iter(graph[root])]
+        while todo:
+            for m in todo[-1]:
+                if state.get(m) == 1:
+                    return stack[stack.index(m):] + [m]
+                if m not in state:
+                    state[m] = 1
+                    stack.append(m)
+                    todo.append(iter(graph[m]))
+                    break
+            else:
+                state[stack.pop()] = 2
+                todo.pop()
     return None
 
 
 def run_order(project: Project) -> list[str]:
+    # Upstream first: each entity after everything it reads (an explicit stack, as in find_cycle).
     graph = _graph(project)
     out: list[str] = []
     seen: set[str] = set()
-
-    def visit(n: str) -> None:
-        if n in seen:
-            return
-        seen.add(n)
-        for m in graph[n]:
-            visit(m)
-        out.append(n)
-
-    for n in sorted(graph, key=lambda n: (project._layer_pos(project.entities[n]), n)):
-        visit(n)
+    for root in sorted(graph, key=lambda n: (project._layer_pos(project.entities[n]), n)):
+        if root in seen:
+            continue
+        seen.add(root)
+        stack = [(root, iter(graph[root]))]
+        while stack:
+            n, todo = stack[-1]
+            for m in todo:
+                if m not in seen:
+                    seen.add(m)
+                    stack.append((m, iter(graph[m])))
+                    break
+            else:
+                stack.pop()
+                out.append(n)
     return out
 
 
 def impact(project: Project, entity: str) -> list[str]:
     """Everything downstream of an entity, nearest first."""
+    reads = {n: set(e.reads()) for n, e in project.entities.items()}  # once, not again at every step of a long chain
     out: list[str] = []
+    found: set[str] = set()
     frontier = [entity]
     while frontier:
         nxt = []
         for f in frontier:
-            for n, e in project.entities.items():
-                if f in e.reads() and n not in out and n != entity:
+            for n in project.entities:
+                if f in reads[n] and n not in found and n != entity:
                     out.append(n)
+                    found.add(n)
                     nxt.append(n)
         frontier = nxt
     return out
+
+
+def prod_name(project: Any) -> str:
+    """What a person types to confirm a change to Prod: its workspace's name, else its id (WR-250)."""
+    cfg = project.environments.get("prod", {}) or {}
+    return str(cfg.get("workspace_name") or cfg.get("workspace_id") or "Prod")
+
+
+def prod_typed(project: Any, env: str, confirm_name: str, doing: str, nothing: str) -> None:
+    """Refuse a change to Prod unless ``confirm_name`` is its workspace's name exactly, as Prod writes ask
+    (WR-250, the product owner's card 2026-11-19). ``confirm_name`` is a guard parameter, so the audit line
+    is written before the change runs (audit.fails_closed)."""
+    if env != "prod":
+        return
+    name = prod_name(project)
+    if confirm_name != name:
+        raise PermissionError(f"{name} is the Prod workspace, so {doing} runs only after you type its name to confirm. "
+                              f"{nothing}")

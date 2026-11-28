@@ -80,7 +80,7 @@ def test_mode_ignore_writes_a_new_file_and_keeps_an_old_one(spark, tmp_path, cap
     assert path.exists()
     assert rows(spark.read.parquet(str(path))) == [(1,)]
     spark.createDataFrame([(2,)], ["id"]).write.mode("ignore").parquet(str(path))
-    assert "already exists, so nothing was written" in capsys.readouterr().out
+    assert capsys.readouterr().out == ""  # silently, as in Spark
     assert rows(spark.read.parquet(str(path))) == [(1,)]
 
 
@@ -217,6 +217,7 @@ def test_use_refuses_three_parts(spark):
 
 
 def test_a_refused_write_option_says_why():
-    assert spark_local.writer_option_refusal("replaceWhere", None) == (
-        "uses the replaceWhere write option: replaceWhere (replace only matching rows) isn't supported on this PC, "
-        "and ignoring it would replace the whole table")
+    assert spark_local.writer_option_refusal("replaceWhere", None) is None
+    assert spark_local.writer_option_refusal("replaceWhere", "saveAsTable") is None
+    assert spark_local.writer_option_refusal("replaceWhere", "insertInto") == (
+        "uses the replaceWhere write option, which insertInto doesn't take on this PC")

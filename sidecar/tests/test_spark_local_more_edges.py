@@ -25,8 +25,8 @@ class _Conf:
 @pytest.mark.parametrize("error", [KeyError("x"), NotImplementedError("x")])
 def test_a_conf_that_cant_answer_has_nothing_set(error):
     session = SimpleNamespace(conf=_Conf(error))
-    assert sl._refuse_dynamic_overwrite(session) is None
-    assert sl._refuse_auto_merge(session) is None
+    assert sl._overwrite_mode(session, {}) == "static"
+    assert sl._auto_merge_on(session) is False
 
 
 def test_a_schema_mismatch_says_how_to_change_the_schema(monkeypatch):
@@ -77,9 +77,9 @@ def test_is_delta_table_takes_a_tables_path_or_a_name(monkeypatch):
     assert seen == ["dbo.sales", "orders"]
 
 
-def test_restore_to_a_time_runs_in_fabric():
-    with pytest.raises(NotImplementedError):
-        sl.LocalDeltaTable("sales").restoreToTimestamp("2026-01-01")
+def test_restore_to_a_time_it_cant_read_is_refused():
+    with pytest.raises(ValueError, match="isn't a date and time RESTORE can read"):
+        sl.LocalDeltaTable("sales").restoreToTimestamp("last tuesday")
 
 
 def test_merge_text_must_be_sql_or_a_column():
@@ -96,8 +96,7 @@ def builder(monkeypatch):
 def test_merge_builder_refusals(builder):
     with pytest.raises(ValueError, match="whenNotMatchedBySourceUpdate needs the columns to set"):
         builder.whenNotMatchedBySourceUpdate(set={})
-    with pytest.raises(NotImplementedError, match="MERGE with schema evolution runs in Fabric"):
-        builder.withSchemaEvolution()
+    assert builder.withSchemaEvolution() is builder and builder._evolve
     with pytest.raises(ValueError, match="has no whenMatched or whenNotMatched clause"):
         builder.execute()
     builder.whenNotMatchedBySourceUpdate("t.active", {"active": "false"}).whenNotMatchedBySourceDelete()

@@ -34,6 +34,7 @@ What runs where, honestly (see each descriptor):
 from __future__ import annotations
 
 import contextlib
+import re
 import sqlite3
 import threading
 import time
@@ -120,7 +121,7 @@ class _SqlSession:
                 seconds = time.perf_counter() - started
                 status = "cancelled" if self._cancelled else "error"
                 out = {"type": "error", "ename": type(exc).__name__,
-                       "evalue": "Cancelled." if self._cancelled else str(exc)}
+                       "evalue": "Cancelled." if self._cancelled else _refusal_text(str(exc))}
                 outputs = [*self._preamble, out]
                 if on_output:
                     for o in outputs:
@@ -241,6 +242,35 @@ _DUCKDB_CLOSED = {"enable_external_access": False, "autoinstall_known_extensions
                   "autoload_known_extensions": False}
 
 
+def _has_variant(kind: object) -> bool:
+    return "VARIANT" in str(kind).upper()
+
+
+def _variants_as_json(rel: Any) -> Any:
+    """``rel`` with each column that is or holds a VARIANT (a Snowflake VARIANT or ARRAY column) written as
+    JSON, so a result shows its values as Snowflake does ([1,"a"]): DuckDB 1.x can't give a VARIANT to Arrow,
+    and DuckDB 2.0 gives its stored bytes. Other columns are as they were. Each column is read by its position
+    (#1, #2, ...), not its name: DuckDB matches names without regard to case, so two columns named a and A
+    would both read the first one."""
+    names, kinds = list(rel.columns), list(rel.types)
+    if not any(_has_variant(k) for k in kinds):
+        return rel
+    def quoted(name: str) -> str:
+        return '"' + name.replace('"', '""') + '"'
+    return rel.project(", ".join(f"CAST(CAST(#{i} AS VARIANT) AS JSON) AS {quoted(n)}" if _has_variant(k)
+                                 else f"#{i} AS {quoted(n)}"
+                                 for i, (n, k) in enumerate(zip(names, kinds, strict=True), start=1)))
+
+
+def _refusal_text(text: str) -> str:
+    """A refusal written into the query (an error(...) with a Databricks error class, such as MERGE's) without
+    the "Invalid Input Error: " DuckDB puts in front of it, so it reads as Databricks writes it."""
+    from ..databricks_volumes import MESSAGE_STARTS
+    prefix = "Invalid Input Error: "
+    starts = (prefix + "[DELTA_", prefix + "[SCHEMA_NOT_FOUND]", *(prefix + s for s in MESSAGE_STARTS))
+    return text[len(prefix):] if text.startswith(starts) else text
+
+
 class OutsideSession(PermissionError):
     """A statement would change something outside the session's own database."""
 
@@ -257,6 +287,8 @@ def _refuse_outside(code: str, dialect: str | None) -> None:
             statements = _databricks(code) if dialect == "databricks" else sql.parse(code, dialect or "duckdb")
     except ValueError:
         return
+    from ..databricks_builtins_sql import WRITTEN_HERE
+    statements = [s for s in statements if not s.meta.get(WRITTEN_HERE)]  # an identity column's sequence, a comment
     for verdict in sql_policy.classify(statements, "lakehouse"):
         if verdict.kind == "fabric_mutation":
             word = (statements[verdict.statement - 1].sql(dialect="duckdb").split(None, 1) or ["This"])[0].upper()
@@ -269,22 +301,116 @@ def _databricks(code: str) -> list[Any]:
     """Databricks SQL statements read by sqlglot's Databricks dialect, with the same Spark spellings and
     fixes sql.parse makes for Spark SQL (X '1010', substring from 0, date_add returning a date, trunc,
     unix_timestamp, Spark's column names), so a query answers here as it does on the warehouse. ValueError when
-    it can't be read."""
-    from sqlglot import exp
-    from sqlglot.errors import ParseError
+    it can't be read, or is nested too deeply to rewrite (as sql.parse)."""
+    from .. import sql_dialects
+    try:
+        return _databricks_statements(code)
+    except RecursionError:  # 1::string::string... a thousand times: read, but too deep to rewrite
+        raise ValueError(sql_dialects.TOO_DEEP) from None
 
-    from .. import sql, sql_dialects
+
+def _databricks_statements(code: str) -> list[Any]:
+    from sqlglot import exp
+    from sqlglot.errors import ParseError, TokenError
+
+    from .. import databricks_volumes, sql, sql_dialects
+    # Unity Catalog volume statements (CREATE, DROP, SHOW, DESCRIBE, ALTER VOLUME, LIST), which sqlglot can't read
+    # or reads as text only: each is a placeholder query until the end, then DuckDB SQL that runs it here
+    code, volume_statements = databricks_volumes.prepare(code)
     try:  # every statement sqlglot returns is an Expression (a Command when it can't read it)
         statements = [s for s in sql_dialects.parse(sql.diff_spellings(sql._spark_spellings(code), databricks=True), read="databricks")
                       if isinstance(s, exp.Expression)]
-    except ParseError as exc:
+    except (ParseError, TokenError) as exc:  # TokenError: an unclosed quote or comment
+        if re.search(r"\bMERGE\s+WITH\s+SCHEMA\s+EVOLUTION\b", code, re.IGNORECASE):  # sqlglot can't read it
+            from ..databricks_builtins_sql import _statement_refusal
+            raise _statement_refusal("MERGE WITH SCHEMA EVOLUTION", "DuckDB's MERGE can't add the source's "
+                                     "extra columns to the target table", "add them with ALTER TABLE ... ADD "
+                                     "COLUMN first, then MERGE without WITH SCHEMA EVOLUTION") from None
         raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(exc)}") from None
     if not statements:
         raise ValueError("The query is empty.")
     # then Databricks' own functions, written for DuckDB or refused by name; not in sql.spark_fixes, which
     # the Academy's learner package carries without them
     from .. import databricks_builtins_sql
-    return [databricks_builtins_sql.rewrite(sql.spark_fixes(s, databricks=True)) for s in statements]
+    try:
+        rewritten = [databricks_builtins_sql.rewrite(sql.spark_fixes(s, databricks=True)) for s in statements]
+    except ParseError as exc:  # a rewrite reads its own SQL again, and sqlglot misread the query the first time
+        raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(exc)}") from None
+    except ValueError as exc:  # a Spark refusal names Fabric: this cell runs as Databricks SQL
+        text = str(exc)
+        if "the way it runs in Fabric" not in text:
+            raise
+        raise ValueError(_databricks_wording(text)) from None
+    # and Unity Catalog names: main.default.t, the schema default, USE CATALOG and USE SCHEMA (WR-316)
+    rewritten = [written for statement in rewritten for written in databricks_builtins_sql.unity_names(statement)]
+    # and its table statements: identity and generated columns, USING DELTA, refusals for the rest (WR-309)
+    rewritten = [written for statement in rewritten for written in databricks_builtins_sql.table_statements(statement)]
+    # and the statements Databricks answers another way: DESCRIBE TABLE, MERGE's multiple matches, refusals
+    rewritten = [written for statement in rewritten for written in databricks_builtins_sql.other_statements(statement)]
+    # the same for a refusal written into the query, which stops it only when a row reaches it; only an
+    # ERROR(...) that carries a refusal's own words, so a message the cell's author wrote stays as written
+    for statement in rewritten:
+        for call in statement.find_all(exp.Anonymous):
+            pieces = [t for t in call.find_all(exp.Literal) if t.is_string]
+            if call.name.upper() != "ERROR" or not any(_REFUSAL in t.name for t in pieces):
+                continue
+            for piece in pieces:
+                piece.replace(exp.Literal.string(_databricks_wording(piece.name)))
+    for statement in rewritten:
+        _short_path_chains(statement)
+    return _volume_statements(rewritten, volume_statements) if volume_statements else rewritten
+
+
+def _volume_statements(statements: list[Any], written: dict[str, list[str]]) -> list[Any]:
+    """``statements`` with each placeholder databricks_volumes.prepare wrote replaced by the DuckDB SQL that runs
+    the volume statement, kept as text (a Command) so it reaches DuckDB as written, and marked as this engine's
+    own (the policy check skips it)."""
+    from sqlglot import exp
+
+    from .. import databricks_volumes
+    from ..databricks_builtins_sql import WRITTEN_HERE
+    out: list[Any] = []
+    for statement in statements:
+        key = databricks_volumes.placeholder(statement)
+        if key is None or key not in written:
+            out.append(statement)
+            continue
+        for text in written[key]:
+            word, _, rest = text.partition(" ")
+            command = exp.Command(this=word, expression=exp.Literal.string(rest))
+            command.meta[WRITTEN_HERE] = True
+            out.append(command)
+    return out
+
+
+_PATH_CHAIN = 8  # links of v:a:b:c... written as -> before the rest are json_extract()
+
+
+def _short_path_chains(statement: Any) -> None:
+    """A chain of more than _PATH_CHAIN JSON paths (v:a:b:c...) with its inner links written as json_extract(),
+    the function -> stands for: DuckDB 1.x binds each -> as a lambda too, in time that doubles with each link,
+    so 20 links took a second and 27 never ended. A shorter chain keeps its ->, and its column name."""
+    from sqlglot import exp
+    for node in list(statement.find_all(exp.JSONExtract)):
+        if isinstance(node.parent, exp.JSONExtract):
+            continue  # not the outermost link
+        chain = [node]
+        while isinstance(chain[-1].this, exp.JSONExtract):
+            chain.append(chain[-1].this)
+        for link in reversed(chain[_PATH_CHAIN:]):  # innermost first, so each takes its rewritten argument
+            link.replace(exp.Anonymous(this="json_extract", expressions=[link.this, link.expression]))
+
+
+_REFUSAL = "can't run on this PC the way it runs in Fabric"
+
+
+def _databricks_wording(text: str) -> str:
+    """A Spark refusal's text, naming Databricks in place of Fabric."""
+    from .. import databricks_builtins_sql
+    return (text.replace("the way it runs in Fabric", "the way it runs in Databricks")
+            .replace(" run in Fabric only", " run on Databricks only")
+            .replace("Run the cell in Fabric", databricks_builtins_sql._WAREHOUSE)
+            .replace("Run it in Fabric, or rewrite", "Run it on a Databricks SQL warehouse, or rewrite"))
 
 
 class DuckDBSession(_SqlSession):
@@ -296,10 +422,17 @@ class DuckDBSession(_SqlSession):
         target = str(Path(config.database)) if config.database else ":memory:"
         self._con = duckdb.connect(target, read_only=bool(config.database), config=dict(_DUCKDB_CLOSED))
         keep_try_cast(self._con)
+        # the tables Snowflake cells made, with each column's Snowflake type (SFX-074)
+        self._snowflake_tables: dict[tuple[str, str], tuple[tuple[str, str], ...]] = {}
         from .. import databricks_bytes, databricks_ip, databricks_variant
         databricks_ip.register(self._con)  # Databricks SQL's IP address functions (databricks_builtins_sql)
         databricks_bytes.register(self._con)  # its byte-level string functions
         databricks_variant.register(self._con)  # and its VARIANT ones
+        from .. import spark_hash
+        spark_hash.register(self._con)  # sha2 at 224, 384 and 512 bits
+        from .. import databricks_volumes
+        databricks_volumes.register(self._con)  # what Unity Catalog volume statements call (Preview)
+        self._volume_reads: list[str] = []      # the tables read_files read for the cell before
 
     def _sql(self, code: str, dialect: str | None) -> str:
         if (dialect or "duckdb") == "duckdb":
@@ -307,6 +440,15 @@ class DuckDBSession(_SqlSession):
         if dialect == "snowflake":
             from .. import snowflake_sql
             translation = snowflake_sql.translate(code)
+            if translation.runnable and snowflake_sql.may_write(code):
+                # again with the session's tables, so a write to a TIMESTAMP_TZ column an earlier cell made is
+                # checked (SFX-074); a cell that runs only in Snowflake reads nothing
+                translation = snowflake_sql.translate(code, snowflake_sql.session_tables(self._con,
+                                                                                         self._snowflake_tables))
+                if translation.runnable:
+                    self._snowflake_tables = dict(translation.tables)
+            elif translation.runnable:
+                self._snowflake_tables = snowflake_sql.tables_after(code, self._snowflake_tables)
             self._preamble = [translation.as_output()]
             if not translation.runnable:
                 raise Unsupported(translation.first_refusal() + " Nothing in the cell ran.")
@@ -315,19 +457,71 @@ class DuckDBSession(_SqlSession):
             raise Unsupported(f"DuckDB doesn't run the {dialect} dialect. Use Spark SQL, Databricks SQL, Snowflake SQL "
                               "or DuckDB SQL.")
         from .. import sql
+        from ..spark_decimals import spark_decimal_types
         statements = _databricks(code) if dialect == "databricks" else sql.parse(code, "spark")
+        if dialect == "databricks":
+            from ..databricks_builtins_sql import table_writes
+            try:
+                statements = table_writes(statements, self._con)
+            except ValueError as exc:
+                raise Unsupported(str(exc)) from None
+            statements = self._read_volumes(statements)
         try:
-            return ";\n".join(sql.duckdb_sql(s) for s in statements)
+            # Spark's (and Databricks') decimal result types, from the session's tables as they are now: a
+            # table the same cell creates isn't there yet, so a statement reading it keeps DuckDB's types
+            return ";\n".join(sql.duckdb_sql(self._spark_types(spark_decimal_types(s, self._con, ansi=dialect == "databricks"),
+                                                            dialect)) for s in statements)
         except ValueError as exc:
+            raise Unsupported(_databricks_wording(str(exc)) if dialect == "databricks" else str(exc)) from None
+
+    def _read_volumes(self, statements: list[Any]) -> list[Any]:
+        """read_files('/Volumes/...') and csv.`/Volumes/...` read now, each as a table of this cell's own; the
+        tables the cell before read are dropped first."""
+        from .. import databricks_volumes
+        for name in self._volume_reads:
+            with contextlib.suppress(Exception):  # silent-ok: a table this session made and no longer needs
+                self._con.unregister(name)
+        self._volume_reads = []
+        try:
+            return databricks_volumes.reads(statements, self._con, self._volume_reads)
+        except (ValueError, OSError) as exc:
             raise Unsupported(str(exc)) from None
 
+    def _spark_types(self, statement: Any, dialect: str) -> Any:
+        """Spark SQL's to_json, written from its argument's type as Spark writes it (spark_json), and a shift of
+        an int typed int, as in Spark. Databricks SQL keeps DuckDB's to_json, as listed in docs/sql-compatibility.md."""
+        if dialect == "databricks":
+            return statement
+        from ..spark_complex import spark_complex_types
+        return spark_complex_types(statement, self._con, kinds=("to_json", "int_shift"))
+
     def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
+        try:
+            return self._run_cell(request)
+        except UnicodeDecodeError:
+            # DuckDB cuts a long error message at a byte count, which can split a character in two, and
+            # its Python package then fails to read the message: 'utf-8' codec can't decode byte 0xd9.
+            raise ValueError("DuckDB stopped the cell, but its error message can't be shown, because DuckDB "
+                             "cut the message in the middle of a non-ASCII character. Shorten the text values "
+                             "in the query, or run it a part at a time, to see the error.") from None
+
+    def _run_cell(self, request: CellRequest) -> tuple[pa.Table | None, int]:
         if request.dialect == "snowflake":   # translated first, so even a refused cell shows its label
             code = self._sql(request.code, request.dialect)
             _refuse_outside(request.code, request.dialect)
         else:
             _refuse_outside(request.code, request.dialect)
             code = self._sql(request.code, request.dialect)
+        if request.dialect == "snowflake":
+            import duckdb
+            from .. import snowflake_sql
+            try:
+                return self._execute(code, request)
+            except duckdb.BinderException as exc:
+                message = snowflake_sql.column_error(str(exc))
+                if message == str(exc):
+                    raise
+                raise duckdb.BinderException(message) from None
         if request.dialect not in ("spark", "databricks"):
             return self._execute(code, request)
         # Spark's TIMESTAMP is read in the session's time zone, which is UTC in Fabric and Databricks
@@ -349,9 +543,17 @@ class DuckDBSession(_SqlSession):
             rel = self._con.sql(code)
             if rel is None:
                 return None, 0
-            reader = rel.to_arrow_reader()
+            reader = _variants_as_json(rel).to_arrow_reader()
         else:
             # On 1.x con.sql gives no result for a change, where execute gives its Count, so keep execute.
+            # DuckDB 1.x can't hand a VARIANT to Arrow, so a cell that ends in a query runs the statements
+            # before it, then binds the query as a relation (which runs nothing) to see its columns: one with
+            # a VARIANT is read through a relation that writes them as JSON. Each statement runs once.
+            relation, code = self._last_query(code)
+            if relation is not None:
+                table, total = _drain(_variants_as_json(relation).to_arrow_reader(), request.preview_rows,
+                                      request.result_rows)
+                return self._keep(table, total, request)
             cur = self._con.execute(code)
             if cur is None or cur.description is None:  # 1.x gives no cursor for a cell with no statement
                 return None, 0
@@ -359,13 +561,49 @@ class DuckDBSession(_SqlSession):
         table, total = _drain(reader, request.preview_rows, request.result_rows)
         return self._keep(table, total, request)
 
+    def _last_query(self, code: str) -> tuple[Any, str]:
+        """DuckDB 1.x: when ``code`` ends in a query, the statements before it are run and the query is bound
+        as a relation (nothing runs). A relation whose result holds a VARIANT is given back, with nothing left
+        to run; otherwise None and what is left to execute (the query alone once the ones before it ran)."""
+        import duckdb
+        try:
+            statements = self._con.extract_statements(code)
+        except duckdb.Error:  # silent-ok: execute reports the same error for the whole cell
+            return None, code
+        if not statements or statements[-1].type != duckdb.StatementType.SELECT:
+            return None, code
+        for statement in statements[:-1]:
+            self._con.execute(statement.query)
+        last = statements[-1].query
+        relation = self._con.sql(last)
+        if relation is None or not any(_has_variant(k) for k in relation.types):
+            return None, last
+        return relation, ""
+
     def _interrupt(self) -> None:
         self._con.interrupt()
 
     def plan(self, code: str, dialect: str | None = None) -> str:
         self._check_open()
         _refuse_outside(code, dialect)
-        rows = self._con.execute("EXPLAIN " + self._sql(code, dialect)).fetchall()
+        # the first statement's plan; EXPLAIN in front of the whole cell would plan the first and run the rest.
+        # An identity column's own sequence is made first (it changes nothing a query reads), so a CREATE TABLE
+        # that numbers its rows can be planned
+        from ..databricks_builtins_sql import IDENTITY_PREFIXES
+        statements = [s.query.strip() for s in self._con.extract_statements(self._sql(code, dialect))]
+        made: list[str] = []
+        try:
+            for statement in statements:
+                if not statement.upper().startswith(tuple(f"CREATE SEQUENCE {p}".upper() for p in IDENTITY_PREFIXES)):
+                    break
+                self._con.execute(statement)
+                made.append(statement.split()[2])
+            else:
+                statement = ""
+            rows = self._con.execute("EXPLAIN " + statement).fetchall() if statement else []
+        finally:  # and dropped again, so a plan leaves the session as it was
+            for name in made:
+                self._con.execute(f"DROP SEQUENCE IF EXISTS {name}")
         text = "\n".join(str(r[-1]) for r in rows)
         if dialect == "snowflake":
             return "Plan of the DuckDB translation on this PC, not of Snowflake's plan.\n" + text

@@ -114,6 +114,12 @@ jobs:
           - os: ubuntu-latest
             image: ubuntu-24.04
     runs-on: ${{ matrix.image }}
+    # A hung test would otherwise hold the runner for GitHub's 6-hour default. The main suite takes
+    # about 55 minutes on Windows and 25 on Linux. Where compat is true (every main push, and a pull
+    # request that changes package versions or code importing duckdb or sqlglot), Linux also runs the
+    # sqlglot-range and next-DuckDB suites: one green main run took 114 minutes, 41 of them on
+    # next-DuckDB. So those runs get 180 minutes and every other run 90.
+    timeout-minutes: ${{ needs.changes.outputs.compat == 'true' && 180 || 90 }}
     env:
       RUN_TESTS: ${{ matrix.os == 'windows-latest' && needs.changes.outputs.windows || needs.changes.outputs.ubuntu }}
     defaults:
@@ -156,14 +162,19 @@ jobs:
       # 100 ms against under 2 ms in the runner's own temp folder on D:, so tests use that one.
       # Tests marked machine_wide_grants take the exercise runtime's access off the shared Python
       # install, which would stop another worker's running exercise, so they run alone afterwards.
-      - run: python -m pytest -q -n auto --dist loadfile --durations=25 -m "not machine_wide_grants"
+      # Each pytest run also writes its results (--junitxml), so a failure's name reaches the job's
+      # summary page even when the log GitHub serves has lost it (failed_tests.py, after the last test).
+      # --max-worker-restart 0: when a worker dies (conftest ends one whose test runs over its time
+      # limit), the run stops and fails at once. With loadfile, xdist's replacement worker gets no
+      # work and no word to stop, so the run waited until the job's time limit instead.
+      - run: python -m pytest -q -n auto --dist loadfile --max-worker-restart 0 --durations=25 -m "not machine_wide_grants" --junitxml="${{ runner.temp }}/junit-main.xml"
         if: env.RUN_TESTS == 'true'
         env:
           TMP: ${{ matrix.os == 'windows-latest' && runner.temp || '' }}
           TEMP: ${{ matrix.os == 'windows-latest' && runner.temp || '' }}
       - name: Tests that change machine-wide grants, one at a time
         if: env.RUN_TESTS == 'true' && matrix.os == 'windows-latest'
-        run: python -m pytest -q -p no:xdist -m machine_wide_grants
+        run: python -m pytest -q -p no:xdist -m machine_wide_grants --junitxml="${{ runner.temp }}/junit-grants.xml"
         env:
           TMP: ${{ matrix.os == 'windows-latest' && runner.temp || '' }}
           TEMP: ${{ matrix.os == 'windows-latest' && runner.temp || '' }}
@@ -190,6 +201,12 @@ jobs:
       - if: env.RUN_TESTS == 'true' && matrix.os == 'ubuntu-latest' && needs.changes.outputs.compat != 'true'
         working-directory: .
         run: echo "This pull request changes no package versions and no code that imports duckdb or sqlglot, so the next-DuckDB and sqlglot-range runs wait for main and the nightly run."
+      - name: Name the failed tests
+        if: failure() && env.RUN_TESTS == 'true'
+        shell: bash
+        run: cd "$RUNNER_TEMP" && python "$GITHUB_WORKSPACE/.github/scripts/failed_tests.py" junit junit-*.xml
+        env:
+          FAILED_TESTS_TITLE: Engine tests on ${{ matrix.os }}
 
   ui:
     # The UI has no build step, so a syntax error would otherwise ship as a blank page.
@@ -199,7 +216,13 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
-      - run: node --test app/tests/ui.test.cjs
+      # The results also go to a file, so failed_tests.py can name the failures on the summary page.
+      - run: node --test --test-reporter=tap --test-reporter-destination=stdout --test-reporter=tap --test-reporter-destination="$RUNNER_TEMP/ui.tap" app/tests/ui.test.cjs
+      - name: Name the failed tests
+        if: failure()
+        run: python3 .github/scripts/failed_tests.py tap "$RUNNER_TEMP/ui.tap"
+        env:
+          FAILED_TESTS_TITLE: UI tests
 
   lint:
     # Mistakes rather than style in the engine's Python: syntax errors, names that are unused or
@@ -286,10 +309,18 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund
           npm audit signatures
         working-directory: vscode
+      # The reporters go through NODE_OPTIONS because npm test's node --test takes no options after
+      # its files; the second writes the results to a file for failed_tests.py.
       - run: npm test
         working-directory: vscode
         env:
           FABRIC_DESKTOP_PYTHON: python
+          NODE_OPTIONS: --test-reporter=tap --test-reporter-destination=stdout --test-reporter=tap --test-reporter-destination=${{ runner.temp }}/vscode.tap
+      - name: Name the failed tests
+        if: failure()
+        run: python .github/scripts/failed_tests.py tap "$RUNNER_TEMP/vscode.tap"
+        env:
+          FAILED_TESTS_TITLE: VS Code extension tests
       # The installable extension (.vsix), attached to each Preview release, built reproducibly:
       # - The version and the files' time come from the commit (0.2.<commit time, UTC>, newer than
       #   every 0.1.<run number> before it), so VS Code takes a newer file as an update.
@@ -405,10 +436,17 @@ jobs:
       - run: NODE_PATH="$RUNNER_TEMP/pw/node_modules" node -e "require('playwright'); require.resolve('axe-core/axe.min.js')"
       # One file at a time: each starts a Chromium and an engine, and running them side by side on
       # a small runner made engine replies miss the tests' 10 s waits.
-      - run: node --test --test-concurrency=1 "app/tests/browser/*.test.cjs"
+      # The results also go to a file: a long run's log loses its early lines, and with them the
+      # name of a test that failed early (2026-11-09), so failed_tests.py puts the names on the summary page.
+      - run: node --test --test-concurrency=1 --test-reporter=tap --test-reporter-destination=stdout --test-reporter=tap --test-reporter-destination="$RUNNER_TEMP/ui-browser.tap" "app/tests/browser/*.test.cjs"
         env:
           NODE_PATH: ${{ runner.temp }}/pw/node_modules
           FABRIC_DESKTOP_PYTHON: python
+      - name: Name the failed tests
+        if: failure()
+        run: python .github/scripts/failed_tests.py tap "$RUNNER_TEMP/ui-browser.tap"
+        env:
+          FAILED_TESTS_TITLE: Browser tests
 
   audit:
     # Known vulnerabilities in what the app ships: the engine's pinned Python packages, the
@@ -428,38 +466,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
-      # constraints.txt is the engine's packages as tests run them; engine-requirements.txt is the set
-      # the release engine ships; dbconnect_locks are what "Install Databricks Connect" puts on a PC.
-      - name: Python packages (constraints, engine and Databricks Connect locks)
-        run: |
-          python -m pip install --quiet --only-binary=:all: --require-hashes -r .github/requirements/pip-audit.txt
-          ignore="$(python .github/scripts/audit_exceptions.py pip)"
-          failed=0
-          for lock in sidecar/constraints.txt sidecar/engine-requirements.txt sidecar/fabric_desktop/engines/dbconnect_locks/*.txt; do
-            echo "== $lock"
-            status=0
-            pip-audit -r "$lock" --no-deps --disable-pip --progress-spinner off $ignore \
-              --format json --output "$RUNNER_TEMP/pip-audit.json" || status=$?
-            [ "$status" -eq 0 ] || { failed=1; python .github/scripts/audit_exceptions.py hint pip "$RUNNER_TEMP/pip-audit.json"; }
-          done
-          exit $failed
-      # CI's own tools (sidecar/ci-constraints.txt) never ship, so an advisory against one is
-      # reported in the log but doesn't hold Preview back.
-      - name: CI tools (sidecar/ci-constraints.txt, advisory only)
-        continue-on-error: true
-        run: pip-audit -r sidecar/ci-constraints.txt --no-deps --disable-pip --progress-spinner off
-      # The UI's vendor bundles and the VS Code extension: every package in their lock files, build
-      # tools too (they make what ships). High and critical fail; moderate and low are warnings.
-      - name: npm packages (app/ui/vendor and vscode lock files)
-        run: |
-          failed=0
-          for lock in app/ui/vendor/*/package-lock.json vscode/package-lock.json; do
-            echo "== $lock"
-            rm -f "$RUNNER_TEMP/npm-audit.json"  # a failed audit must not leave the previous lock's report to read
-            (cd "$(dirname "$lock")" && npm audit --package-lock-only --json > "$RUNNER_TEMP/npm-audit.json") || true
-            python .github/scripts/audit_exceptions.py npm "$RUNNER_TEMP/npm-audit.json" "$lock" || failed=1
-          done
-          exit $failed
       # Keeps the cargo-audit and cargo-deny binaries between runs (~/.cargo/bin); only main writes the cache.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2, the same pin as the shell job
         with:
@@ -467,14 +473,12 @@ jobs:
           workspaces: app/src-tauri
           cache-targets: "false"
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-      - name: Rust crates (app/src-tauri/Cargo.lock)
-        run: |
-          cargo audit --version 2>/dev/null | grep -qwF 0.22.2 || cargo install --locked cargo-audit --version 0.22.2
-          ignore="$(python .github/scripts/audit_exceptions.py cargo)"
-          status=0
-          cargo audit --file app/src-tauri/Cargo.lock $ignore --json > "$RUNNER_TEMP/cargo-audit.json" || status=$?
-          [ "$status" -eq 0 ] || python .github/scripts/audit_exceptions.py hint cargo "$RUNNER_TEMP/cargo-audit.json"
-          exit $status
+      - uses: ./.github/actions/dependency-audit
+      # CI's own tools (sidecar/ci-constraints.txt) never ship, so an advisory against one is
+      # reported in the log but doesn't hold Preview back.
+      - name: CI tools (sidecar/ci-constraints.txt, advisory only)
+        continue-on-error: true
+        run: pip-audit -r sidecar/ci-constraints.txt --no-deps --disable-pip --progress-spinner off
       # The shell's crates for the Windows exe: only the licences app/src-tauri/deny.toml allows,
       # no "*" versions, and crates.io as the only source. Advisories stay with cargo-audit above.
       - name: Rust crate licences, bans and sources (app/src-tauri/deny.toml)
@@ -752,13 +756,21 @@ jobs:
       # The shell's unit tests (update checksums, update policy, sign-in cookies, engine time
       # limits), before the exe is signed or published. Same profile and environment as the build
       # above, so the build script doesn't rerun and the compiled crates are reused.
+      # Its output also goes to a file for failed_tests.py; bash stops on cargo's exit code (pipefail).
       - name: Run the shell's tests
-        run: cargo test --release --locked
+        shell: bash
+        run: cargo test --release --locked 2>&1 | tee "$RUNNER_TEMP/cargo-test.txt"
         env:
           FABRIC_RELEASE_COMMIT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha || '' }}
           FABRIC_CLIENT_ID: ${{ vars.FABRIC_CLIENT_ID }}
           FABRIC_ENGINE_SHA256: ${{ needs.engine.outputs.engine_sha256 }}
           FABRIC_ENGINE_UPDATE_SHA256: ${{ needs.engine.outputs.engine_update_sha256 }}
+      - name: Name the failed tests
+        if: failure()
+        shell: bash
+        run: python ../../.github/scripts/failed_tests.py cargo "$RUNNER_TEMP/cargo-test.txt"
+        env:
+          FAILED_TESTS_TITLE: Shell tests
       # Clippy's lints on the shell and its tests, every warning an error, so a new one is fixed in
       # the pull request that adds it. Same environment again, so the build script doesn't rerun.
       - name: Lint the shell (clippy)

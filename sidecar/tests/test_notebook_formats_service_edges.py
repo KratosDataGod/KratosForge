@@ -87,3 +87,20 @@ def test_export_with_no_free_file_name_left_says_so(svc, monkeypatch):
     monkeypatch.setattr(builtins, "open", taken)
     with pytest.raises(ValueError, match="free file name in Downloads"):
         svc.notebook_export("Daily", CELLS, "fabric_py")
+
+
+def test_the_page_to_print_is_the_web_page_export_and_writes_nothing(svc, tmp_path):
+    from fabric_desktop import audit
+    from fabric_desktop import known_folders
+
+    cells = [{"type": "code", "source": "print('<b>')", "outputs": [{"type": "stream", "text": "<i>x</i>"}], "count": 1}]
+    before = sorted(p.name for p in known_folders.downloads().glob("*")) if known_folders.downloads().exists() else []
+    page = svc.notebook_print_page("Sales", cells)["html"]
+    assert page == nbf.to_html("Sales", cells)
+    assert "&lt;i&gt;x&lt;/i&gt;" in page and "<i>" not in page
+    assert "@media print" in page
+    after = sorted(p.name for p in known_folders.downloads().glob("*")) if known_folders.downloads().exists() else []
+    assert after == before
+    assert "notebook_print_page" in audit.READ_ONLY
+    with pytest.raises(ValueError, match="list of cells"):
+        svc.notebook_print_page("Sales", "x")

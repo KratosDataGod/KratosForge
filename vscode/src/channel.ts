@@ -34,12 +34,51 @@ export function readPortFile(dir: string): { port: number; hello: string } | nul
   } catch {
     return null;
   }
-  const [port, hello] = text.trim().split(/\s+/);
+  if (text.length > 1024) return null;
+  const [port, hello, ...rest] = text.trim().split(/[ \t\r\n]+/);
   const n = Number(port);
-  return Number.isInteger(n) && n > 0 && n < 65536 && hello ? { port: n, hello } : null;
+  // The app writes "<port> <hello>", with hello from secrets.token_urlsafe: anything else isn't its
+  // file, and a hello that isn't one is never sent as a header.
+  return /^[0-9]{1,5}$/.test(port) && n > 0 && n < 65536 && HELLO.test(hello || "") && !rest.length ? { port: n, hello } : null;
 }
 
-export const NOT_LISTENING = "KratosForge isn't running, or Let VS Code run notebooks is off in its Settings > Integrations.";
+const HELLO = /^[A-Za-z0-9_-]{1,256}$/;
+// A pairing token as the app issues it (editor_pairing.py: "kfp_" and secrets.token_urlsafe(32)).
+const TOKEN = /^[A-Za-z0-9_-]{16,512}$/;
+const KEEPS = ["session", "8h", "7d"];
+
+/** ``value`` when ``ok`` says it's shaped as the caller reads it; otherwise the call fails as a reply
+ * this extension can't read, before anything acts on it. */
+function shaped<T>(value: unknown, ok: (v: any) => boolean): T {
+  let fine = false;
+  try {
+    fine = !!value && typeof value === "object" && !Array.isArray(value) && ok(value);
+  } catch {
+    fine = false;
+  }
+  if (!fine) throw new ChannelError(0, "bad_reply", BAD_REPLY);
+  return value as T;
+}
+const text = (v: unknown, max = 512): boolean => typeof v === "string" && v.length > 0 && v.length <= max;
+const count = (v: unknown): boolean => v === undefined || v === null || (Number.isSafeInteger(v) && (v as number) >= 0);
+
+// What a cell can be (notebook.py, kernel_proc.py). Any other status would end the run as if it were
+// "ok", so it reads as a reply this window can't read.
+const STATUSES = ["running", "paused", "ok", "error", "cancelled", "idle"];
+
+/** A cell's snapshot: a status, and outputs that are each an object (outputs.ts reads each one). */
+function snapshot(value: unknown): Snapshot {
+  const snap = shaped<Snapshot>(value, (v) => STATUSES.includes(v.status)
+    && (v.outputs === undefined || v.outputs === null || (Array.isArray(v.outputs)
+      && v.outputs.every((o: unknown) => !!o && typeof o === "object" && !Array.isArray(o))))
+    && count(v.version) && count(v.execution_count)
+    && (v.seconds === undefined || v.seconds === null || (Number.isFinite(v.seconds) && v.seconds >= 0)));
+  for (const k of ["outputs", "version", "execution_count", "seconds"] as const) if (snap[k] === null) delete snap[k];
+  return snap;
+}
+
+export const NOT_LISTENING = "KratosForge isn't running, or Let VS Code run notebooks is off in its Settings > Integrations. "
+  + "Start KratosForge and turn it on there, then run the cell again.";
 export const NOT_KRATOSFORGE = "Something other than KratosForge is listening on the editor channel's port, so this window "
   + "sent it nothing. Restart KratosForge, then try again.";
 
@@ -57,6 +96,62 @@ export function unreachable(code: string): string {
 const POLL_RETRIES = 3;
 // A poll that got no answer at all is asked again only once, so a hung app fails the cell in about two minutes.
 const POLL_TIMEOUT_RETRIES = 1;
+// A poll answered faster than this with nothing new didn't wait for the cell (see run).
+const QUICK_POLL = 250;
+export const NOT_PAIRED = "This window's pairing with KratosForge has ended. It ran out, was ended in KratosForge, or "
+  + "KratosForge restarted. Run the cell again to pair this window.";
+export const HELLO_CHANGED = "KratosForge restarted while this window was asking to pair. Run the cell again to ask again.";
+export const OFF = "Let VS Code run notebooks is off in KratosForge's Settings > Integrations, or your organization doesn't "
+  + "allow it. Turn it on there, or ask your admin if your organization turned it off, then run the cell again.";
+export const PAIR_DENIED = "Pairing was denied in KratosForge. To pair this window, run the cell again and choose Pair this "
+  + "window in KratosForge.";
+export const PAIR_UNANSWERED = "Nobody answered in KratosForge, so this window isn't paired. Run the cell again, then choose "
+  + "Pair this window in KratosForge while it asks.";
+export const PAIR_CANCELLED = "Pairing was cancelled. Run the cell again to pair this window.";
+export const PAIR_EXPIRED = "That pairing request ran out before anyone answered in KratosForge. Run the cell again to ask again.";
+export const BAD_REPLY = "KratosForge sent a reply this extension can't read. Install kratosforge.vsix from KratosForge's "
+  + "latest release, then reload this window.";
+export const OUT_OF_STEP = " This extension and KratosForge may be out of step: install kratosforge.vsix from KratosForge's "
+  + "latest release, then reload this window.";
+export function unexpected(message: string): string {
+  return `KratosForge hit an error it didn't expect (${message}). Run the cell again; if it keeps happening, restart KratosForge.`;
+}
+
+// Words that tell the person what to do next. An app message without any gets the window's own.
+const NEXT_STEP = /run the cell again|install kratosforge|turn it on|pair the window|answer them|open the repository|restart kratosforge|try again|split it|open the notebook|pick kratosforge|start kratosforge|import the notebook|save the notebook|move it|rename/i;
+export const hasNextStep = (text: string): boolean => NEXT_STEP.test(text);
+const THEN_AGAIN = " Once that's sorted out, run the cell again.";
+
+/** The error the window shows for an answer the app refused: each with a name and a next step. Where the
+ * app's own words already say what to do (a notebook outside the paired folder, too many windows asking
+ * to pair), they're kept; elsewhere the window says it in its own words. */
+export function refusal(status: number, code: string | undefined, message: string | undefined, pairing = false,
+  hello = false): ChannelError {
+  // Only words and a name the app could have sent: anything else reads as no message and no code.
+  // A long message is cut, not dropped, so its start (which says what went wrong) still shows.
+  const folded = typeof message === "string" ? message.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").trim() : "";
+  const said = folded.length > MAX_MESSAGE ? folded.slice(0, MAX_MESSAGE).trimEnd() + "…" : folded;
+  if (typeof code !== "string" || !/^[a-z_]{1,40}$/.test(code)) code = undefined;
+  switch (code) {
+    case "not_paired": return new ChannelError(status, "not_paired", NOT_PAIRED);
+    // Only a call that sends the hello (asking to pair) is checked against it; anywhere else it means
+    // the window's pairing no longer holds.
+    case "unauthorized": return new ChannelError(status, "unauthorized", hello ? HELLO_CHANGED : NOT_PAIRED);
+    case "off": return new ChannelError(status, "off", OFF);
+    case "busy": return new ChannelError(status, "busy", BUSY);
+    case "extension_too_old": return new ChannelError(status, "extension_too_old", EXTENSION_TOO_OLD);
+    case "not_found": return pairing ? new ChannelError(status, "expired", PAIR_EXPIRED)
+      : new ChannelError(status, "not_found", said ? (hasNextStep(said) ? said : said + THEN_AGAIN) : "KratosForge couldn't find that notebook or cell." + OUT_OF_STEP);
+    case "invalid_input": case "too_large": return new ChannelError(status, code, (said ? `${said}` : "KratosForge refused the request.") + OUT_OF_STEP);
+    case "internal": return new ChannelError(status, "internal", unexpected(said || `status ${status}`));
+    case "refused": case "failed": if (said) return new ChannelError(status, code, hasNextStep(said) ? said : said + THEN_AGAIN);
+      return new ChannelError(status, code, unexpected(`status ${status}`));
+    default: return new ChannelError(status, code || "failed", said ? said + OUT_OF_STEP : unexpected(`status ${status}`));
+  }
+}
+
+const MAX_MESSAGE = 4000;
+
 export const BUSY = "KratosForge has too many editor connections open right now. Try again in a moment.";
 // Only the engine's accept-time refusal is "busy" (editor_channel.py), so a retried call never ran.
 const BUSY_RETRIES = 3;
@@ -153,14 +248,14 @@ export class Channel {
     const want = crypto.createHmac("sha256", where.hello).update(nonce).digest();
     const got = Buffer.from(proof, "hex");
     if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) {
-      if (reply.payload?.error?.code === "off") throw new ChannelError(reply.status, "off", reply.payload.error.message || NOT_LISTENING);
+      if (reply.payload?.error?.code === "off") throw new ChannelError(reply.status, "off", OFF);
       if (reply.payload?.error?.code === "busy" && reply.status === 503) throw new ChannelError(503, "busy", BUSY);
       if (reply.payload?.error?.code === "extension_too_old") throw new ChannelError(reply.status, "extension_too_old", EXTENSION_TOO_OLD);
       throw new ChannelError(0, "not_kratosforge", NOT_KRATOSFORGE);
     }
     // Proven, so the version is KratosForge's own. An app from before versions were reported speaks 1.
     const api = result?.api === undefined ? 1 : result.api;
-    if (typeof api !== "number" || !Number.isInteger(api) || api < 1) throw new ChannelError(0, "bad_reply", "KratosForge sent a reply this extension can't read.");
+    if (typeof api !== "number" || !Number.isInteger(api) || api < 1) throw new ChannelError(0, "bad_reply", BAD_REPLY);
     if (api > API_VERSION) throw new ChannelError(0, "app_too_new", APP_TOO_NEW);
   }
 
@@ -178,6 +273,9 @@ export class Channel {
   }
 
   private async once(method: string, url: string, body?: unknown, hello = false): Promise<unknown> {
+    // A kept token that isn't one the app issues (garbled where it was stored) is never sent: the
+    // window reads as unpaired, so it's forgotten and the window pairs again.
+    if (!hello && this.token && !TOKEN.test(this.token)) throw new ChannelError(0, "not_paired", NOT_PAIRED);
     const where = readPortFile(this.dir);
     if (!where) throw new ChannelError(0, "not_listening", NOT_LISTENING);
     await this.prove(where);
@@ -190,19 +288,26 @@ export class Channel {
     if (hello) headers["X-KratosForge-Hello"] = where.hello;
     else if (this.token) headers.Authorization = `Bearer ${this.token}`;
     const { status, payload } = await send(where.port, method, url, headers, data, this.timeout);
-    if (!payload) throw new ChannelError(status, "bad_reply", "KratosForge sent a reply this extension can't read.");
+    if (!payload) throw new ChannelError(status, "bad_reply", BAD_REPLY);
     if (payload.ok) return payload.result;
-    if (status === 503 && payload.error?.code === "busy") throw new ChannelError(503, "busy", BUSY);
-    throw new ChannelError(status, payload.error?.code || "failed", payload.error?.message || "KratosForge refused it.");
+    if (payload.error?.code === "busy" && status !== 503) throw new ChannelError(status, "failed", unexpected(`busy, status ${status}`));
+    throw refusal(status, payload.error?.code, payload.error?.message, url.startsWith("/v1/pair/"), hello);
   }
 
   /** Asks to pair; the app shows the request with ``code``, which this window shows too. */
-  ask(window: string, client: string): Promise<{ id: string; code: string; expires_in: number }> {
-    return this.request("POST", "/v1/pair", { window, client }, true) as Promise<{ id: string; code: string; expires_in: number }>;
+  async ask(window: string, client: string): Promise<{ id: string; code: string; expires_in: number }> {
+    return shaped(await this.request("POST", "/v1/pair", { window, client }, true),
+      (v) => text(v.id, 200) && text(v.code, 64) && Number.isFinite(v.expires_in) && v.expires_in > 0 && v.expires_in <= 86_400);
   }
 
-  collect(id: string): Promise<{ state: string; token?: string; keep?: string }> {
-    return this.request("GET", `/v1/pair/${encodeURIComponent(id)}`, undefined, true) as Promise<{ state: string; token?: string; keep?: string }>;
+  async collect(id: string): Promise<{ state: string; token?: string; keep?: string }> {
+    const got = shaped<{ state: string; token?: string | null; keep?: string | null }>(
+      await this.request("GET", `/v1/pair/${encodeURIComponent(id)}`, undefined, true),
+      (v) => text(v.state, 40) && (v.token === undefined || v.token === null || TOKEN.test(v.token))
+        && (v.keep === undefined || v.keep === null || KEEPS.includes(v.keep)));
+    if (got.token === null) delete got.token;
+    if (got.keep === null) delete got.keep;
+    return got as { state: string; token?: string; keep?: string };
   }
 
   /** Waits for the person to answer in the app. Resolves with the token and how long it's kept. */
@@ -217,33 +322,33 @@ export class Channel {
         this.token = got.token;
         return { token: got.token, keep: got.keep || "session" };
       }
-      if (got.state === "denied") throw new ChannelError(403, "denied", "Pairing was denied in KratosForge.");
+      if (got.state === "denied") throw new ChannelError(403, "denied", PAIR_DENIED);
       if (got.state === "expired") break;
       await new Promise((r) => setTimeout(r, every));
     }
-    throw new ChannelError(408, "expired", cancelled() ? "Pairing was cancelled." : "Nobody answered in KratosForge, so this window isn't paired.");
+    throw cancelled() ? new ChannelError(408, "cancelled", PAIR_CANCELLED) : new ChannelError(408, "expired", PAIR_UNANSWERED);
   }
 
-  status(): Promise<{ app: string; version: string; pairing: Record<string, unknown> }> {
-    return this.request("GET", "/v1/status") as Promise<{ app: string; version: string; pairing: Record<string, unknown> }>;
+  async status(): Promise<{ app: string; version: string; pairing: Record<string, unknown> }> {
+    return shaped(await this.request("GET", "/v1/status"), () => true);
   }
 
   unpair(): Promise<unknown> {
     return this.request("DELETE", "/v1/pair");
   }
 
-  notebook(file: string): Promise<{ name: string }> {
-    return this.request("POST", "/v1/notebook", { path: file }) as Promise<{ name: string }>;
+  async notebook(file: string): Promise<{ name: string }> {
+    return shaped(await this.request("POST", "/v1/notebook", { path: file }), (v) => text(v.name, 4096));
   }
 
-  start(file: string, code: string): Promise<Snapshot> {
+  async start(file: string, code: string): Promise<Snapshot> {
     const size = Buffer.byteLength(JSON.stringify({ path: file, code }));
-    if (size > MAX_REQUEST) return Promise.reject(new ChannelError(0, "cell_too_large", cellTooLarge(size)));
-    return this.request("POST", "/v1/run", { path: file, code }) as Promise<Snapshot>;
+    if (size > MAX_REQUEST) throw new ChannelError(0, "cell_too_large", cellTooLarge(size));
+    return snapshot(await this.request("POST", "/v1/run", { path: file, code }));
   }
 
-  poll(file: string, version = -1, wait = 20): Promise<Snapshot> {
-    return this.request("GET", `/v1/run?path=${encodeURIComponent(file)}&version=${version}&wait=${wait}`) as Promise<Snapshot>;
+  async poll(file: string, version = -1, wait = 20): Promise<Snapshot> {
+    return snapshot(await this.request("GET", `/v1/run?path=${encodeURIComponent(file)}&version=${version}&wait=${wait}`));
   }
 
   interrupt(file: string): Promise<unknown> {
@@ -276,7 +381,12 @@ export class Channel {
     progress(snap);
     let version = snap.version ?? -1;
     while (snap.status === "running" || snap.status === "paused") {
+      const asked = Date.now();
       const next = await this.pollAgain(file, version);
+      // The app holds a poll until the cell changes. One that comes straight back unchanged (an app that
+      // doesn't wait) is asked again only after a pause, so this window never polls in a tight loop.
+      const same = (next.version ?? version) === version && next.status === snap.status;
+      if (same && Date.now() - asked < QUICK_POLL) await new Promise((r) => setTimeout(r, this.pollPause));
       // The session this cell ran in is gone (no session, or a new one counting from the start):
       // the app restarted. Its last output isn't the cell's result, so say so rather than end "ok".
       if (next.status === "idle" || (next.version ?? version) < version) throw new ChannelError(0, "restarted", RESTARTED);

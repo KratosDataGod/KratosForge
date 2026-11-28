@@ -19,7 +19,15 @@ def rows(query: str) -> list[tuple]:
 
 
 def one(query: str):
-    return rows(query)[0][0]
+    return wall_time(rows(query)[0][0])
+
+
+def wall_time(value):
+    """A timestamp as its wall time in UTC, the session's zone here: Spark's timestamp has a zone, which
+    DuckDB 1.x hands back with the value and 2.x leaves off."""
+    if isinstance(value, dt.datetime) and value.tzinfo is not None:
+        return value.astimezone(dt.timezone.utc).replace(tzinfo=None)
+    return value
 
 
 # (Spark SQL, Spark 3.5's value)
@@ -44,6 +52,7 @@ SCALARS = [
     ("SELECT try_to_timestamp('2016-12-31', 'yyyy-MM-dd')", dt.datetime(2016, 12, 31)),
     ("SELECT make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)", dt.datetime(2014, 12, 28, 6, 30, 45, 887000)),
     ("SELECT make_timestamp_ntz(2014, 13, 28, 6, 30, 45)", None),  # Spark with ANSI off: NULL, not an error
+    # A known difference: Spark writes INTERVAL '1 12:30:01.001001' DAY TO SECOND (the Spark text-of-values round fixes it).
     ("SELECT CAST(make_dt_interval(1, 12, 30, 01.001001) AS STRING)", "1 day 12:30:01.001001"),
     ("SELECT isnull(1)", False),
     ("SELECT isnotnull(1)", True),
@@ -255,9 +264,10 @@ def test_reserved_names_are_refused_plainly():
         sql.parse("SELECT array_repeat(kf_i, 2) FROM VALUES (1) AS t(kf_i)")
 
 
-def test_date_trunc_of_a_timestamp_keeps_its_type():
+def test_date_trunc_is_sparks_timestamp_whatever_it_is_given():
+    """TruncTimestamp's result is Spark's timestamp: a timestamp_ntz or a date is cast to one first (WR-258)."""
     statement = sql.parse("SELECT date_trunc('HOUR', ts) FROM t")[0]
-    assert "TRY_CAST" not in sql.duckdb_sql(statement)
+    assert "TRY_CAST(ts AS TIMESTAMPTZ)" in sql.duckdb_sql(statement)
 
 
 def test_databricks_sql_gets_the_same_functions():
@@ -576,7 +586,7 @@ CAST_FUNCTIONS = [
     ("SELECT regexp('abc', '^b')", False),
     ("SELECT regexp(NULL, 'a')", None),
     ("SELECT TIMESTAMP '2026-01-31 00:00:00' + make_interval(1, 2, 0, 3, 4, 5, 6.5)",
-     dt.datetime(2027, 4, 3, 4, 5, 6, 500000, tzinfo=dt.timezone.utc)),  # Spark's TIMESTAMP is the session's (UTC)
+     dt.datetime(2027, 4, 3, 4, 5, 6, 500000)),  # Spark's TIMESTAMP, as its wall time in the session's zone (UTC)
 ]
 
 
@@ -613,3 +623,41 @@ def test_sqlglot_marks_a_cast_function_but_not_a_typed_literal():
     literal = sqlglot.parse_one("SELECT DATE '2026-01-01'", read="spark").expressions[0]
     function = sqlglot.parse_one("SELECT date('2026-01-01')", read="spark").expressions[0]
     assert "start" not in literal.meta and "start" in function.meta
+
+
+@pytest.mark.parametrize(("call", "depth", "want"), [
+    ("upper(lower({}))", 8, "A.B.C"),
+    ("trim({})", 8, "a.b.c"),
+    ("substring_index({}, '.', 2)", 12, "a.b"),
+])
+def test_calls_nested_in_each_other_grow_the_sql_in_step_not_exponentially(call, depth, want):
+    # Each call reads its argument several times; copied into each place, 8 nested upper(lower(...))
+    # came to megabytes of SQL that took minutes to plan.
+    text = "x"
+    for _ in range(depth):
+        text = call.format(text)
+    query = f"SELECT {text} AS v FROM (SELECT 'a.b.c' AS x)"
+    assert len(sql.duckdb_sql(sql.parse(query)[0])) < 100_000
+    assert one(query) == want
+
+
+def test_an_argument_that_can_raise_is_copied_not_worked_out_once():
+    # Bound, an argument is worked out on every row; one with raise_error stays where the template put it.
+    inner = "lpad(rpad(lpad(rpad(x, 9, '-'), 12, '-'), 14, '-'), 16, '-')"
+    bound = f"SELECT find_in_set({inner}, 'a,b') AS v FROM (SELECT 'a' AS x)"
+    raising = (f"SELECT find_in_set(CASE WHEN x IS NULL THEN raise_error('boom') ELSE {inner} END, 'a,b') AS v "
+               "FROM (SELECT 'a' AS x)")
+    assert "kf_bound" in sql.duckdb_sql(sql.parse(bound)[0])
+    assert "kf_bound" not in sql.duckdb_sql(sql.parse(raising)[0])
+    assert one(raising) == one(bound) == 0
+
+
+@pytest.mark.parametrize("inner", ["max(x)", "(SELECT max(x) FROM t)", "first_value(x) OVER ()"])
+def test_calls_nested_over_an_aggregate_a_subquery_or_a_window_grow_in_step(inner):
+    # The innermost value goes in the list outside the lambda, where these may be.
+    text = inner
+    for _ in range(8):
+        text = f"substring_index({text}, '.', 2)"
+    query = f"WITH t AS (SELECT 'a.b.c' AS x) SELECT {text} AS v FROM t"
+    assert len(sql.duckdb_sql(sql.parse(query)[0])) < 100_000
+    assert one(query) == "a.b"

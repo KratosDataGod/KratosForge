@@ -36,3 +36,11 @@ def test_a_text_component_compiles_as_an_empty_text_box_with_a_warning():
     assert out["warnings"][0] == "c_note: text boxes aren't compiled yet; it is an empty text box."
     visual = json.loads(out["parts"]["definition/pages/pg_customers/visuals/c_note/visual.json"])["visual"]
     assert visual == {"visualType": "textbox"}
+
+
+def test_a_page_id_that_cant_be_a_folder_name_is_refused_even_past_the_spec_check(monkeypatch):
+    spec = sales()
+    spec["pages"][0]["id"] = "../outside"
+    monkeypatch.setattr(pbir.specs, "check", lambda s: None)
+    with pytest.raises(SpecError, match="'../outside' can't be a Power BI page name"):
+        pbir.compile_report(spec, MODEL, TABLES)

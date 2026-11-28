@@ -40,7 +40,9 @@ ACCESS = ("public", "domain", "private")
 STATUS = ("draft", "published", "deprecated")
 CLASSIFICATIONS = ("public", "internal", "confidential", "restricted")
 ENVIRONMENTS = ("dev", "test", "prod")
-_NAME = re.compile(r"^[a-z][a-z0-9_]{0,60}$")
+# A name is also a file's name (metadata/products/<name>.toml), so not one Windows keeps for a
+# device: con.toml opens the console there, not a file.
+_NAME = re.compile(r"^(?!(?:con|prn|aux|nul|com\d|lpt\d)\Z)[a-z][a-z0-9_]{0,60}$")
 _PROJECT = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 _ACCEPTS = re.compile(r"^(\d+)(?:\s*-\s*(\d+)|(\+))?$")
 _TIME = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
@@ -53,7 +55,7 @@ def parse_accepts(value: Any) -> tuple[int, int | None]:
     """A link's ``accepts``: "2" (that version), "2-3" (a range) or "2+" (that version or later), as
     (lowest, highest), highest None for "or later". ValueError, in words a person can act on, otherwise."""
     text = str(value).strip()
-    m = _ACCEPTS.match(text)
+    m = _ACCEPTS.fullmatch(text)
     if not m or isinstance(value, bool):
         raise ValueError(f"accepts is a version (\"2\"), a range (\"2-3\") or a version and later (\"2+\"), not {text!r}")
     low = int(m.group(1))
@@ -352,11 +354,33 @@ def write_project_file(root: Path, fields: dict[str, Any]) -> Path:
     return path
 
 
+def file_name(value: Any, what: str) -> str:
+    """A product's name or a link's alias as its file is named (metadata/products/<name>.toml), or
+    ValueError: nothing else may be joined to the folder, so ../ can't reach another file."""
+    if not isinstance(value, str) or not _NAME.fullmatch(value):
+        raise ValueError(f"{value!r} isn't a {what}: lowercase letters, digits or _")
+    return value
+
+
+def product_name(value: Any) -> str:
+    """A product's name as write_product saves it, or ValueError."""
+    name = str(value or "").strip()
+    if not _NAME.fullmatch(name):
+        raise ValueError("A product name is lowercase letters, digits or _, like customer_360")
+    return name
+
+
+def link_alias(value: Any) -> str:
+    """A link's alias as write_link saves it, or ValueError."""
+    alias = str(value or "").strip()
+    if not _NAME.fullmatch(alias):
+        raise ValueError("A link's name is lowercase letters, digits or _, like sales_customer")
+    return alias
+
+
 def write_product(root: Path, p: dict[str, Any]) -> Path:
     import json
-    name = str(p.get("name", "")).strip()
-    if not _NAME.match(name):
-        raise ValueError("A product name is lowercase letters, digits or _, like customer_360")
+    name = product_name(p.get("name", ""))
     lines = ["# A data product: the tables (ports) other teams may read, and the promise that comes with them.",
              f"name = {json.dumps(name)}"]
     for key in ("title", "description", "owner", "steward", "access", "status", "deprecated_on"):
@@ -385,9 +409,7 @@ def write_product(root: Path, p: dict[str, Any]) -> Path:
 
 def write_link(root: Path, l: dict[str, Any]) -> Path:
     import json
-    alias = str(l.get("alias", "")).strip()
-    if not _NAME.match(alias):
-        raise ValueError("A link's name is lowercase letters, digits or _, like sales_customer")
+    alias = link_alias(l.get("alias", ""))
     lines = ["# A link to another team's data product. Entities read it with [source] link = \"<alias>\".",
              f"alias = {json.dumps(alias)}", f"product = {json.dumps(str(l.get('product', '')))}",
              f"port = {json.dumps(str(l.get('port', '')))}"]
@@ -431,7 +453,7 @@ def validate(project: Project) -> list[str]:
     info = project.info
     if info:
         name = str(info.get("name") or "")
-        if name and not _PROJECT.match(name):
+        if name and not _PROJECT.fullmatch(name):
             errors.append(f"{PROJECT_FILE}: name {name!r} must be lowercase letters, digits, -, _ or .")
         if info.get("subdomain") and not info.get("domain"):
             errors.append(f"{PROJECT_FILE}: a subdomain needs its domain")
@@ -444,7 +466,7 @@ def validate(project: Project) -> list[str]:
                 errors.append(f"environments.toml: {env} has an unknown workspace designation {d}")
     for p in project.products.values():
         where = f"products/{p.name}"
-        if not _NAME.match(p.name):
+        if not _NAME.fullmatch(p.name):
             errors.append(f"{where}: name must be lowercase letters, digits or _")
         if p.access not in ACCESS:
             errors.append(f"{where}: access must be one of {', '.join(ACCESS)}")
@@ -455,7 +477,7 @@ def validate(project: Project) -> list[str]:
         seen = set()
         for port in p.ports:
             pn, ent = port.get("name", ""), port.get("entity", "")
-            if not _NAME.match(str(pn)):
+            if not _NAME.fullmatch(str(pn)):
                 errors.append(f"{where}: port name {pn!r} must be lowercase letters, digits or _")
             if pn in seen:
                 errors.append(f"{where}: port {pn} is listed twice")
@@ -467,7 +489,7 @@ def validate(project: Project) -> list[str]:
         errors += promise_problems(where, p.spec.get("promise"))
     for link in project.links.values():
         where = f"links/{link.alias}"
-        if not _NAME.match(link.alias):
+        if not _NAME.fullmatch(link.alias):
             errors.append(f"{where}: name must be lowercase letters, digits or _")
         if "/" not in link.product or not link.port:
             errors.append(f"{where}: product is \"<project>/<product>\" and port names one of its ports")

@@ -1,0 +1,60 @@
+{
+ "schema": "kratosforge/mastery-class@1",
+ "id": "capacity-stormcaller",
+ "version": 1,
+ "title": "Capacity Stormcaller",
+ "professional": "Platform Performance & FinOps Engineer",
+ "fantasy": "Reader of the weather over the platform. The Stormcaller sees the surge coming and spends compute like a careful quartermaster.",
+ "competency": "Manages platform performance and cost: capacity units and throttling, workload tuning, cost allocation, chargeback and right-sizing.",
+ "platforms": ["Microsoft Fabric", "Databricks", "Snowflake"],
+ "technologies": ["Fabric capacity", "Capacity metrics", "Warehouses and clusters", "FinOps"],
+ "emblem": "A storm cloud split by a hammer-shaped lightning bolt, a wolf howling beneath.",
+ "specializations": [
+  {"id": "capacity", "title": "Sky Reader", "professional": "Capacity and throttling", "competency": "finops",
+   "nodes": [
+    {"id": "capacity.01", "skill": "capacity-and-cost", "tier": 1, "requires": []},
+    {"id": "capacity.02", "skill": "capacity-units-and-smoothing", "tier": 2, "requires": ["capacity.01"]},
+    {"id": "capacity.03", "skill": "throttling-and-rejection", "tier": 2, "requires": ["capacity.01"]},
+    {"id": "capacity.04", "skill": "background-and-interactive-work", "tier": 3, "requires": ["capacity.02"]},
+    {"id": "capacity.05", "skill": "capacity-metrics", "tier": 3, "requires": ["capacity.03"]},
+    {"id": "capacity.06", "skill": "spark-pools-and-sizing", "tier": 4, "requires": ["capacity.04"]},
+    {"id": "capacity.07", "skill": "surge-protection", "tier": 4, "requires": ["capacity.04", "capacity.05"]},
+    {"id": "capacity.08", "skill": "capacity-risk-checks-before-maintenance", "tier": 5, "requires": ["capacity.06"]},
+    {"id": "capacity.09", "skill": "workload-scheduling", "tier": 5, "requires": ["capacity.07"]},
+    {"id": "capacity.10", "skill": "capstone-a-capacity-plan-for-a-quarter", "tier": 6, "requires": ["capacity.08", "capacity.09"], "capstone": true}
+   ]},
+  {"id": "cost", "title": "Coin Warden", "professional": "FinOps and cost allocation", "competency": "finops",
+   "nodes": [
+    {"id": "cost.01", "skill": "cost-drivers-per-engine", "tier": 1, "requires": []},
+    {"id": "cost.02", "skill": "running-locally-to-save-capacity", "tier": 2, "requires": ["cost.01"]},
+    {"id": "cost.03", "skill": "cost-allocation-and-tags", "tier": 2, "requires": ["cost.01"]},
+    {"id": "cost.04", "skill": "chargeback-and-showback", "tier": 3, "requires": ["cost.02"]},
+    {"id": "cost.05", "skill": "idle-and-waste-detection", "tier": 3, "requires": ["cost.03"]},
+    {"id": "cost.06", "skill": "reservations-and-commitments", "tier": 4, "requires": ["cost.04"]},
+    {"id": "cost.07", "skill": "budgets-and-alerts", "tier": 4, "requires": ["cost.04", "cost.05"]},
+    {"id": "cost.08", "skill": "cost-per-data-product", "tier": 5, "requires": ["cost.06"]},
+    {"id": "cost.09", "skill": "forecasting-spend", "tier": 5, "requires": ["cost.07"]},
+    {"id": "cost.10", "skill": "capstone-a-cost-review-with-savings-proven", "tier": 6, "requires": ["cost.08", "cost.09"], "capstone": true}
+   ]},
+  {"id": "tune", "title": "Thunder Tuner", "professional": "Engine performance", "competency": "sql-performance",
+   "nodes": [
+    {"id": "tune.01", "skill": "reading-a-query-plan", "tier": 1, "requires": []},
+    {"id": "tune.02", "skill": "small-files-and-compaction", "tier": 2, "requires": ["tune.01"]},
+    {"id": "tune.03", "skill": "partitioning-and-file-pruning", "tier": 2, "requires": ["tune.01"]},
+    {"id": "tune.04", "skill": "selecting-only-the-columns-you-need", "tier": 3, "requires": ["tune.02"]},
+    {"id": "tune.05", "skill": "joins-and-shuffles", "tier": 3, "requires": ["tune.03"]},
+    {"id": "tune.06", "skill": "caching-and-persistence", "tier": 4, "requires": ["tune.04"]},
+    {"id": "tune.07", "skill": "measured-optimization", "tier": 4, "requires": ["tune.04", "tune.05"]},
+    {"id": "tune.08", "skill": "pipeline-optimization", "tier": 5, "requires": ["tune.06"]},
+    {"id": "tune.09", "skill": "warehouse-optimization", "tier": 5, "requires": ["tune.07"]},
+    {"id": "tune.10", "skill": "capstone-a-workload-made-cheaper-and-faster", "tier": 6, "requires": ["tune.08", "tune.09"], "capstone": true}
+   ]}
+ ],
+ "achievements": [
+  {"id": "first-forecast", "name": "First Forecast", "criteria": "Reach Journeyman in Capacity and cost.", "requires": {"level": 3, "talents": ["capacity.01"]}},
+  {"id": "calm-skies", "name": "Calm Skies", "criteria": "Reach Journeyman in Capacity risk checks before maintenance.", "requires": {"level": 3, "talents": ["capacity.08"]}},
+  {"id": "coin-saved", "name": "Capacity Kept", "criteria": "Reach Adept in Running locally to save capacity.", "requires": {"level": 4, "talents": ["cost.02"]}},
+  {"id": "lightning-tamed", "name": "Lightning Tamed", "criteria": "Reach Adept in Measured optimization.", "requires": {"level": 4, "talents": ["tune.07"]}},
+  {"id": "stormcallers-horn", "name": "Stormcaller's Horn", "criteria": "Reach Adept in all ten talents of one Capacity Stormcaller specialization.", "requires": {"level": 4, "any_specialization": true}}
+ ]
+}

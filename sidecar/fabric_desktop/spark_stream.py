@@ -31,6 +31,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, cast
+from urllib.parse import unquote
 
 import pyarrow as pa
 from duckdb.experimental.spark.sql.dataframe import DataFrame
@@ -70,8 +71,13 @@ class _Source:
             dt = DeltaTable(self.target)
         if "deletionVectors" in (dt.protocol().reader_features or []):
             # Files are read by path, which would bring back rows a deletion vector marks deleted.
-            raise ValueError(f"{self.target} uses deletion vectors, which a stream on this PC can't read: it would "
-                             "bring back deleted rows. Run the stream in Fabric.")
+            raise ValueError(f"{self.target} uses deletion vectors, which a stream on this PC can't read, because it "
+                             "would bring back deleted rows. Run the stream in Fabric.")
+        from .delta_read import column_mapping
+        if column_mapping(dt):
+            # Files are read by their own column names, which column mapping keeps apart from the table's.
+            raise ValueError(f"{self.target} uses column mapping, which a stream on this PC can't read, because its "
+                             "files name the columns differently from the table. Run the stream in Fabric.")
         return dt
 
     def _delta_batch(self, state: dict[str, Any]) -> tuple[pa.Table | None, dict[str, Any], str]:
@@ -84,8 +90,10 @@ class _Source:
         import pyarrow.dataset as pads  # here, not at the top: it and the pandas it loads cost 0.2 s of notebook start
 
         dataset = dt.to_pyarrow_dataset()
-        # By path, so a file appended and then compacted away before this run still gives its rows.
-        fragments = [dataset.format.make_fragment(path, dataset.filesystem, partition_expression=_partition(values))
+        # By path, so a file appended and then compacted away before this run still gives its rows. The log's
+        # path is percent-encoded once over the file's name (region=North%2520America for the folder
+        # region=North%20America): decoded, as a reader of the log does.
+        fragments = [dataset.format.make_fragment(unquote(path), dataset.filesystem, partition_expression=_partition(values))
                      for path, values in sorted(new.items())]
         data = pads.FileSystemDataset(fragments, dataset.schema, dataset.format, dataset.filesystem).to_table() \
             if fragments else dataset.schema.empty_table()
@@ -230,10 +238,20 @@ class StreamReader:
         return self
 
     def schema(self, schema: Any) -> StreamReader:
+        """A StructType or a DDL string such as ``"a INT, b STRING"``, as in Spark."""
+        if isinstance(schema, str):
+            from .spark_local import ddl_schema
+            schema = ddl_schema(schema)
         self._reader.schema(schema)
         return self
 
     def _start(self, kind: str, fmt: str, target: str) -> DataFrame:
+        from . import delta_cdf
+        if delta_cdf.asked(self._options):
+            raise NotImplementedError("A stream of a table's change data feed (readChangeFeed) runs in Fabric and on "
+                                      "Databricks, so nothing was read. On this PC, read the changes as a batch: "
+                                      "spark.read.option(\"readChangeFeed\", \"true\")"
+                                      ".option(\"startingVersion\", 0).table(...).")
         for key in ("startingversion", "startingtimestamp"):
             if key in self._options:
                 raise NotImplementedError(f"{key} runs in Fabric. On this PC a stream starts from the table's "
@@ -252,6 +270,9 @@ class StreamReader:
     def load(self, path: str | None = None, format: str | None = None, **opts: Any) -> DataFrame:  # noqa: A002
         self.options(**opts)
         fmt = (format or self._format or "parquet").lower()
+        if fmt != "delta" and fmt not in _FILE_FORMATS:  # rate, socket, kafka...: named before the path they don't take
+            raise ValueError(f"Streaming from {fmt!r} runs in Fabric. On this PC, streams read Delta tables and "
+                             "csv, json, parquet or text files.")
         if not path:
             raise ValueError("readStream.load needs a path.")
         rel = lakehouse.relative_path(path)
@@ -259,9 +280,6 @@ class StreamReader:
             if rel and rel.startswith("Tables/"):
                 return self.table(".".join(p for p in rel.split("/")[1:] if p))
             return self._start("path", "delta", path)
-        if fmt not in _FILE_FORMATS:
-            raise ValueError(f"Streaming from {fmt!r} runs in Fabric. On this PC, streams read Delta tables and "
-                             "csv, json, parquet or text files.")
         return self._start("files", fmt, path)
 
     def csv(self, path: str, **opts: Any) -> DataFrame:
@@ -575,7 +593,7 @@ def _exists(conn: Any, name: str) -> bool:
 
 
 def _ident(name: str) -> str:
-    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
+    if not re.fullmatch(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
         raise ValueError(f"{name!r} can't be a view name: use letters, numbers and underscores.")
     return name
 

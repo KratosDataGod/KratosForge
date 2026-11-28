@@ -42,15 +42,31 @@ from urllib.parse import unquote
 import duckdb
 import pyarrow as pa
 
-from .. import delta_dml, delta_profile, durable, sql_dialects
-from . import delta, tsql
+from .. import delta_dml, delta_profile, delta_read, durable, maintenance, sql_dialects
+from ..awake_timer import AwakeTimer
+from ..tmdl import _RESERVED as _DEVICE_NAMES  # Windows device names; a read of one waits on the device
+from . import delta, tsql, tsql_errors, tsql_merge
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
 from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
-from ..redact import describe
+from ..redact import describe, one_line
 from ..sql import KfDuckDB, refuse_spark_hashes
+from .. import trees
 
 _REFRESH_EVERY = 2.0  # seconds between automatic looks for changed files
+# An open DuckDB connection keeps a few hundred bytes of native memory for every query that reads a CSV
+# or Parquet file (the project's views do), and frees it only when it closes: about 2.5 MB per 10,000
+# queries, growing for as long as the app stays open. So a persistent project's connection is closed
+# and opened again after this many queries, between two of them. Every query is counted, a cheap and
+# conservative stand-in for "queries that read a file".
+RECYCLE_AFTER = 10_000
+# Objects that live only on the connection; while any exists, it isn't reopened (they'd be lost).
+_SESSION_OBJECTS = (
+    "SELECT 1 FROM duckdb_tables() WHERE temporary UNION ALL "
+    "SELECT 1 FROM duckdb_views() WHERE temporary AND NOT internal UNION ALL "
+    "SELECT 1 FROM duckdb_functions() WHERE database_name = 'temp' AND NOT internal UNION ALL "
+    "SELECT 1 FROM duckdb_sequences() WHERE temporary UNION ALL "
+    "SELECT 1 FROM duckdb_types() WHERE database_name = 'temp' AND NOT internal LIMIT 1")
 DIALECTS = ("duckdb", "spark", "tsql")
 OWN = "delta table"            # catalog kind of the project's own Delta tables
 OWN_KEY = "<project tables>"   # their entry in project.refreshed
@@ -75,7 +91,7 @@ def _paths(paths: list[str]) -> str:
 
 
 # Delta features a read of the data files alone would get wrong.
-_UNREADABLE = {"deletionVectors": "deletion vectors", "columnMapping": "column mapping",
+_UNREADABLE = {"deletionVectors": None, "columnMapping": None,  # applied in delta_select
                "typeWidening": "type widening", "v2Checkpoint": None, "timestampNtz": None,
                "invariants": None, "appendOnly": None, "checkConstraints": None, "generatedColumns": None,
                "changeDataFeed": None, "identityColumns": None, "domainMetadata": None, "rowTracking": None,
@@ -83,17 +99,27 @@ _UNREADABLE = {"deletionVectors": "deletion vectors", "columnMapping": "column m
                "icebergCompatV2": None, "variantType": "variant columns", "variantType-preview": "variant columns"}
 
 
+# Deleted-row ranges a view holds in its own text. A table past this is refused with the reason, so
+# the view never grows to megabytes; compacting the table in Fabric (OPTIMIZE) folds the vectors in.
+MAX_DELETED_RANGES = 50_000
+_FILE_COL = "__kf_file"
+_IN_A_NOTEBOOK = " Read it from a notebook on this PC instead, which reads it in full."
+_ROW_COL = "file_row_number"
+
+
 def delta_select(folder: str, version: int | None = None, timestamp: str | None = None,
                  name: str = "") -> tuple[str, dict[str, Any]]:
     """A SELECT over the Delta table in ``folder`` (its current version, or as of ``version`` or
-    ``timestamp``), and facts about it."""
+    ``timestamp``), and facts about it.
+
+    Deletion vectors are applied (each deleted row is left out by its row number in its file), and
+    column mapping is applied (each column is read by its physical name and named as the table
+    names it)."""
     table = _load(folder, version, timestamp, name)
     protocol = table.protocol()
     features = set(protocol.reader_features or []) | set(protocol.writer_features or [])
-    config = table.metadata().configuration or {}
+    mapping = delta_read.column_mapping(table)
     problems = sorted({label for f in features if (label := _UNREADABLE.get(f, f"the {f} feature"))})
-    if str(config.get("delta.columnMapping.mode", "none")).lower() not in ("", "none"):
-        problems.append("column mapping")
     if protocol.min_reader_version > 3:
         problems.append(f"reader version {protocol.min_reader_version}")
     info = {"version": table.version(), "reader_version": protocol.min_reader_version,
@@ -103,22 +129,91 @@ def delta_select(folder: str, version: int | None = None, timestamp: str | None 
         raise ValueError("This Delta table uses " + ", ".join(sorted(set(problems))) +
                          ", which a local read can't apply yet, so it isn't queryable here.")
     schema = _arrow_schema(table)
+    physical = _physical_names(schema) if mapping else {f.name: f.name for f in schema}
     files = _data_files(table, folder)
     info.update(files=len(files), bytes=sum(_size(f) for f in files))
     if not files:
-        return _empty_select(schema), info
+        return _empty_select(_plain(schema)), info
     partitions = info["partitions"]
     for part in partitions:
-        if not all(f"/{part}=" in f.replace("\\", "/") for f in files):
-            raise ValueError(f"The table's files aren't in {part}=... folders, so its partition column "
-                             f"{part} can't be read locally yet.")
+        if not all(f"/{physical[part]}=" in f.replace("\\", "/") for f in files):
+            raise ValueError(f"The table's files aren't in {physical[part]}=... folders, so its partition column "
+                             f"{part} can't be read locally yet.{_IN_A_NOTEBOOK}")
     options = "union_by_name = true"
     if partitions:
-        types = _duckdb_types(pa.schema([schema.field(p) for p in partitions]))
+        types = _duckdb_types(pa.schema([pa.field(physical[p], schema.field(p).type) for p in partitions]))
         options += ", hive_partitioning = true, hive_types = {" + \
-            ", ".join(f"{lit(p)}: {lit(types[p])}" for p in partitions) + "}"
-    columns = ", ".join(q(f.name) for f in schema)
-    return f"SELECT {columns} FROM read_parquet({_paths(files)}, {options})", info
+            ", ".join(f"{lit(physical[p])}: {lit(types[physical[p]])}" for p in partitions) + "}"
+    deleted = _deleted_ranges(table, folder, files, name)
+    if deleted:
+        clash = {_FILE_COL, _ROW_COL} & {n.lower() for n in physical.values()}
+        if clash:
+            raise ValueError(f"{name or folder} has a column named {sorted(clash)[0]}, which the local read of its "
+                             f"deletion vectors needs for itself, so it isn't queryable here.{_IN_A_NOTEBOOK}")
+        options += f", filename = {lit(_FILE_COL)}, file_row_number = true"
+        info["deleted_rows"] = sum(hi - lo + 1 for ranges in deleted.values() for lo, hi in ranges)
+    columns = ", ".join(q(physical[f.name]) + ("" if physical[f.name] == f.name else f" AS {q(f.name)}")
+                        for f in schema)
+    scan = f"read_parquet({_paths(files)}, {options})"
+    if not deleted:
+        return f"SELECT {columns} FROM {scan}", info
+    rows = ", ".join(f"({lit(Path(path).as_posix())}, {lo}, {hi})"
+                     for path, ranges in deleted.items() for lo, hi in ranges)
+    return (f"SELECT {columns} FROM {scan} AS kf_rows WHERE NOT EXISTS (SELECT 1 FROM (VALUES {rows}) "
+            f"AS kf_deleted(f, lo, hi) WHERE kf_deleted.f = kf_rows.{q(_FILE_COL)} "
+            f"AND kf_rows.{q(_ROW_COL)} BETWEEN kf_deleted.lo AND kf_deleted.hi)"), info
+
+
+def _physical_names(schema: pa.Schema) -> dict[str, str]:
+    """Each column's name in the data files, for a table with column mapping. A struct column is
+    refused: its fields have physical names too, and a local read names only top-level columns."""
+    out = {}
+    for field in schema:
+        if _has_struct(field.type):
+            raise ValueError(f"Column {field.name} is a struct in a table with column mapping, which a local read "
+                             f"can't apply to nested fields yet, so the table isn't queryable here.{_IN_A_NOTEBOOK}")
+        meta = field.metadata or {}
+        physical = meta.get(b"delta.columnMapping.physicalName")
+        out[field.name] = physical.decode() if physical else field.name
+    return out
+
+
+def _has_struct(kind: pa.DataType) -> bool:
+    if pa.types.is_struct(kind):
+        return True
+    if pa.types.is_list(kind) or pa.types.is_large_list(kind) or pa.types.is_fixed_size_list(kind):
+        return _has_struct(kind.value_type)
+    if pa.types.is_map(kind):
+        return _has_struct(kind.key_type) or _has_struct(kind.item_type)
+    return False
+
+
+def _plain(schema: pa.Schema) -> pa.Schema:
+    return pa.schema([pa.field(f.name, f.type, f.nullable) for f in schema])
+
+
+def _deleted_ranges(table: Any, folder: str, files: list[str], name: str) -> dict[str, list[tuple[int, int]]]:
+    """The deleted rows of each data file, keyed by the file's path as the view reads it."""
+    by_uri = delta_read.deleted_positions(table)
+    if not by_uri:
+        return {}
+    ranges = sum(len(r) for r in by_uri.values())
+    if ranges > MAX_DELETED_RANGES:
+        raise ValueError(f"{name or folder} has {ranges:,} runs of deleted rows in its deletion vectors, more than "
+                         f"a local read holds ({MAX_DELETED_RANGES:,}). Compacting the table in Fabric (OPTIMIZE) "
+                         "applies them; then it can be read here.")
+    known = {os.path.normcase(os.path.normpath(f)): f for f in files}
+    out: dict[str, list[tuple[int, int]]] = {}
+    for uri, rows in by_uri.items():
+        path = unquote(uri)
+        path = _local_path(path) if "://" in path else path
+        match = known.get(os.path.normcase(os.path.normpath(path)))
+        if match is None:
+            # A vector for a file the view doesn't read would mean the two lists disagree; never guess.
+            raise ValueError(f"{name or folder} has a deletion vector for a file that isn't in its file list, so it "
+                             "isn't queryable here. Run OPTIMIZE on it in Fabric, then refresh.")
+        out[match] = rows
+    return out
 
 
 def _load(folder: str, version: int | None, timestamp: str | None, name: str) -> Any:
@@ -157,7 +252,10 @@ def _data_files(table: Any, folder: str) -> list[str]:
     """The data files of the loaded version, as paths on disk. From the log's own paths (each one
     percent-encoded once), not file_uris(): delta-rs 1.x percent-encodes the table's folder there but
     leaves a partition folder as it is on disk, so neither decoding nor not decoding it names the files
-    when the project is under a folder with a space or a non-ASCII letter (C:\\Users\\Jöhn Smith)."""
+    when the project is under a folder with a space or a non-ASCII letter (C:\\Users\\Jöhn Smith).
+
+    A path that leaves the table's folder (``..``, a rooted path, a URI elsewhere) is refused, never read:
+    a damaged or hostile log would otherwise show the rows of any Parquet file the project can reach."""
     files = []
     for rel in cast(list[str], table.get_add_actions(flatten=True).column("path").to_pylist()):
         path = unquote(rel)
@@ -165,8 +263,35 @@ def _data_files(table: Any, folder: str) -> list[str]:
             path = _local_path(path)
         elif not os.path.isabs(path):
             path = os.path.normpath(os.path.join(folder, path))
+        # Checked by name before anything resolves the path: on Windows, resolving one turns it into the device
+        if any(part.split(".")[0].upper().rstrip(" .") in _DEVICE_NAMES for part in _parts_below(path, folder)):
+            raise ValueError(f"The Delta table in {folder} isn't queryable here, because its log names a data file "
+                             f"({rel[:200]!r}) that Windows reserves for a device, like CON or NUL. Check where the "
+                             "table's _delta_log came from, or write the table again.")
+        if not _inside(path, folder):
+            raise ValueError(f"The Delta table in {folder} isn't queryable here, because its log names a data file "
+                             f"outside the table's folder ({rel[:200]!r}), and only files inside it are read. Check "
+                             "where the table's _delta_log came from, or write the table again.")
         files.append(path)
     return files
+
+
+def _parts_below(path: str, folder: str) -> list[str]:
+    """The names in ``path`` below ``folder``, compared as text only (never resolved), split on / and \\."""
+    p, r = os.path.normcase(os.path.normpath(path)), os.path.normcase(os.path.normpath(folder))
+    below = p[len(r):] if p.startswith(r.rstrip("\\/") + os.path.sep) else p
+    return [part for part in below.replace("\\", "/").split("/") if part]
+
+
+def _inside(path: str, folder: str) -> bool:
+    """Whether ``path`` is a file within ``folder``, after ``..``, links (a linked data file or partition
+    folder) and case (on Windows) are resolved."""
+    p = os.path.normcase(os.path.realpath(path))
+    r = os.path.normcase(os.path.realpath(folder))
+    try:
+        return p != r and os.path.commonpath([p, r]) == r
+    except ValueError:  # silent-ok: another drive (Windows) is outside the folder
+        return False
 
 
 def _local_path(uri: str) -> str:
@@ -174,6 +299,88 @@ def _local_path(uri: str) -> str:
     if re.match(r"^/[A-Za-z]:", path):  # file:///C:/... on Windows
         path = path[1:]
     return path
+
+
+def _dml_target(text: str) -> tuple[str | None, str] | None:
+    """(schema, table) that an UPDATE, DELETE or MERGE in DuckDB SQL changes; None if it can't be read."""
+    import sqlglot
+    from sqlglot import exp
+
+    try:
+        tree = sqlglot.parse_one(text, read=KfDuckDB)
+    except sqlglot.errors.SqlglotError:
+        return None
+    table = tree.this if isinstance(tree, (exp.Update, exp.Delete, exp.Merge)) else None
+    if not isinstance(table, exp.Table) or not table.name or table.catalog:
+        return None
+    return (table.db or None), table.name
+
+
+def _updated_once(con: duckdb.DuckDBPyConnection, text: str) -> None:
+    """Refuse an ``UPDATE ... FROM`` on a database table in which a row of the table joins more than one row of
+    FROM. Which of them sets its new value is undefined: T-SQL takes any one, and DuckDB took one and counted
+    the row once for each match. A DELETE removes the row once whatever it joins, so it isn't checked."""
+    import sqlglot
+    from sqlglot import exp
+
+    tree = sqlglot.parse_one(text, read=KfDuckDB)
+    source = tree.args.get("from_")
+    if not isinstance(tree, exp.Update) or not isinstance(tree.this, exp.Table) or not isinstance(source, exp.From):
+        return
+    target = tree.this
+    where = tree.args.get("where")
+    row = first_row(con.execute(
+        f"SELECT 1 FROM {target.sql(dialect=KfDuckDB)}, {source.this.sql(dialect=KfDuckDB)}"
+        f"{' ' + where.sql(dialect=KfDuckDB) if where is not None else ''} "
+        f"GROUP BY {q(target.alias or target.name)}.rowid HAVING count(*) > 1 LIMIT 1"))
+    if row is not None:
+        name = f"{target.db}.{target.name}" if target.db else target.name
+        raise ValueError(f"The UPDATE would set a row of {name} from more than one row of its FROM, so which one "
+                         f"it gets is undefined. Make FROM give at most one row for each row of {name}, for example "
+                         "with GROUP BY or ROW_NUMBER(), or use a MERGE.")
+
+
+# SQL Server's error 8672, word for word: a Fabric Warehouse's MERGE refuses the same.
+TSQL_SAME_ROW_TWICE = ("The MERGE statement attempted to UPDATE or DELETE the same row more than once. This happens "
+                       "when a target row matches more than one source row. A MERGE statement cannot UPDATE/DELETE "
+                       "the same row of the target table multiple times. Refine the ON clause to ensure a target "
+                       "row matches at most one source row, or use the GROUP BY clause to group the source rows.")
+
+
+def _matched_once(con: duckdb.DuckDBPyConnection, c: "delta_dml.Change", target_from: str | None = None,
+                  source_from: str | None = None, name: str | None = None) -> None:
+    """Refuse a MERGE in which one row of its table would be updated or deleted by more than one source row,
+    with SQL Server's error 8672. T-SQL and Spark refuse it, since which source row wins is undefined; DuckDB's
+    MERGE let the last one win. A pair counts when a WHEN MATCHED clause would act on it, so a duplicate that
+    every WHEN MATCHED condition leaves out doesn't, and an unconditional DELETE does (Delta allows that one).
+    ``target_from`` and ``source_from`` are DuckDB relations (a database table and the USING query by default)."""
+    from sqlglot import exp
+
+    conditions = [w.condition for w in c.whens if w.match == "matched"]
+    acted = "" if any(x is None for x in conditions) else \
+        " WHERE " + delta._duckdb(exp.or_(*[cast(exp.Expression, x).copy() for x in conditions]))
+    target = target_from or (q(c.schema) + "." + q(c.table) if c.schema else q(c.table))
+    source = source_from or f"({c.source_sql(KfDuckDB)})"
+    row = first_row(con.execute(
+        f"SELECT 1 FROM (SELECT *, row_number() OVER () AS __fd_row FROM {target}) AS {q(c.alias)} "
+        f"JOIN {source} AS {q(c.source_alias)} ON {delta._duckdb(cast(exp.Expression, c.on))}"
+        f"{acted} GROUP BY __fd_row HAVING count(*) > 1 LIMIT 1"))
+    if row is not None:
+        raise ValueError(f"{TSQL_SAME_ROW_TWICE} Nothing in {name or c.name} was changed.")
+
+
+def _column_names(con: duckdb.DuckDBPyConnection, query: str) -> list[str]:
+    """The names of the columns ``query`` gives, read without reading any row."""
+    return [d[0] for d in con.execute(f"SELECT * FROM ({query}) AS __fd_columns LIMIT 0").description or []]
+
+
+def _placed(con: duckdb.DuckDBPyConnection, c: "delta_dml.Change") -> None:
+    """Place a T-SQL MERGE's unqualified columns on a database table by the columns its table and its source have
+    now (WR-257): a temporary table, a table the script made or a table-valued function has them only when the
+    MERGE runs. A source known before it runs was placed when it was read (tsql_merge.check), with the same words."""
+    target = q(c.schema) + "." + q(c.table) if c.schema else q(c.table)
+    tsql_merge.place(tsql_merge.clauses(c), _column_names(con, f"SELECT * FROM {target}"),
+                     _column_names(con, c.source_sql(KfDuckDB)))
 
 
 def _duckdb_types(schema: pa.Schema) -> dict[str, str]:
@@ -200,7 +407,11 @@ def file_select(found: Found) -> str:
     source = _paths(found.paths)
     hive = ", hive_partitioning = true" if found.hive else ""
     reader = {"parquet": "read_parquet", "csv": "read_csv", "json": "read_json"}[found.format]
-    return f"SELECT * FROM {reader}({source}, union_by_name = true{hive})"
+    # skip = 0: DuckDB's sniffer otherwise leaves out the first lines of a CSV file when they don't
+    # look like the rest (a title, or a first row with fewer columns), and sometimes the header and
+    # data rows with them, with no error. A line that doesn't fit now shows as a row, or fails the read.
+    skip = ", skip = 0" if found.format == "csv" else ""
+    return f"SELECT * FROM {reader}({source}, union_by_name = true{hive}{skip})"
 
 
 _TYPE_OK = re.compile(r"^[A-Za-z][A-Za-z0-9_ ]*(\(\s*\d+\s*(,\s*\d+\s*)?\))?(\[\])?$")
@@ -210,13 +421,33 @@ def with_overrides(select: str, overrides: dict[str, str]) -> str:
     if not overrides:
         return select
     for column, type_ in overrides.items():
-        if not _TYPE_OK.match(type_ or ""):
+        if not _TYPE_OK.fullmatch(type_ or ""):
             raise ValueError(f"{type_!r} is not a column type (for {column}).")
     casts = ", ".join(f"CAST({q(c)} AS {t}) AS {q(c)}" for c, t in overrides.items())
     return f"SELECT * REPLACE ({casts}) FROM ({select})"
 
 
 _log = logging.getLogger(__name__)
+
+
+def _lost_to_another_writer(exc: BaseException, folder: Path, before: int) -> bool:
+    """True when delta-rs refused the commit (CommitFailedError) and another writer has committed since this
+    statement read version ``before``. delta-rs raises CommitFailedError for other refusals too (an append-only
+    table, a writer feature it lacks, a store error), and those keep delta-rs's own reason."""
+    from deltalake import DeltaTable
+    from deltalake.exceptions import CommitFailedError
+    if not isinstance(exc, CommitFailedError):
+        return False
+    try:
+        return DeltaTable(str(folder)).version() > before  # called only when this statement committed nothing
+    except Exception:  # noqa: BLE001  # silent-ok: an unreadable log isn't shown as a conflict; delta-rs's reason is
+        return False
+
+
+def _conflict(name: str) -> str:
+    return (f"Nothing was committed to {name}, because another writer changed it after this statement read it, and "
+            "the first to commit wins. A Fabric Warehouse reports this write-write conflict as error 24556. "
+            f"{name} now shows that writer's change. Run the statement again to apply yours on top.")
 
 
 def _remove_leftover_spill(folder: Path) -> None:
@@ -254,10 +485,17 @@ class LocalEngine:
         self._meta_lock = threading.Lock()    # project.json and the catalog
         self._allowed: list[str] = []          # the open connection's allowed_directories
         self._running: dict[str, dict[str, Any]] = {}
+        # WR-243: when each of the project's Delta tables was last read, by its _delta_log folder's modified time,
+        # so a commit from another writer (a notebook, Spark, another tool) is seen by the next statement
+        self._own_seen: dict[str, int] = {}
         # Cancelled before they started (a background query whose thread hadn't reached DuckDB yet).
         self._cancel_first: set[str] = set()
         self._last_check = 0.0
         self.opened_at = 0.0
+        self.queries_since_open = 0            # toward RECYCLE_AFTER
+        self.reopened = 0                      # times the connection was recycled
+        self._borrowed = 0                     # cursors tables() took on a connection a query holds
+        self._borrow_lock = threading.Lock()
 
     # Lifecycle
 
@@ -288,10 +526,21 @@ class LocalEngine:
         con.execute("SET enable_external_access = false")
 
     def _open_locked(self) -> duckdb.DuckDBPyConnection:
+        if self._con is not None and _invalidated(self._con):
+            # DuckDB gave up on the database after an internal error (DuckDB 2.0 does that reading some
+            # corrupt Parquet files), and every later statement would fail until it is opened again.
+            _log.warning("The project database %s stopped after an internal error; opening it again.", self.project.name)
+            try:
+                self._con.close()
+            except duckdb.Error as exc:
+                _log.info("Closing the stopped connection: %s", describe(exc))
+            self._con = None
         if self._con is not None and self._allowed != self._allowed_directories():
             # A folder was added or removed: the locked connection can't change its folders.
             # Temporary tables don't survive this; the database's own tables and views do.
             self._close_locked()
+        if self._con is not None and self.queries_since_open >= RECYCLE_AFTER:
+            self._recycle_locked()
         if self._con is None:
             p = self.project
             p.root.mkdir(parents=True, exist_ok=True)
@@ -315,6 +564,7 @@ class LocalEngine:
             self._con = con
             self.apply_settings()
             self.opened_at = time.time()
+            self.queries_since_open = 0
             if p.storage == "memory":  # nothing persisted: make the views again
                 for source in p.sources:
                     self._refresh_source(source, force=True)
@@ -330,6 +580,37 @@ class LocalEngine:
         con.execute(f"SET threads = {int(s.threads)}" if s.threads else "RESET threads")
         con.execute(f"SET max_temp_directory_size = {lit(s.max_temp_size)}" if s.max_temp_size
                     else "RESET max_temp_directory_size")
+
+    def _recycle_locked(self) -> None:
+        """Close the connection and let _open_locked open it again, to give back the native memory DuckDB
+        keeps per file-reading query (RECYCLE_AFTER). Called holding ``_lock``, so never during a query
+        or while a result streams, and holding ``_borrow_lock`` so tables() can't take a cursor on the
+        connection as it closes. Everything else the connection holds is made again on open (time zone,
+        search path, folders and lock-down, the project's settings, its views); what can't be is kept by
+        not recycling: a memory project, whose data would go with the connection (copying it to the new
+        one would hold it twice, and a failure halfway would lose it), and a connection with temporary
+        tables, views, macros, sequences or types. Those wait; it's tried again after another tenth."""
+        con = self._con
+        assert con is not None
+        with self._borrow_lock:
+            keep = self.project.storage != "persistent" or self._borrowed > 0
+            if not keep:
+                try:
+                    keep = first_row(con.execute(_SESSION_OBJECTS)) is not None
+                except duckdb.Error as exc:
+                    _log.info("Checking for temporary objects before reopening: %s", describe(exc))
+                    keep = True
+            if keep:
+                self.queries_since_open = RECYCLE_AFTER - max(1, RECYCLE_AFTER // 10)
+                return
+            _log.info("Reopening the project database %s after %d queries, to give back DuckDB's memory.",
+                      self.project.name, self.queries_since_open)
+            try:
+                self._close_locked()
+            except duckdb.Error as exc:  # the CHECKPOINT; the WAL is replayed on open, so nothing is lost
+                _log.warning("Closing the project database %s to reopen it: %s", self.project.name, describe(exc))
+                self._con = None
+            self.reopened += 1
 
     def close(self) -> None:
         with self._lock:
@@ -412,6 +693,8 @@ class LocalEngine:
                 con.execute(f"CREATE OR REPLACE VIEW {q(table.schema)}.{q(table.table)} AS {select}")
                 entry["columns"] = [{"name": r[0], "type": r[1]} for r in
                                     con.execute(f"DESCRIBE {q(table.schema)}.{q(table.table)}").fetchall()]
+                if table.format == "csv" and (above := _lines_above_the_rows(con, table.paths[0])):
+                    issues.append({"path": table.paths[0], "problem": _lines_above_problem(above, table)})
             except Exception as exc:  # noqa: BLE001 - one unreadable file never stops the others
                 entry["status"], entry["error"] = "error", _short(exc)
                 con.execute(f"DROP VIEW IF EXISTS {q(table.schema)}.{q(table.table)}")
@@ -452,11 +735,26 @@ class LocalEngine:
         """Every schema, table, view and column in the project: discovered files and what people made."""
         # The session's own connection sees its temporary tables; while a query holds it, a cursor
         # lists the rest without waiting.
-        self.open()
         own = self._lock.acquire(blocking=False)
-        held = cast(duckdb.DuckDBPyConnection, self._con)  # open() made it
-        con = held if own else held.cursor()
+        con: duckdb.DuckDBPyConnection | None = None
         try:
+            if not own:
+                with self._borrow_lock:  # the connection isn't recycled while this cursor reads it
+                    self._borrowed += 1
+                held = self._con  # a running query holds the lock, so the connection is open
+                try:
+                    con = held.cursor() if held is not None else None
+                except duckdb.Error:  # it was closed between the two lines
+                    con = None
+                if con is None:  # nothing open to share: wait, as opening does
+                    with self._borrow_lock:
+                        self._borrowed -= 1
+                    self._lock.acquire()
+                    own = True
+            if own:
+                con = self._open_locked()
+                self._refresh_own_if_moved()  # WR-243: the columns another writer's commit left, not the old ones
+            assert con is not None  # opened here, or a cursor on the one a query holds
             discovered = {k: v for k, v in self.project.catalog.items()}
             out: list[dict[str, Any]] = []
             cols: dict[tuple[str, str], list[dict[str, str]]] = {}
@@ -482,8 +780,10 @@ class LocalEngine:
         finally:
             if own:
                 self._lock.release()
-            else:
+            elif con is not None:
                 con.close()
+                with self._borrow_lock:
+                    self._borrowed -= 1
 
     def set_override(self, table: str, columns: dict[str, str]) -> dict[str, Any]:
         key = table.lower()
@@ -491,7 +791,7 @@ class LocalEngine:
         if entry is None:
             raise KeyError(f"{table} is not a discovered file in {self.project.name}.")
         for type_ in columns.values():
-            if not _TYPE_OK.match(type_ or ""):
+            if not _TYPE_OK.fullmatch(type_ or ""):
                 raise ValueError(f"{type_!r} is not a column type.")
         if columns:
             self.project.overrides[key] = dict(columns)
@@ -510,9 +810,13 @@ class LocalEngine:
                 params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Run every statement in ``sql``; return the last one's result with timings. ``params`` are
         the values of ``$name`` (Spark SQL: ``:name`` or ``${name}``), bound, never pasted in."""
-        limit = max(0, min(int(limit), 100_000))
+        asked = int(limit)
+        limit = max(0, min(asked, MAX_QUERY_ROWS))
         with self._query(sql, dialect, timeout, query_id, params=params) as (result, run):
             payload = _collect(result, limit, count)
+        note = shown_rows_note(len(payload["rows"]), payload["row_count"], payload["truncated"], asked)
+        if note:
+            payload["note"] = note
         payload.update(seconds=round(time.monotonic() - run["started"], 3), **_about(run, self.project.id))
         return payload
 
@@ -563,11 +867,12 @@ class LocalEngine:
                 query.__exit__(None, None, None)
         # Start it now, so closing or dropping the reader before the first batch still frees the connection.
         stream = batches()
+        notes = list((run.get("translation") or {}).get("notes") or [])
         try:
             first = next(stream)
         except StopIteration:
-            return ResultStream(inner.schema, iter(()), stream)
-        return ResultStream(inner.schema, _chain(first, stream), stream)
+            return ResultStream(inner.schema, iter(()), stream, notes)
+        return ResultStream(inner.schema, _chain(first, stream), stream, notes)
 
     @contextmanager
     def _query(self, sql: str, dialect: str, timeout: float | None, query_id: str | None,
@@ -584,6 +889,8 @@ class LocalEngine:
         self.refresh_if_changed()
         with self._lock:
             con = self._open_locked()
+            self.queries_since_open += 1
+            self._refresh_own_if_moved()
             started = time.monotonic()
             state = {"cancelled": False, "timed_out": False, "started": started}
             self._running[query_id] = state
@@ -596,15 +903,24 @@ class LocalEngine:
                 def expire() -> None:
                     state["timed_out"] = True
                     con.interrupt()
-                timer = threading.Timer(timeout, expire)
-                timer.daemon = True
+                timer = AwakeTimer(timeout, expire)  # awake time only, as the SQL page's limit
                 timer.start()
             steps: list[dict[str, Any]] = []
             as_of: list[str] = []
             finished = False
             run = {"query_id": query_id, "started": started, "statements": steps, "dialect": dialect}
             try:
-                statements = self._statements(con, sql, dialect, run)
+                try:
+                    statements = self._statements(con, sql, dialect, run)
+                except ValueError as exc:
+                    if isinstance(exc, tsql.InScript):  # WR-238: which statement, and that none of it ran
+                        said: Exception = ValueError(_refused_in_script(_as_warehouse_says(ValueError(str(exc)), {}),
+                                                                        exc))
+                    else:
+                        said = exc if dialect != "tsql" else _as_warehouse_says(exc, {})
+                    if said is exc:
+                        raise
+                    raise said from None
                 if write is not None:
                     statements = [self._as_write(statements, write, sql)]
                 if change and (len(statements) != 1 or statements[0]["change"] is None):
@@ -620,44 +936,74 @@ class LocalEngine:
                     if state["cancelled"] or state["timed_out"]:
                         raise duckdb.InterruptException("cancelled")
                     step_started = time.monotonic()
-                    as_of += self._make_as_of(con, step["as_of"])
-                    if step["write"] is not None and step["write"].mode == "table":
-                        summary = self._make_table(con, step["write"], params)
-                        run["write"] = summary
-                        result = for_arrow(con, 'SELECT ?::VARCHAR AS "table", ?::BIGINT AS rows_written',
-                                           [summary["table"], summary["rows"]])
-                    elif step["write"] is not None:
-                        summary = self._write(con, step["write"], state, query_id, dry_run=dry_run, params=params)
-                        run["write"] = summary
-                        result = for_arrow(
-                            con, 'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS mode, ?::BIGINT AS version, '
-                            '?::BIGINT AS rows_written',
-                            [summary["table"], summary["mode"], summary["version"], summary["rows"]])
-                    elif step["change"] is not None:
-                        summary = self._change(con, step["change"], state, query_id, dry_run=dry_run,
-                                               confirm=confirm)
-                        run["change"] = summary
-                        result = for_arrow(
-                            con, 'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS operation, ?::BIGINT AS version, '
-                            '?::BIGINT AS rows_inserted, ?::BIGINT AS rows_updated, ?::BIGINT AS rows_deleted',
-                            [summary["table"], summary["operation"], summary["version"], summary["rows_inserted"],
-                             summary["rows_updated"], summary["rows_deleted"]])
-                    elif explain == "analyze":
-                        result = _analyze(con, step["sql"])
-                    elif explain == "plan":
-                        result = con.execute("EXPLAIN (FORMAT JSON) " + step["sql"])
-                    elif lazy and i == len(statements) - 1 and step["kind"] == "select":
-                        # A relation runs as it's read. DuckDB 2.0's reader over an executed result copies
-                        # every row before the first batch, so a big result filled memory and Stop
-                        # couldn't end it (#1340). con.sql runs a statement that isn't a query at once.
-                        result = con.sql(step["sql"], params=_bound(con, step["sql"], params))
-                    elif i == len(statements) - 1:
-                        result = for_arrow(con, step["sql"], _bound(con, step["sql"], params))
-                    else:
-                        run_through(con, step["sql"], _bound(con, step["sql"], params))
+                    try:
+                        as_of += self._make_as_of(con, step["as_of"])
+                        if explain is None and step.get("placed") is not None:
+                            _placed(con, step["placed"])
+                        if explain is None and step.get("matched") is not None:
+                            _matched_once(con, step["matched"])
+                        if dialect == "tsql" and step["kind"] in ("create", "alter") and step["write"] is None \
+                                and step["change"] is None:
+                            _within_column_limit(con, step["sql"])  # WR-235: before anything is made
+                        if explain is None and step.get("joined") is not None:
+                            _updated_once(con, step["joined"])
+                        if step["write"] is not None and step["write"].mode == "table":
+                            summary = self._make_table(con, step["write"], params)
+                            run["write"] = summary
+                            result = for_arrow(con, 'SELECT ?::VARCHAR AS "table", ?::BIGINT AS rows_written',
+                                               [summary["table"], summary["rows"]])
+                        elif step["write"] is not None:
+                            summary = self._write(con, step["write"], state, query_id, dry_run=dry_run, params=params)
+                            run["write"] = summary
+                            result = for_arrow(
+                                con, 'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS mode, ?::BIGINT AS version, '
+                                '?::BIGINT AS rows_written',
+                                [summary["table"], summary["mode"], summary["version"], summary["rows"]])
+                        elif step["change"] is not None:
+                            summary = self._change(con, step["change"], state, query_id, dry_run=dry_run,
+                                                   confirm=confirm)
+                            run["change"] = summary
+                            result = for_arrow(
+                                con, 'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS operation, ?::BIGINT AS version, '
+                                '?::BIGINT AS rows_inserted, ?::BIGINT AS rows_updated, ?::BIGINT AS rows_deleted',
+                                [summary["table"], summary["operation"], summary["version"], summary["rows_inserted"],
+                                 summary["rows_updated"], summary["rows_deleted"]])
+                        elif explain == "analyze":
+                            result = _analyze(con, step["sql"])
+                        elif explain == "plan":
+                            result = con.execute("EXPLAIN (FORMAT JSON) " + step["sql"])
+                        elif lazy and i == len(statements) - 1 and step["kind"] == "select":
+                            # A relation runs as it's read. DuckDB 2.0's reader over an executed result copies
+                            # every row before the first batch, so a big result filled memory and Stop
+                            # couldn't end it (#1340). con.sql runs a statement that isn't a query at once.
+                            result = con.sql(step["sql"], params=_bound(con, step["sql"], params))
+                        elif i == len(statements) - 1:
+                            result = for_arrow(con, step["sql"], _bound(con, step["sql"], params))
+                        else:
+                            run_through(con, step["sql"], _bound(con, step["sql"], params))
+                    except (duckdb.Error, ValueError) as exc:
+                        if dialect != "tsql" or isinstance(exc, duckdb.InterruptException):
+                            raise
+                        said = _as_warehouse_says(exc, step)
+                        if len(statements) < 2:
+                            if said is exc:
+                                raise
+                            raise said from None
+                        raise _in_script(said, i, len(statements), step["kind"]) from None
                     steps.append({"statement": i + 1, "type": step["kind"],
                                   "seconds": round(time.monotonic() - step_started, 3)})
-                yield result, run
+                try:
+                    yield result, run
+                except duckdb.Error as exc:
+                    # DuckDB 2.0 runs the last query as its result is read, so its error comes from here
+                    if dialect != "tsql" or isinstance(exc, duckdb.InterruptException) or not statements:
+                        raise
+                    said = _as_warehouse_says(exc, statements[-1])
+                    if said is exc:
+                        raise
+                    if len(statements) > 1:
+                        said = _in_script(said, len(statements) - 1, len(statements), statements[-1]["kind"])
+                    raise said from None
                 finished = True
             except (duckdb.InterruptException, OSError) as exc:
                 # An interrupt while a result streams comes out of pyarrow's reader as OSError.
@@ -693,10 +1039,10 @@ class LocalEngine:
         n = 0
         if dialect == "spark":
             from sqlglot import exp
-            from sqlglot.errors import ParseError
+            from sqlglot.errors import ParseError, TokenError
             try:
                 trees = [cast(exp.Expression, t) for t in sql_dialects.parse(sql, read="spark") if t is not None]
-            except ParseError as exc:
+            except (ParseError, TokenError) as exc:  # an unclosed quote is a TokenError
                 raise ValueError(f"Could not read the query as Spark SQL: {sql_dialects.parse_problem(exc)}") from None
             for tree in trees:
                 refuse_spark_hashes(tree)  # DuckDB's hash isn't Spark's (EA-017)
@@ -722,7 +1068,7 @@ class LocalEngine:
             texts, notes = tsql.translate(sql, self._column_types(con), _FunctionNames(lambda: self._function_names(con)))
             if run is not None:
                 run["translation"] = {"from": "tsql", "notes": notes, "fabric_check": _fabric_check(sql)}
-            return self._duckdb_steps(con, texts, n)
+            return self._duckdb_steps(con, texts, n, tsql=True)
         try:
             texts = [s.query for s in con.extract_statements(sql)]
         except duckdb.Error as exc:
@@ -733,12 +1079,33 @@ class LocalEngine:
                 raise ValueError(_short(exc)) from None
         return self._duckdb_steps(con, texts, n)
 
-    def _duckdb_steps(self, con: duckdb.DuckDBPyConnection, texts: list[str], n: int) -> list[dict[str, Any]]:
+    def _duckdb_steps(self, con: duckdb.DuckDBPyConnection, texts: list[str], n: int,
+                      tsql: bool = False) -> list[dict[str, Any]]:
+        """Each statement as a step to run. ``tsql``: the statements came from T-SQL, so a MERGE on one of the
+        project's Delta tables is checked for T-SQL's error 8672 rather than Delta's multiple-match rule."""
         steps: list[dict[str, Any]] = []
         for text in texts:
+            matched: delta_dml.Change | None = None
+            placed: delta_dml.Change | None = None
+            joined: str | None = None
             if delta_dml.looks_like(text):
                 rewritten, found = delta.rewrite_as_of(text, n)
-                change = self._own_change(delta_dml.parse(rewritten, "duckdb"))
+                try:
+                    parsed = delta_dml.parse(rewritten, "duckdb")
+                except ValueError:
+                    # What delta-rs can't run (UPDATE ... FROM, DELETE ... USING) runs in DuckDB on a database table.
+                    if not self._database_table(_dml_target(rewritten)):
+                        raise
+                    parsed = None
+                    joined = rewritten  # an UPDATE ... FROM is checked before it runs (_updated_once)
+                if parsed is not None:
+                    parsed.tsql = tsql
+                change = self._own_change(parsed)
+                if change is None and parsed is not None and parsed.kind == "merge" \
+                        and any(w.match == "matched" for w in parsed.whens):
+                    matched = parsed  # a MERGE on a database table: checked before it runs (_matched_once)
+                if change is None and parsed is not None and parsed.kind == "merge" and tsql:
+                    placed = parsed  # WR-257: its columns placed by the source's columns as it runs (_placed)
                 if change is not None:
                     n += len(found)
                     steps.append({"sql": "", "write": None, "change": change, "as_of": found,
@@ -754,11 +1121,18 @@ class LocalEngine:
                 write.query, found = delta.rewrite_as_of(write.query, n)
             else:
                 self._refuse_drop(text)
+                self._refuse_rename(con, text)
                 text, found = delta.rewrite_as_of(text, n)
             n += len(found)
             steps.append({"sql": "" if write else text, "write": write, "change": None, "as_of": found,
-                          "kind": "write delta" if write else _kind(text)})
+                          "kind": "write delta" if write else _kind(text), "matched": matched,
+                          "joined": joined, "placed": placed})
         return steps
+
+    def _database_table(self, target: tuple[str | None, str] | None) -> bool:
+        """``target`` is a table of the database, not one of the project's Delta tables or registered folders."""
+        return target is not None and not self._is_own(*target) and \
+            self.project.catalog.get(self._own_key(*target)) is None
 
     def _own_change(self, change: "delta_dml.Change | None") -> "delta_dml.Change | None":
         """``change`` when it changes one of the project's Delta tables; None when it is ordinary SQL
@@ -789,11 +1163,68 @@ class LocalEngine:
             found.setdefault(schema, {}).setdefault(table, {})[column] = kind
         return found
 
+    def _refuse_rename(self, con: duckdb.DuckDBPyConnection, statement: str) -> None:
+        """A rename (T-SQL's sp_rename, or ALTER ... RENAME) runs only on a database table, and not where a length
+        check names the table or column (WR-224): a Delta table's folder and a registered folder keep their names,
+        a view is dropped and made again, and the check's "would be truncated" message would name the old one."""
+        if not _RENAME.match(statement):
+            return
+        from sqlglot import exp, parse_one
+        from sqlglot.errors import SqlglotError
+        try:
+            tree = parse_one(statement, read="duckdb")
+        except SqlglotError:
+            return  # DuckDB reports what it can't read when the step runs
+        actions = (tree.args.get("actions") or []) if isinstance(tree, exp.Alter) else []
+        renames = [a for a in actions if isinstance(a, (exp.AlterRename, exp.RenameColumn))]
+        if not renames or not isinstance(tree.this, exp.Table):
+            return
+        schema, table = tree.this.db or "dbo", tree.this.name
+        name = f"{schema}.{table}"
+        if self._is_own(schema, table):
+            raise ValueError(f"Renaming {name} isn't mapped yet: it's one of the project's Delta tables, kept in a "
+                             f"folder of its name. Copy it under the new name (CREATE TABLE new_name USING DELTA AS "
+                             f"SELECT * FROM {name}) and drop the old one.")
+        if self.project.catalog.get(self._own_key(schema, table)) is not None:
+            raise ValueError(f"Renaming {name} isn't mapped yet: it's read from a registered folder, which keeps its "
+                             "name.")
+        views = con.execute("SELECT 1 FROM duckdb_views() WHERE NOT internal AND schema_name = ? AND view_name = ?",
+                            [schema, table]).fetchall()
+        if views:
+            raise ValueError(f"Renaming the view {name} isn't mapped yet. Drop it and create it with the new name, "
+                             "as Microsoft recommends for views.")
+        column = renames[0].this.name if isinstance(renames[0], exp.RenameColumn) else None
+        checks = con.execute("SELECT constraint_column_names FROM duckdb_constraints() WHERE schema_name = ? AND "
+                             "table_name = ? AND constraint_type = 'CHECK' AND expression LIKE "
+                             "'%would be truncated%'", [schema, table]).fetchall()
+        held = {c for (names,) in checks for c in names or []}
+        if column is not None and column in held:
+            raise ValueError(f"Renaming the column {name}.{column} isn't mapped yet: the check that holds it to its "
+                             "length names the column in its \"would be truncated\" message, and would keep the old "
+                             "name. Create the table with the new column name, INSERT ... SELECT the rows, and drop "
+                             "the old one.")
+        if column is None and held:
+            raise ValueError(f"Renaming {name} isn't mapped yet: the checks that hold its text and binary columns to "
+                             "their length name the table in their \"would be truncated\" message, and would keep "
+                             "the old name. Create the table with the new name, INSERT ... SELECT the rows, and drop "
+                             "the old one.")
+
     def _refuse_drop(self, statement: str) -> None:
-        m = _DROP.match(statement)
+        m = _DROP.fullmatch(statement)
         if m and self._is_own(*delta.split_name(m["name"])):
             raise ValueError(f"{m['name']} is one of the project's Delta tables. Dropping it deletes its folder "
                              "and every version, so it's done as its own step (local_drop_delta), not in SQL.")
+        # WR-243: DDL that DuckDB would refuse in its own words ("Can only modify view with ALTER VIEW")
+        m = _ALTER.match(statement)
+        if m and self._is_own(*delta.split_name(m["name"])):
+            raise ValueError(f"Changing the columns of {m['name']}, one of the project's Delta tables, with ALTER "
+                             "TABLE isn't mapped yet. Write it again with the columns you want: CREATE OR REPLACE "
+                             f"TABLE {m['name']} USING DELTA AS SELECT ... FROM {m['name']}, which keeps every "
+                             "version before it.")
+        m = _TRUNCATE.fullmatch(statement)
+        if m and self._is_own(*delta.split_name(m["name"])):
+            raise ValueError(f"TRUNCATE TABLE on {m['name']}, one of the project's Delta tables, isn't mapped yet. "
+                             f"DELETE FROM {m['name']} removes every row the same way, as a new version.")
 
     def _as_write(self, steps: list[dict[str, Any]], write: "delta.Write", sql: str) -> dict[str, Any]:
         if len(steps) != 1 or steps[0]["write"] is not None or steps[0]["change"] is not None:
@@ -817,6 +1248,8 @@ class LocalEngine:
         name = f"{schema + '.' if schema else ''}{table}"
         if entry is None:
             raise ValueError(f"{name} isn't a Delta table in {self.project.name}, so it has no versions.")
+        if not isinstance(entry, dict) or not isinstance(entry.get("folder") or "", str):  # a hand-edited project.json
+            raise ValueError(f"{name}'s entry in {self.project.name}'s saved catalog (project.json) can't be read.")
         if entry.get("format") != "delta" or not entry.get("folder"):
             raise ValueError(f"{name} isn't a Delta table ({entry.get('format')}), so it has no versions.")
         return entry
@@ -839,6 +1272,7 @@ class LocalEngine:
         catalog = self.project.catalog
         issues: list[dict[str, str]] = []
         seen: set[str] = set()
+        before = self._own_logs()  # before the tables are read, so a commit landing meanwhile is seen next time
         logs = sorted(self.tables_dir.glob("*/*/_delta_log")) if self.tables_dir.is_dir() else []
         for log in logs:
             folder = log.parent
@@ -863,14 +1297,62 @@ class LocalEngine:
         for key in [k for k, v in catalog.items() if v.get("kind") == OWN and k not in seen]:
             old = catalog.pop(key)
             con.execute(f"DROP VIEW IF EXISTS {q(old['schema'])}.{q(old['table'])}")
+        self._own_seen = before
         self.project.refreshed[OWN_KEY] = {"issues": issues,
                                            "refreshed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         with self._meta_lock:
             self.store.save(self.project)
 
+    def _own_logs(self) -> dict[str, int]:
+        """Each Delta table folder in Tables, with its _delta_log folder's modified time. A commit adds a file to
+        _delta_log, so the time moves; a table made, dropped or replaced adds or takes away a folder. One stat a table,
+        so cheap enough to look before every statement."""
+        out: dict[str, int] = {}
+        try:
+            schemas = [d.path for d in os.scandir(self.tables_dir) if d.is_dir(follow_symlinks=False)]
+        except OSError:
+            return out
+        for schema in schemas:
+            try:
+                tables = [d.path for d in os.scandir(schema) if d.is_dir(follow_symlinks=False)]
+            except OSError:
+                continue
+            for table in tables:
+                with suppress(OSError):
+                    out[os.path.normcase(table)] = os.stat(os.path.join(table, "_delta_log")).st_mtime_ns
+        return out
+
+    def _refresh_own_if_moved(self) -> None:
+        """Read the project's Delta tables again when another writer committed to one, made one or took one away
+        since they were last read, so a statement never reads an older version than the table is at. Before
+        WR-243 they were read again only when the project opened or was refreshed by hand: a SELECT after a
+        notebook's write showed the rows from before it, and after a VACUUM failed on files no longer there."""
+        now = self._own_logs()
+        own = {os.path.normcase(v["folder"]): v for v in self.project.catalog.values() if v.get("kind") == OWN}
+        # A folder's modified time is the cheap sign, but a volume with 2-second times (exFAT, FAT32) or a synced
+        # or network folder may not move it for a new file. The next commit's own file is a sure one: one stat more.
+        ahead = {f for f, v in own.items() if f in now and _next_commit_exists(f, v)}
+        if now == self._own_seen and not ahead:
+            return
+        con = self._con
+        assert con is not None
+        if set(now) != set(self._own_seen):
+            self._refresh_own()  # a table made or taken away: looked at all together, with their issues
+            return
+        moved = sorted({f for f, t in now.items() if t != self._own_seen[f]} | ahead)
+        if any(f not in own for f in moved):
+            self._refresh_own()  # one listed as an issue changed: it may be readable now
+            return
+        for folder in moved:
+            entry = own[folder]
+            self._register_own(con, entry["schema"], entry["table"], Path(entry["folder"]))
+
     def _register_own(self, con: duckdb.DuckDBPyConnection, schema: str, table: str, folder: Path,
                       save: bool = True) -> dict[str, Any]:
         key = self._own_key(schema, table)
+        # read the time before the table, so a commit landing during the read is seen next time
+        with suppress(OSError):
+            self._own_seen[os.path.normcase(str(folder))] = os.stat(folder / "_delta_log").st_mtime_ns
         entry: dict[str, Any] = {"schema": schema, "table": table, "format": "delta", "kind": OWN, "source": "",
                                  "folder": str(folder), "paths": [], "files": 0, "bytes": 0, "status": "ok",
                                  "error": "", "columns": []}
@@ -1037,6 +1519,7 @@ class LocalEngine:
                     folder.mkdir(parents=True, exist_ok=True)
                     options: dict[str, Any] = {
                         "partition_by": partitions or None, "schema_mode": schema_mode,
+                        "post_commithook_properties": maintenance.WRITE_HOOKS,
                         "commit_properties": CommitProperties(custom_metadata={
                             "fabric_desktop.project": self.project.id, "fabric_desktop.query": query_id})}
                     if current is not None and w.mode == "overwrite":
@@ -1069,7 +1552,8 @@ class LocalEngine:
         # On disk before the write returns, as LocalStore's commits are: a power cut can't take the
         # data of a commit already made (durable.py).
         durable.sync_commits(str(folder), 0 if current is None else current.version() + 1, after.version())
-        delta_profile.check_table(after)
+        maintenance.after_write(str(folder), None if current is None else current.version(), after)
+        delta_profile.check_table(after, committed=True)
         out["version"] = after.version()
         entry = self._register_own(con, schema, w.table, folder)
         if entry["status"] != "ok":  # committed, so said plainly: a retried write would add its rows twice
@@ -1124,16 +1608,32 @@ class LocalEngine:
                 source, names, stream = self._merge_source(con, c, current, source_table, name)
             if dry_run:
                 with self._shadow(folder) as copy:
-                    out.update(delta_dml.apply(c, DeltaTable(str(copy)), source, names, props))
+                    out.update(delta_dml.apply(c, DeltaTable(str(copy)), source, names, props, one_match_checked=True))
                     out["version"] = DeltaTable(str(copy)).version()  # what a real run would commit
                 return out
-            out.update(delta_dml.apply(c, current, source, names, props))
+            out.update(delta_dml.apply(c, current, source, names, props, one_match_checked=True,
+                                       post_commithook_properties=maintenance.WRITE_HOOKS))
         except BaseException as exc:
             if state["cancelled"] or state["timed_out"]:
                 raise duckdb.InterruptException("cancelled") from None
             if isinstance(exc, (ValueError, duckdb.Error, KeyboardInterrupt)):
                 raise
+            if not (folder / "_delta_log").is_dir():
+                # WR-243: another writer (Explorer, a notebook, another tool) dropped the table while this ran
+                self._refresh_own()
+                raise ValueError(f"{name} was dropped by another writer while this statement ran, because its "
+                                 "folder or _delta_log is gone, so nothing of this statement is kept. A Fabric "
+                                 f"Warehouse then says Invalid object name '{name}'. Create {name} again before you "
+                                 "run the statement again.") from None
             committed = not dry_run and _committed(folder, before, query_id)
+            if not committed and _lost_to_another_writer(exc, folder, before):
+                # WR-232: as a warehouse's snapshot isolation does, the first to commit wins. Read the table again,
+                # so what runs next sees the winner's change, not the version this statement started from.
+                try:
+                    self._register_own(con, entry["schema"], entry["table"], folder)
+                except Exception:  # noqa: BLE001 - the conflict is the error to show; the next read registers it
+                    _log.warning("Couldn't read %s again after a write-write conflict", name, exc_info=True)
+                raise ValueError(_conflict(name)) from None
             raise ValueError(f"Changing {name} failed{'' if committed else ', and nothing was committed'}: "
                              f"{_short(exc).split(' Detail: Python exception')[0]}") from None
         finally:
@@ -1144,7 +1644,8 @@ class LocalEngine:
         after = DeltaTable(str(folder))
         if after.version() > before:
             durable.sync_commits(str(folder), before + 1, after.version())  # on disk before it returns
-        delta_profile.check_table(after)
+            maintenance.after_write(str(folder), before, after)
+        delta_profile.check_table(after, committed=True)
         out["version"] = after.version()
         registered = self._register_own(con, entry["schema"], entry["table"], folder)
         if registered["status"] != "ok":  # committed, so said plainly, as in _write
@@ -1160,20 +1661,17 @@ class LocalEngine:
         query = c.source_sql(KfDuckDB)
         _only_reads(con, query)
         con.execute(f"CREATE TEMP TABLE {q(source_table)} AS {query}")
-        keys = delta_dml.equi_keys(c)
-        if keys and c.on is not None and any(w.match == "matched" for w in c.whens):
-            # Spark refuses a MERGE in which one row of the table matches two source rows: which
-            # one would update it is undefined. Checked here for ON t.a = s.a [AND ...].
-            group = ", ".join(f"{q(c.source_alias)}.{q(s_col)}" for _t, s_col in keys)
-            duplicate = first_row(con.execute(
-                f"SELECT {group} FROM temp.{q(source_table)} AS {q(c.source_alias)} WHERE EXISTS (SELECT 1 FROM "
-                f"{q(c.schema or 'dbo')}.{q(c.table)} AS {q(c.alias)} WHERE {delta._duckdb(c.on)}) "
-                f"GROUP BY {group} HAVING count(*) > 1 LIMIT 1"))
-            if duplicate is not None:
-                raise ValueError(f"More than one source row matches the same row of {name} (source key "
-                                 f"{', '.join(str(v) for v in duplicate)}), so which one updates it is undefined. "
-                                 "Keep one source row per key, for example with QUALIFY row_number() OVER "
-                                 "(PARTITION BY key ORDER BY ...) = 1.")
+        if c.tsql:  # WR-257: the source's columns as it has them now, before anything is written
+            tsql_merge.place(tsql_merge.clauses(c), [f.name for f in current.schema().fields],
+                             _column_names(con, f"SELECT * FROM temp.{q(source_table)}"))
+        if c.tsql:  # WR-244: as a warehouse does, whose tables are Delta tables too
+            if any(w.match == "matched" for w in c.whens):
+                _matched_once(con, c, f"{q(c.schema or 'dbo')}.{q(c.table)}", f"temp.{q(source_table)}", name)
+        elif delta_dml.needs_one_match(c) and c.on is not None:
+            detail = delta_dml.multiple_match(con, c, f"{q(c.schema or 'dbo')}.{q(c.table)}",
+                                              f"temp.{q(source_table)}", delta._duckdb(c.on))
+            if detail is not None:
+                raise delta_dml.multiple_match_error(name, detail)
         reader = arrow_reader(for_arrow(con, f"SELECT * FROM temp.{q(source_table)}"), _WRITE_BATCH)
         cased = {f.name.lower(): f.name for f in current.schema().fields}
         safe = delta.fabric_schema(reader.schema, names=False)
@@ -1288,6 +1786,40 @@ class LocalEngine:
 
 class QueryCancelled(RuntimeError):
     pass
+
+
+def _lines_above_problem(above: int, table: Found) -> str:
+    one = above == 1
+    lines, verb, it = ("line", "doesn't", "it") if one else (f"{above} lines", "don't", "them")
+    return (f"The first {lines} of this file {verb} look like the rest, so {'it is' if one else 'they are'} probably "
+            f"a title or notes above the header. {table.schema}.{table.table} keeps {it} as rows, so no line is left "
+            f"out. Remove {it} from the file to read it with its header.")
+
+
+def _lines_above_the_rows(con: duckdb.DuckDBPyConnection, path: str) -> int:
+    """How many lines at the start of a CSV file DuckDB's sniffer would have skipped as not part of the
+    table (a title, notes): file_select reads them as rows (skip = 0), and the folder's issues say so."""
+    try:
+        row = first_row(con.execute("SELECT SkipRows FROM sniff_csv(?)", [path]))
+    except duckdb.Error as exc:  # the view itself was made: a file the sniffer can't read fails its queries
+        _log.info("Couldn't sniff %s: %s", path, describe(exc))
+        return 0
+    return int(row[0]) if row and row[0] else 0
+
+
+def _invalidated(con: duckdb.DuckDBPyConnection) -> bool:
+    """True when DuckDB has invalidated the connection's database after a fatal or internal error."""
+    try:
+        cur = con.cursor()
+    except duckdb.FatalException:
+        return True
+    try:
+        cur.execute("SELECT 1")
+    except duckdb.FatalException:
+        return True
+    finally:
+        cur.close()
+    return False
 
 
 def _release(con: duckdb.DuckDBPyConnection) -> None:
@@ -1508,6 +2040,9 @@ def _render(plan: list[dict[str, Any]], depth: int = 0) -> list[str]:
     return lines
 
 
+_RENAME = re.compile(r"^\s*ALTER\s+(TABLE|VIEW)\b.*\bRENAME\b", re.IGNORECASE | re.DOTALL)
+_ALTER = re.compile(r"^\s*ALTER\s+TABLE\s+(IF\s+EXISTS\s+)?(?P<name>[^\s;]+)\s+(ADD|DROP|ALTER)\b", re.IGNORECASE)
+_TRUNCATE = re.compile(r"^\s*TRUNCATE\s+(TABLE\s+)?(?P<name>[^\s;]+)\s*;?\s*", re.IGNORECASE)
 _DROP = re.compile(r"^\s*DROP\s+(TABLE|VIEW)\s+(IF\s+EXISTS\s+)?(?P<name>[^\s;]+)\s*;?\s*$", re.IGNORECASE)
 
 
@@ -1575,11 +2110,133 @@ def _remove_tree(folder: Path, tables_dir: Path) -> None:
     if folder.parent.parent != root:
         raise ValueError(f"{folder} isn't a table folder of this project, so it wasn't deleted.")
     if folder.is_dir():
-        shutil.rmtree(folder)
+        trees.remove(folder)
+
+
+def _in_script(exc: Exception, i: int, n: int, kind: str) -> Exception:
+    """``exc`` from statement ``i`` (from 0) of a T-SQL script of ``n``, naming the statement and what already ran.
+    A script stops at the first error, and the statements before it stay done, as a batch does in a warehouse
+    when nothing wraps it in a transaction."""
+    ran = ("Nothing before it ran" if i == 0 else "Statement 1 ran, and what it changed is kept" if i == 1 else
+           f"Statements 1 to {i} ran, and what they changed is kept")
+    left = n - i - 1
+    if left:
+        ran += f"; {'the last statement' if left == 1 else f'the {left} after it'} didn't run"
+    error = _short(exc)
+    if not error.endswith((".", "!", "?")):
+        error += "."
+    words = f"Statement {i + 1} of {n} ({kind.split()[0].upper()}) failed: {error} {ran}."
+    try:
+        return type(exc)(words)
+    except TypeError:  # an error type that needs more than a message: as it was
+        return exc
+
+
+def _without_leading_comments(text: str) -> str:
+    """``text`` from its first word: spaces, ``--`` lines and ``/* */`` comments (which T-SQL nests) skipped."""
+    i = 0
+    while True:
+        while i < len(text) and text[i].isspace():
+            i += 1
+        if text.startswith("--", i):
+            end = text.find("\n", i)
+            i = len(text) if end < 0 else end + 1
+        elif text.startswith("/*", i):
+            depth, i = 1, i + 2
+            while i < len(text) and depth:
+                if text.startswith("/*", i):
+                    depth, i = depth + 1, i + 2
+                elif text.startswith("*/", i):
+                    depth, i = depth - 1, i + 2
+                else:
+                    i += 1
+        else:
+            return text[i:]
+
+
+def _refused_in_script(said: Exception, where: "tsql.InScript") -> str:
+    """The refusal of one statement of a T-SQL script, naming it. The script is translated whole before any of it
+    runs, so nothing ran, where a warehouse would also stop the batch before it runs for an error it finds in
+    compiling it, such as Msg 239."""
+    error = str(said)
+    if not error.endswith((".", "!", "?")):
+        error += "."
+    return (f"Statement {where.index + 1} of {where.count} ({where.kind}) was refused: {error} None of the script ran, "
+            "because every statement is checked before the first one runs.")
+
+
+def _as_warehouse_says(exc: Exception, step: dict[str, Any]) -> Exception:
+    """WR-233: a DuckDB error from a T-SQL statement in SQL Server's words where they map with certainty, and
+    without a suggestion of DuckDB's own system tables; DuckDB's text goes to the log for support."""
+    text = str(exc)
+    if not isinstance(exc, duckdb.Error):
+        words = tsql_errors.numbered(text)  # WR-234: such as the duplicate CTE name, in SQL Server's words already
+        return exc if words == text else _same_kind(exc, words)
+    mapped = tsql_errors.warehouse(text, step.get("sql") or "", step.get("kind") or "")
+    words = tsql_errors.without_system_hint(text) if mapped is None else mapped
+    if words == text:
+        return exc
+    words = tsql_errors.numbered(words)
+    # Only DuckDB's message, never the statement it quotes after it ("LINE 1: ..."), which can hold a value
+    _log.info("Local T-SQL error shown as %r; DuckDB said: %s", words.split("\n", 1)[0],
+              one_line(text.split("\n\nLINE ", 1)[0], 1000))
+    return _same_kind(exc, words)
+
+
+def _same_kind(exc: Exception, words: str) -> Exception:
+    try:
+        return type(exc)(words)
+    except TypeError:  # an error type that needs more than a message: as it was
+        return exc
+
+
+MAX_TABLE_COLUMNS = 1024  # a Fabric Warehouse table's most, as Microsoft's tables page gives it
+
+
+def _within_column_limit(con: duckdb.DuckDBPyConnection, sql: str) -> None:
+    """Refuse, in SQL Server's words (error 1702), a CREATE TABLE, SELECT ... INTO or ALTER TABLE ... ADD that
+    would give a table more than 1,024 columns, which a Fabric Warehouse table can't have. Nothing is made."""
+    import sqlglot
+    from sqlglot import exp
+    try:
+        tree = sqlglot.parse_one(sql, read=KfDuckDB)
+    except sqlglot.errors.SqlglotError:
+        return  # DuckDB reads it and says what's wrong
+    names: list[str] = []
+    verb = "CREATE"
+    if isinstance(tree, exp.Create) and str(tree.args.get("kind") or "").upper() == "TABLE":
+        target = tree.this.this if isinstance(tree.this, exp.Schema) else tree.this
+        if isinstance(tree.expression, exp.Query):
+            if len(tree.expression.selects) <= MAX_TABLE_COLUMNS and not any(
+                    isinstance(s, exp.Star) or isinstance(s, exp.Column) and isinstance(s.this, exp.Star)
+                    for s in tree.expression.selects):
+                return
+            try:
+                names = [r[0] for r in con.execute(f"DESCRIBE {tree.expression.sql(dialect=KfDuckDB)}").fetchall()]
+            except duckdb.Error:
+                return  # the statement's own run says what's wrong
+        elif isinstance(tree.this, exp.Schema):
+            names = [c.name for c in tree.this.expressions if isinstance(c, exp.ColumnDef)]
+    elif isinstance(tree, exp.Alter) and str(tree.args.get("kind") or "").upper() == "TABLE":
+        verb, target = "ALTER", tree.this
+        added = [a.name for a in tree.args.get("actions") or [] if isinstance(a, exp.ColumnDef)]
+        if not added:
+            return
+        try:
+            names = [r[0] for r in con.execute(f"DESCRIBE {target.sql(dialect=KfDuckDB)}").fetchall()] + added
+        except duckdb.Error:
+            return
+    else:
+        return
+    if len(names) > MAX_TABLE_COLUMNS:
+        table = target.name if isinstance(target, exp.Table) else str(target)
+        raise ValueError(f"{verb} TABLE failed because column '{names[MAX_TABLE_COLUMNS]}' in table '{table}' "
+                         f"exceeds the maximum of {MAX_TABLE_COLUMNS} columns.")
 
 
 def _kind(statement: str) -> str:
-    word = statement.lstrip().split(None, 1)[0].lower() if statement.strip() else ""
+    text = _without_leading_comments(statement)  # WR-236: "/* c */ SELECT 1" is a SELECT
+    word = text.split(None, 1)[0].lower() if text.strip() else ""
     return {"with": "select", "from": "select", "values": "select", "table": "select"}.get(word, word)
 
 
@@ -1587,8 +2244,9 @@ class ResultStream:
     """A query's whole result, batch by batch. Closing it (or reading it to the end) frees the
     project's connection; a pyarrow reader's own close() wouldn't, so this wraps one."""
 
-    def __init__(self, schema: pa.Schema, batches: Any, generator: Any):
+    def __init__(self, schema: pa.Schema, batches: Any, generator: Any, notes: list[str] | None = None):
         self.schema = schema
+        self.notes = notes or []  # T-SQL: where this PC's answer can differ from a warehouse's (translation notes)
         self._generator = generator
         self.reader = pa.RecordBatchReader.from_batches(schema, batches)
 
@@ -1616,6 +2274,14 @@ class ResultStream:
 
     def __exit__(self, *exc: Any) -> None:
         self.close()
+
+
+def _next_commit_exists(folder: str, entry: dict[str, Any]) -> bool:
+    """Whether the Delta table in ``folder`` has a commit after the version ``entry`` was read at."""
+    version = (entry.get("delta") or {}).get("version")
+    if not isinstance(version, int):
+        return False
+    return os.path.exists(os.path.join(folder, "_delta_log", f"{version + 1:020d}.json"))
 
 
 def _committed(folder: Path, before: int, query_id: str) -> bool:
@@ -1651,6 +2317,24 @@ def _fabric_check(sql: str) -> dict[str, Any]:
 def _chain(first: pa.RecordBatch, rest: Any) -> Any:
     yield first
     yield from rest
+
+
+# The most rows local_query (and the deprecated local_query_status) returns in one answer.
+MAX_QUERY_ROWS = 100_000
+
+
+def shown_rows_note(shown: int, total: int | None, truncated: bool, asked: int) -> str:
+    """WR-225: the sentence a local_query answer carries when it holds fewer rows than the query returned:
+    both counts and what to change. "" when every row is there."""
+    if not truncated:
+        return ""
+    shown_of = (f"Showing the first {shown:,} of {total:,} rows." if total is not None
+                else f"Showing the first {shown:,} rows; the query returned more.")
+    over = (f" A limit of {asked:,} is more than one answer holds ({MAX_QUERY_ROWS:,})."
+            if asked > MAX_QUERY_ROWS else "")
+    more = (f"Pass a larger limit (up to {MAX_QUERY_ROWS:,}), or run" if shown < MAX_QUERY_ROWS else "Run")
+    return (f"{shown_of}{over} {more} it with sql_start (target \"local\") "
+            "to page through and export every row.")
 
 
 def _collect(result: Any, limit: int, count: bool) -> dict[str, Any]:

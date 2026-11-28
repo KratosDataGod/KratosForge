@@ -10,7 +10,7 @@ that same path and gives each function a status:
     differs     it runs and gives another value: check results that use it on the warehouse
     refused     this PC refuses it by name, with a message, so nothing runs with another answer
     fails       it stops with an error that isn't a refusal
-    not checked it has no example whose value can be compared (random values, the clock, the session)
+    not checked it has no example whose value can be compared
 
 Databricks SQL's built-ins are Spark's with Databricks' own added. ``databricks_builtins.json`` lists
 Databricks' own (from its alphabetical list of built-in functions, sql-ref-functions-builtin-alpha),
@@ -88,28 +88,121 @@ def connect() -> Any:
     from . import databricks_bytes, databricks_ip, databricks_variant
     databricks_ip.register(con)  # as engines.local_sql's DuckDB session does
     databricks_bytes.register(con)
+    from . import spark_hash
+    spark_hash.register(con)  # url_decode
     databricks_variant.register(con)
     return con
 
 
-# Checked against Fabric's Spark session, not a warehouse's: Databricks SQL answers with the session's
-# Unity Catalog catalog and its own time zone setting, so these have no value to compare here.
-SESSION = frozenset({"current_catalog", "current_timezone"})
+_REF = "docs.databricks.com/aws/en/sql/language-manual/functions/"
+
+# Value checks for functions whose example gives a value that varies (random values, the clock, the session,
+# the file being read) or that have no example, taken from each one's page in Databricks' SQL reference
+# (_REF + its name). Each has an ``example`` and one of:
+#   value    the rows the reference documents for the example
+#   pattern  a regular expression each value must match, for the clock and versions, where the reference
+#            documents the form of the value, not one that can be compared
+#   error    text the example must stop with, as Databricks' does
+# and a ``note`` for the page when the check alone doesn't say what differs. A seeded random function is
+# checked with the reference's seeded example, whose series Databricks documents.
+DATABRICKS_CHECKS: dict[str, dict[str, Any]] = {
+    "aes_encrypt": {"example": "SELECT base64(aes_encrypt('Spark SQL', '1234567890abcdef', 'ECB', 'PKCS'))",
+                    "value": [["3lmwu+Mw0H3fi5NDvcu9lg=="]]},
+    "cube": {"example": ("SELECT name, age, count(*) FROM VALUES (2, 'Alice'), (5, 'Bob') people(age, name) "
+                         "GROUP BY cube(name, age)"),
+             "value": [["Bob", 5, 1], ["Alice", 2, 1], ["Alice", None, 1], [None, 2, 1], [None, None, 2],
+                       ["Bob", None, 1], [None, 5, 1]]},
+    "current_catalog": {"example": "SELECT current_catalog()", "value": [["spark_catalog"]],
+                        "note": ("'main' here, the session's catalog, as in a workspace with Unity Catalog; "
+                                 "spark_catalog in Databricks' reference, a workspace without it")},
+    "current_database": {"example": "SELECT current_database()", "value": [["default"]]},
+    "current_schema": {"example": "SELECT current_schema()", "value": [["default"]]},
+    # a TIME in the session's zone, cut to the precision: 16:57:04 in the reference
+    "current_time": {"example": "SELECT current_time(0)", "pattern": r"time:\d\d:\d\d:\d\d"},
+    # the session's zone: a Databricks SQL warehouse's starts in UTC, as this PC's does
+    "current_timezone": {"example": "SELECT current_timezone()", "value": [["UTC"]]},
+    "current_user": {"example": "SELECT current_user()", "value": [["user1"]],
+                     "note": "'duckdb' here, the engine's name; the signed-in user in Databricks (user1 in its reference)"},
+    # a synonym of current_timestamp(), and both are the time the query started
+    "getdate": {"example": "SELECT getdate() = current_timestamp()", "value": [[True]]},
+    "input_file_block_length": {"example": "SELECT input_file_block_length()", "value": [[-1]]},
+    "input_file_block_start": {"example": "SELECT input_file_block_start()", "value": [[-1]]},
+    # the reference shows no value; it gives an empty string when no file is being read, as Spark's example does
+    "input_file_name": {"example": "SELECT input_file_name()", "value": [[""]],
+                        "note": "Databricks SQL no longer supports it either (17.3 LTS and above): use _metadata.file_name"},
+    "java_method": {"example": "SELECT java_method('java.util.UUID', 'fromString', 'a5cf6c42-0c85-418f-af6c-3e4e5b1328f2')",
+                    "value": [["A5cf6c42-0c85-418f-af6c-3e4e5b1328f2"]]},
+    # a synonym of current_time: three digits after the second, then zeros (canonical writes six, and none
+    # when the fraction is zero)
+    "localtime": {"example": "SELECT localtime(3)", "pattern": r"time:\d\d:\d\d:\d\d(\.\d{3}000)?"},
+    "monotonically_increasing_id": {"example": "SELECT monotonically_increasing_id()", "value": [[0]],
+                                    "note": "0, 1, 2 ... here; Databricks' ids are unique and increasing, with gaps"},
+    "raise_error": {"example": "SELECT raise_error('custom error message')", "error": "custom error message",
+                    "note": "stops with the message; Databricks' error class is USER_RAISED_EXCEPTION"},
+    # refused with a seed (databricks_builtins_sql._RANDOM_SEED); without one each row gets its own draw
+    "randstr": {"example": "SELECT randstr(10, 0), randstr(10, 0) FROM VALUES(1), (2), (3)",
+                "value": [["ceV0PXaR2I", "ceV0PXaR2I"], ["lBhHi56d0u", "lBhHi56d0u"], ["CtuwSOTLiL", "CtuwSOTLiL"]]},
+    "reflect": {"example": "SELECT reflect('java.util.UUID', 'fromString', 'a5cf6c42-0c85-418f-af6c-3e4e5b1328f2')",
+                "value": [["A5cf6c42-0c85-418f-af6c-3e4e5b1328f2"]]},
+    "session_user": {"example": "SELECT session_user()", "value": [["user1"]],
+                     "note": "'duckdb' here, the engine's name; the signed-in user in Databricks (user1 in its reference)"},
+    # no reference page was read: Spark 3.5's example and value
+    "spark_partition_id": {"example": "SELECT spark_partition_id()", "value": [[0]]},
+    "sql_keywords": {"example": "SELECT keyword, reserved FROM sql_keywords() ORDER BY keyword LIMIT 2",
+                     "value": [["ACTION", False], ["ADD", False]]},
+    # as randstr: refused with a seed
+    "uniform": {"example": "SELECT uniform(10, 20, 0), uniform(10, 20, 0) FROM range(10)",
+                "value": [[10, 10], [11, 11], [19, 19], [18, 18], [19, 19], [14, 14], [18, 18], [14, 14], [10, 10],
+                          [17, 17]]},
+    "user": {"example": "SELECT user()", "value": [["user1"]],
+             "note": "'duckdb' here, the engine's name; the signed-in user in Databricks (user1 in its reference)"},
+    "version": {"example": "SELECT version()", "pattern": r"\d+\.\d+\.\d+ [0-9a-f]{40}",
+                "note": "DuckDB's version here (v1.5.6); Databricks gives Apache Spark's and its git revision"},
+}
 
 
 def check(function: dict[str, Any], con: Any) -> tuple[str, str]:
-    """``function``'s status and a short note, from running its example as a Databricks SQL cell."""
+    """``function``'s status and a short note, from running its example as a Databricks SQL cell: its
+    DATABRICKS_CHECKS entry when it has one, otherwise its own example and value."""
+    listed = DATABRICKS_CHECKS.get(function["name"])
+    if listed is not None:
+        return _listed(listed, con)
     example, expected = function.get("example"), DATABRICKS_VALUES.get(function["name"], function.get("value"))
-    if not example or function["name"] in spark_coverage.VARYING | SESSION or "value" not in function:
+    if not example or function["name"] in spark_coverage.VARYING or "value" not in function:
         return "not checked", ""
     try:
         got = run(example, con)
     except Exception as exc:  # noqa: BLE001  # silent-ok: every error is a status for the coverage list
-        first = (str(exc).strip().splitlines() or [type(exc).__name__])[0]
-        return ("refused" if spark_coverage._refusal(exc) else "fails"), first[:160]
+        return _stopped(exc)
     if got == expected:
         return "runs", ""
     return "differs", f"{json.dumps(got)[:80]} here, {json.dumps(expected)[:80]} in Databricks"
+
+
+def _stopped(exc: BaseException) -> tuple[str, str]:
+    first = (str(exc).strip().splitlines() or [type(exc).__name__])[0]
+    return ("refused" if spark_coverage._refusal(exc) else "fails"), first[:160]
+
+
+def _listed(listed: dict[str, Any], con: Any) -> tuple[str, str]:
+    """The status of a DATABRICKS_CHECKS entry's example: its value, pattern or error."""
+    note = listed.get("note", "")
+    try:
+        got = run(listed["example"], con)
+    except Exception as exc:  # noqa: BLE001  # silent-ok: every error is a status for the coverage list
+        if "error" in listed and listed["error"] in str(exc) and not spark_coverage._refusal(exc):
+            return "runs", note
+        return _stopped(exc)
+    if "error" in listed:
+        return "differs", note or f"{json.dumps(got)[:80]} here; Databricks stops with an error"
+    if "pattern" in listed:
+        same = bool(got) and all(re.fullmatch(listed["pattern"], str(v)) for row in got for v in row)
+    else:
+        same = got == sorted(listed["value"], key=json.dumps)
+    if same:
+        return "runs", note
+    shown = listed.get("value", listed.get("pattern"))
+    return "differs", note or f"{json.dumps(got)[:80]} here, {json.dumps(shown)[:80]} in Databricks"
 
 
 def load() -> list[dict[str, Any]]:
@@ -144,6 +237,11 @@ def probe(function: dict[str, Any], con: Any) -> tuple[str, str]:
     return "fails", (other[0][:160] if other else f"DuckDB has no {name}, and the translation doesn't write it")
 
 
+def _example(function: dict[str, Any]) -> str:
+    listed = DATABRICKS_CHECKS.get(function["name"])
+    return str(listed["example"] if listed else function.get("example") or "")
+
+
 def coverage() -> list[dict[str, Any]]:
     """Every built-in with its group, example and status: Spark's in name order, then Databricks' own."""
     con = connect()
@@ -151,11 +249,12 @@ def coverage() -> list[dict[str, Any]]:
     for function in spark_coverage.load():
         status, note = check(function, con)
         out.append({"name": function["name"], "group": function.get("group") or "other",
-                    "example": function.get("example") or "", "status": status, "note": note})
+                    "example": _example(function), "status": status, "note": note})
     for function in load():
-        status, note = check(function, con) if "value" in function else probe(function, con)
+        checked = "value" in function or function["name"] in DATABRICKS_CHECKS
+        status, note = check(function, con) if checked else probe(function, con)
         note = note or function.get("note", "")  # a known difference the value check doesn't show
-        out.append({"name": function["name"], "group": function["group"], "example": function.get("example", ""),
+        out.append({"name": function["name"], "group": function["group"], "example": _example(function),
                     "status": status, "note": note})
     return out
 
@@ -184,6 +283,8 @@ def markdown(rows: list[dict[str, Any]]) -> str:
         "shows another). Databricks' own functions are in the groups headed \"Databricks only\": one with",
         "an example is compared with the value Databricks' reference documents for it, and any other is",
         "tried with NULL arguments, or a sample of its own syntax (CUBE, WITHIN GROUP, a unit keyword).",
+        "A function whose value varies (random values, the clock, the session) is checked with an example",
+        "from its page in Databricks' reference: a seeded one, or the form of the value it documents.",
         "No Databricks workspace was used. CI runs every check again, so this page changes when a",
         "function is fixed or breaks.",
         "",
@@ -191,8 +292,7 @@ def markdown(rows: list[dict[str, Any]]) -> str:
         "- **Differs**: runs, but gives another value. Check results that use it on the warehouse.",
         "- **Refused**: stops with a message saying why, so nothing runs with another answer.",
         "- **Fails**: stops with an error. Run the cell on a Databricks SQL warehouse.",
-        ("- **Not checked**: no example whose value can be compared (random values, the clock or the "
-        "session, or no example), or DuckDB accepts it but no check compares its value yet."),
+        "- **Not checked**: DuckDB accepts it, but no check compares its value yet.",
         "",
         "AI (`ai_`), geospatial (`h3_`, `st_`), file, stream, secret, Unity Catalog and account functions",
         "aren't listed: they need Databricks' own services. The IP address functions (`ip_`), `url_decode`,",

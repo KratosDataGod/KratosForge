@@ -349,6 +349,8 @@ def test_duplicate_json_keys_are_reported_and_kept():
     ('{"definition": {"parts": []}}', "missing_content_part"),
     ('{"definition": {"parts": [{"path": "pipeline-content.json", "payload": "!!!", "payloadType": "InlineBase64"}]}}',
      "invalid_payload"),
+    ('{"definition": {"parts": [{"path": "pipeline-content.json", "payload": "e30g=", "payloadType": "InlineBase64"}]}}',
+     "invalid_payload"),  # padding after the data ends: some 3.12 patches' b64decode would accept it
     ('{"definition": {"parts": [{"path": "pipeline-content.json", "payload": "e30=", "payloadType": "SurpriseFormat"}]}}',
      "unsupported_payload_type"),
     ('{"definition": {"parts": [{"path": "pipeline-content.json"}]}}', "missing_payload"),

@@ -82,7 +82,7 @@ def extract(html: str) -> dict[str, Any]:
         if not inside:
             continue
         if tag == "h3":
-            m = _WEIGHT.match(text)
+            m = _WEIGHT.fullmatch(text)
             domain, skill = None, None
             if m:   # "Audience profile" and "Skills at a glance" have no weight
                 domain = {"title": m["title"], "weight": {"min": int(m["min"]), "max": int(m["max"])}, "skills": []}

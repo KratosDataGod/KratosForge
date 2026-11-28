@@ -19,7 +19,9 @@ the page asks before running the query again.
 
 Snapshots live under ``sql_temp_dir`` (default ``<data>/sql-runs``) and are deleted after
 ``sql_result_retention_hours``, when more than MAX_KEPT runs are kept, and at start-up for runs
-from an earlier session that are past retention.
+from an earlier session that are past retention. A result the person pinned (``pin``, editor parity
+S27: the page's result history) is kept past both until it is unpinned, up to MAX_PINNED at once,
+for this session.
 
 A run's target is a lakehouse (above) or, with ``target="local"``, a local data project
 (KF-DE-027). A local run doesn't get a process of its own: it runs in the project's own DuckDB
@@ -47,6 +49,19 @@ Its batches run in one transaction (warehouse.py). Its status adds ``affected`` 
 ``dry_run`` classifies the statements and says what would run, and what needs confirming, without
 running anything, for every target.
 
+A run started with ``statements`` (editor parity S14, Preview) is a script the page split into
+statements: the list of their texts. They run one after the other in the run's one session (one DuckDB
+connection, or one warehouse connection and its transaction), so a temp view or a variable made by one
+is there for the next. Each statement's result is a **part** with a snapshot of its own
+(``result-<n>.arrow``), read with ``page`` and ``export`` by its ``part`` number; a statement that
+returns no rows says what it did instead (rows changed, on a warehouse). The run stops at the first
+statement that fails: the parts before it are kept and can still be paged, the statements after it
+never start. Every statement is checked before the first one runs, as a whole script is.
+
+A run started with ``params`` (editor parity S17, Preview) binds its ``:name`` and ``{{name}}``
+parameters to typed values (sql_params.py). The values never become SQL text, are never kept after the
+run, and never reach the audit trail or the status.
+
 Each finished run adds one ``sql_execution`` line to the audit trail: its id, dialect, lakehouse,
 state, permission class, rows and seconds (and target and project for a local run, or the
 warehouse for a warehouse run). Never the SQL, the error text, the token or any data.
@@ -54,8 +69,12 @@ warehouse for a warehouse run). Never the SQL, the error text, the token or any 
 
 from __future__ import annotations
 
+import base64
 import bisect
+import datetime as dt
+import decimal
 import itertools
+import logging
 import json
 import os
 import re
@@ -72,14 +91,21 @@ from typing import Any, Callable
 import pyarrow as pa
 from sqlglot import exp
 
-from . import app_settings, free_memory, jsonfile, sql, sql_policy, warehouse
+from . import app_settings, csv_cells, free_memory, jsonfile, sql, sql_params, sql_policy, sql_view, warehouse
+from .awake_timer import AwakeTimer
 from .filenames import file_stem
+from .frames import EXCEL_MAX_COLUMNS, EXCEL_MAX_ROWS, ExportNotes, csv_ready_batch, csv_ready_schema, write_xlsx_batches
 from . import known_folders
+
+_log = logging.getLogger(__name__)
 
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
 FINISHED = ("completed", "failed", "cancelled", "timed_out")
 MAX_KEPT = 20  # finished runs whose snapshots are kept, newest first
-EXPORT_FORMATS = ("csv", "parquet")
+MAX_STATEMENTS = 200  # statements one run may hold (S14)
+MAX_EXPORTS_KEPT = 50  # finished exports whose status can still be asked for, newest first; running ones always
+MAX_PINNED = 10  # results kept past MAX_KEPT and retention because the person pinned them (S27)
+EXPORT_FORMATS = ("csv", "parquet", "xlsx", "json")
 EXPORT_BATCH_ROWS = 65_536
 LOCAL_BATCH_ROWS = 65_536
 # What each target may ever allow. A local run allows all of its classes unless the caller narrows it.
@@ -118,8 +144,29 @@ def time_limit_message(source: str, seconds: float) -> str:
             "project": f"Stopped after the project's time limit ({minutes}, in the project's settings)."}.get(source, "")
 
 
+def _change_kept(change: bool, committing: bool) -> str:
+    """What a stopped warehouse change kept: nothing before its commit was sent, and maybe all of it after."""
+    if not change:
+        return ""
+    if committing:
+        return (" The change was being committed, so it may or may not have been kept. Check the tables it changes "
+                "before running it again.")
+    return " The change was rolled back, so nothing was kept."
+
+
 class RerunNeeded(Exception):
     """The run's snapshot is gone; the query has to run again."""
+
+
+def _whole(path: Path, rows: int) -> pa.Table:
+    """Every row of a snapshot, or RerunNeeded when it holds fewer than the run wrote (WR-225): a sort, a
+    filter, a column's statistics or Compare never works on part of a result without saying so."""
+    with pa.memory_map(str(path)) as source:
+        table = pa.ipc.open_file(source).read_all()
+    if table.num_rows != rows:
+        raise RerunNeeded(f"This result's file on this PC holds {table.num_rows:,} of the {rows:,} rows the "
+                          "query returned. Run the query again to see them.")
+    return table
 
 
 @dataclass
@@ -142,8 +189,10 @@ class Execution:
     error: str = ""
     error_kind: str = ""
     refused: dict[str, Any] | None = None
+    notes: list[str] = field(default_factory=list)  # local T-SQL: where this PC's answer can differ from a warehouse's
     proc: subprocess.Popen[str] | None = field(default=None, repr=False)
-    timer: threading.Timer | None = field(default=None, repr=False)
+    timer: AwakeTimer | None = field(default=None, repr=False)
+    reader: threading.Thread | None = field(default=None, repr=False)  # follows the process; writes the audit line
     stop_reason: str = ""  # "cancel" or "timeout" once the engine ended the process
     time_limit_s: float = 0.0
     time_limit_from: str = ""  # "sql" (Settings › SQL), "policy" (the organization's); local also "caller" or "project"
@@ -155,30 +204,70 @@ class Execution:
     warehouse: dict[str, Any] = field(default_factory=dict)  # warehouse target: the item, its server and database
     confirm_name: str = ""  # warehouse change: the warehouse the person confirmed, checked against Fabric's name
     affected: int = 0  # warehouse change: rows its statements changed
-    plan: bool = False  # warehouse target: the estimated plan, not the rows (WH-09)
+    plan: bool = False  # warehouse or lakehouse target: the estimated plan, not the rows (WH-09, S39)
+    profile: bool = False  # lakehouse target: the query run under DuckDB's profiler, its steps not its rows (S40)
     precondition: dict[str, Any] | None = None  # a deploy change: the object as its preview saw it (#947)
     committed: bool = False
+    committing: bool = False  # warehouse change: the commit was sent, so a Stop may come after it was kept
+    failed_batch: int = 0  # warehouse run: the batch that was running when it failed (1-based), 0 if none
+    units: list[str] = field(default_factory=list, repr=False)  # S14: the script's statements, each a part
+    params: list[dict[str, Any]] = field(default_factory=list, repr=False)  # S17: the values, until the run starts
+    parts: list[dict[str, Any]] = field(default_factory=list)  # S14: each finished statement's result
+    current: int = 0  # S14: the statement running now (1-based), 0 before the first
+    failed_statement: int = 0  # S14: the statement that failed (1-based), 0 if none
+    pinned: bool = False  # kept past MAX_KEPT and the retention time until unpinned (S27)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # started, ended and created stay the wall-clock times the page shows; each is also stamped on the
+        # monotonic clock, so a run's seconds stay right when the PC's clock is changed mid-run (by hand or
+        # by a time sync). DST doesn't move time.time, but a manual change does.
+        if name in ("created", "started", "ended") and value is not None:
+            object.__setattr__(self, f"_mono_{name}", time.monotonic())
+        object.__setattr__(self, name, value)
+
+    def seconds(self) -> float:
+        """How long the run has taken (or took), from the monotonic clock: never negative, and not moved by a
+        change to the PC's clock. Counted from the start, or from creation for a run that never started."""
+        begin = getattr(self, "_mono_started", None) if self.started else getattr(self, "_mono_created", None)
+        if begin is None:
+            return 0.0
+        end = getattr(self, "_mono_ended", None) if self.ended else None
+        return max(0.0, (end if end is not None else time.monotonic()) - begin)
 
     @property
     def snapshot(self) -> Path:
+        if self.units and self.parts:  # S14: the run's own result is its last statement's
+            return self.part_file(self.parts[-1]["statement"])
         return self.folder / "result.arrow"
 
     def status(self) -> dict[str, Any]:
         """What the page shows: never the SQL or the token."""
-        end = self.ended or time.time()
         return {"id": self.id, "state": self.state, "target": self.target, "dialect": self.dialect,
                 "lakehouse": self.lakehouse.get("name", ""), "project": self.project_name,
                 "warehouse": self.warehouse.get("database", ""),
                 "created": self.created, "started": self.started, "ended": self.ended,
-                "seconds": round(end - self.started, 2) if self.started else 0.0,
+                "seconds": round(self.seconds(), 2) if self.started else 0.0,
                 "rows": self.rows, "columns": self.columns, "permission": self.permission,
                 "error": self.error, "error_kind": self.error_kind, "refused": self.refused,
                 "time_limit_minutes": round(self.time_limit_s / 60, 2),
-                **({"time_limit_from": self.time_limit_from} if self.target == "local" else {}),
+                **({"time_limit_from": self.time_limit_from, "notes": self.notes} if self.target == "local" else {}),
                 **({"change": True, "affected": self.affected, "committed": self.committed}
                    if "warehouse_write" in self.allow else {}),
+                **({"failed_batch": self.failed_batch} if self.failed_batch else {}),
                 **({"plan": True} if self.plan else {}),
+                **({"profile": True} if self.profile else {}),
+                **({"statements": len(self.units), "statement": self.current, "failed_statement": self.failed_statement,
+                    "parts": [_part_status(p) for p in self.parts]} if self.units else {}),
+                **({"pinned": True} if self.pinned else {}),
                 "snapshot": self.state == "completed" and self.snapshot.exists()}
+
+    def part_file(self, n: int) -> Path:
+        return self.folder / f"result-{int(n)}.arrow"
+
+
+def _part_status(part: dict[str, Any]) -> dict[str, Any]:
+    """A part as the page sees it: never its batch sizes, which only paging uses."""
+    return {k: v for k, v in part.items() if k not in ("batches", "offsets")}
 
 
 @dataclass
@@ -192,10 +281,14 @@ class Export:
     total: int = 0
     error: str = ""
     cancel: threading.Event = field(default_factory=threading.Event)
+    notes: list[str] = field(default_factory=list)  # what the file couldn't keep exactly (WR-221), once it's done
+    raw: bool = False  # CSV: Keep raw values, so no cell is protected (WR-228)
+    protected: int = 0  # CSV: text cells that got an apostrophe so a spreadsheet doesn't run them (WR-228)
 
     def status(self) -> dict[str, Any]:
         return {"id": self.id, "execution": self.execution, "format": self.format, "path": str(self.path),
-                "state": self.state, "rows": self.rows, "total": self.total, "error": self.error}
+                "state": self.state, "rows": self.rows, "total": self.total, "error": self.error,
+                "notes": list(self.notes), "raw": self.raw, "protected": self.protected}
 
 
 class SqlExecutions:
@@ -217,7 +310,7 @@ class SqlExecutions:
         self._audit = audit
         self._limits = limits
         self.command = command or [sys.executable, "-m", "fabric_desktop.sql_worker"]
-        self._downloads = downloads or known_folders.downloads
+        self._downloads = downloads or known_folders.export_folder
         self._lock = threading.RLock()
         self._runs: dict[str, Execution] = {}
         self._exports: dict[str, Export] = {}
@@ -230,6 +323,9 @@ class SqlExecutions:
 
     def base(self) -> Path:
         configured = str(self._limits().get("sql_temp_dir") or "")
+        if configured and known_folders.in_onedrive(configured):  # set before OneDrive was refused, or by policy
+            _log.warning("The SQL temp folder %s is in OneDrive, so the app's own folder is used instead.", configured)
+            configured = ""
         return Path(configured) if configured else self.root / "sql-runs"
 
     def _memory_budget(self, percent: int) -> dict[str, Any]:
@@ -241,7 +337,9 @@ class SqlExecutions:
               allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
               confirm: bool = False, dry_run: bool = False, timeout: float | None = None,
               warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
-              estimated_plan: bool = False, precondition: dict[str, Any] | None = None) -> dict[str, Any]:
+              estimated_plan: bool = False, precondition: dict[str, Any] | None = None,
+              profile: bool = False, statements: list[str] | None = None,
+              params: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """Queue a run. ``target="local"`` runs it in local data project ``project`` instead of
         against ``lakehouse_ref``; ``confirm`` lets its DROP, TRUNCATE and DELETE or UPDATE without
         WHERE run; ``timeout`` (seconds, local only) replaces the SQL page's time limit, except that a
@@ -253,7 +351,38 @@ class SqlExecutions:
         ``confirm_name``, the warehouse's name as the person confirmed it. With ``estimated_plan``
         (WH-09) a query that reads isn't run: Fabric returns how it would run it, as showplan XML. A change
         with ``precondition`` (warehouse.precondition_problem) runs only if that object is still as a
-        deploy's preview saw it; otherwise nothing is sent (#947)."""
+        deploy's preview saw it; otherwise nothing is sent (#947).
+
+        On a lakehouse (editor parity S39, S40), ``estimated_plan`` returns how DuckDB would run one
+        query that reads, without running it (EXPLAIN), and ``profile`` runs it under DuckDB's profiler
+        (EXPLAIN ANALYZE) and returns each step's rows and time instead of the rows. Both answer with one
+        row of JSON, read with ``page`` as any result.
+
+        ``statements`` (S14) runs the script as these statements, each with a result of its own (a part);
+        ``query`` is then ignored. Not with a plan, a profile or a local data project.
+
+        ``params`` (S17) are the query's parameters, [{name, type, value}], bound as typed values."""
+        if params is not None:
+            sql_params.typed(params)  # a value that doesn't fit its type fails here, before anything is queued
+            if target == "local" or estimated_plan or profile:
+                raise ValueError("Query parameters are for a lakehouse or a warehouse query.")
+            tsql = target == "warehouse"
+            backslash = not tsql and dialect == "spark"  # only Spark strings take \' (sql_params.py)
+            dollar = not tsql and dialect == "duckdb"  # sqlglot reads DuckDB's SELECT :a as an alias
+            query = sql_params.as_colons(query, tsql, backslash, dollar) if isinstance(query, str) else query
+            if isinstance(statements, list):
+                statements = [sql_params.as_colons(t, tsql, backslash, dollar) if isinstance(t, str) else t
+                              for t in statements]
+        units: list[str] = []
+        if statements is not None:
+            if (not isinstance(statements, list) or not statements or len(statements) > MAX_STATEMENTS
+                    or not all(isinstance(t, str) and t.strip() for t in statements)):
+                raise ValueError(f"statements must be 1 to {MAX_STATEMENTS} statements, none of them empty.")
+            if target == "local" or estimated_plan or profile:
+                raise ValueError("Several statements, each with its result, run on a lakehouse or a warehouse.")
+            units = warehouse.change_units(statements) if target == "warehouse" and "warehouse_write" in (allow or []) \
+                else list(statements)
+            query = warehouse.join_units(units) if target == "warehouse" else ";\n".join(t.rstrip().rstrip(";") for t in units)
         if not isinstance(query, str) or not query.strip():
             raise ValueError("The query is empty.")
         if target not in TARGET_ALLOWS:
@@ -289,8 +418,12 @@ class SqlExecutions:
                                       "nothing else is allowed.")
             raise PermissionError("The SQL page can only read tables and change a run's own session on this PC.")
         change = target == "warehouse" and "warehouse_write" in allowed
-        if estimated_plan and (target != "warehouse" or change):
-            raise ValueError("An estimated plan is for a warehouse query that reads.")
+        if estimated_plan and (target == "local" or change):
+            raise ValueError("An estimated plan is for a lakehouse or warehouse query that reads.")
+        if profile and (target != "lakehouse" or estimated_plan):
+            raise ValueError("A query profile is for a lakehouse query, and isn't an estimated plan.")
+        if (estimated_plan or profile) and target == "lakehouse" and tuple(allowed) != ("read_only",):
+            raise ValueError("A plan or profile is for a query that only reads.")
         if precondition is not None:
             if not change:
                 raise ValueError("A precondition is for a warehouse change.")
@@ -304,7 +437,7 @@ class SqlExecutions:
         if change and not dry_run and not (confirm and isinstance(confirm_name, str) and confirm_name.strip()):
             raise PermissionError("A warehouse change runs only after you confirm it, naming the warehouse.")
         if dry_run:
-            return self._plan(query, dialect, target, allowed, confirm)
+            return self._plan(query, dialect, target, allowed, confirm, units)
         if not self._cleaned_at_start:
             self._cleaned_at_start = True
             self.cleanup(earlier_sessions=True)
@@ -312,7 +445,7 @@ class SqlExecutions:
         folder = self.base() / run_id
         run = Execution(id=run_id, query=query, dialect=dialect, lakehouse=dict(lakehouse_ref or {}), allow=allowed,
                         folder=folder, target=target, confirm=bool(confirm),
-                        timeout_s=None if timeout is None else float(timeout))
+                        timeout_s=None if timeout is None else float(timeout), units=units, params=list(params or []))
         if target == "warehouse":
             assert warehouse_ref is not None
             run.warehouse = {k: warehouse_ref[k] for k in ("workspace_id", "item_id", "kind")}
@@ -320,11 +453,14 @@ class SqlExecutions:
             run.plan = bool(estimated_plan)
             run.precondition = ({k: precondition[k] for k in warehouse.PRECONDITION_KEYS if k in precondition}
                                 if precondition is not None else None)
-            stop = sql_policy.refused(warehouse.verdicts(query, writes=change), allowed)  # before Fabric is asked anything
+            stop = sql_policy.refused(warehouse.unit_verdicts(units, writes=change) if units
+                                      else warehouse.verdicts(query, writes=change), allowed)  # before Fabric is asked anything
             if stop is not None:
                 return self._refuse(run, stop)
             if self._resolve_warehouse is None:
                 raise ValueError("Warehouse queries aren't available here.")
+        if target == "lakehouse":
+            run.plan, run.profile = bool(estimated_plan), bool(profile)
         if engine is not None:
             run.project, run.project_name = engine.project.id, engine.project.name
         with self._lock:
@@ -360,11 +496,13 @@ class SqlExecutions:
             run.warehouse.update(server=endpoint.server, database=endpoint.database)
         self._pump()
 
-    def _plan(self, query: str, dialect: str, target: str, allowed: tuple[str, ...], confirm: bool) -> dict[str, Any]:
+    def _plan(self, query: str, dialect: str, target: str, allowed: tuple[str, ...], confirm: bool,
+              units: list[str] | None = None) -> dict[str, Any]:
         """A dry run: what each statement is and whether the run would be refused or need
         confirming. Nothing runs and no run is kept."""
-        verdicts = (warehouse.verdicts(query, writes="warehouse_write" in allowed) if target == "warehouse"
-                    else sql_policy.classify(_policy_statements(query, dialect), target))
+        writes = "warehouse_write" in allowed
+        verdicts = ((warehouse.unit_verdicts(units, writes=writes) if units else warehouse.verdicts(query, writes=writes))
+                    if target == "warehouse" else sql_policy.classify(_policy_statements(query, dialect), target))
         stop = sql_policy.refused(verdicts, allowed, bool(confirm))
         return {"dry_run": True, "target": target, "dialect": dialect,
                 "permission": sql_policy.strongest(verdicts),
@@ -401,21 +539,43 @@ class SqlExecutions:
     def status(self, run_id: str) -> dict[str, Any]:
         return self._get(run_id).status()
 
+    def pin(self, run_id: str, pinned: bool = True) -> dict[str, Any]:
+        """Keep a finished run's result past MAX_KEPT and the retention time (S27), or let it go again.
+        At most MAX_PINNED at once. Pinning runs nothing; unpinning may clean the result up at once."""
+        run = self._get(run_id)
+        with self._lock:
+            if pinned and not run.pinned:
+                if run.state != "completed" and not run.parts:
+                    raise ValueError("Only a query's result can be pinned, and this run has none.")
+                if not run.folder.is_dir():
+                    raise RerunNeeded("This result was cleaned up, so it can't be pinned. Run the query again.")
+                if sum(r.pinned for r in self._runs.values()) >= MAX_PINNED:
+                    raise ValueError(f"Up to {MAX_PINNED} results can be pinned at once. Unpin one first.")
+            run.pinned = bool(pinned)
+        if not pinned:
+            self.cleanup()
+        return run.status()
+
     def recent(self) -> list[dict[str, Any]]:
         with self._lock:
             runs = sorted(self._runs.values(), key=lambda r: r.created, reverse=True)
         return [r.status() for r in runs]
 
     def shutdown(self) -> None:
-        """The app is closing: end every run's process."""
+        """The app is closing: end every run's process, then wait (briefly) for each run's reader to record
+        how it ended. The readers are daemon threads, so without the wait the engine could exit first and a
+        run stopped by the app closing, a warehouse change that committed just before among them, would
+        have no audit line."""
         with self._lock:
-            procs = []
+            procs, readers = [], []
             for run in self._runs.values():
                 if run.state in ("running", "cancelling"):
                     run.stop_reason = run.stop_reason or "cancel"
                     self._end_process(run)
                     if run.proc is not None:
                         procs.append(run.proc)
+                    if run.reader is not None:
+                        readers.append(run.reader)
             for export in self._exports.values():
                 export.cancel.set()
         for proc in procs:
@@ -423,6 +583,8 @@ class SqlExecutions:
                 proc.wait(10)
             except subprocess.TimeoutExpired:
                 pass
+        for reader in readers:
+            reader.join(10)
 
     def _get(self, run_id: str) -> Execution:
         with self._lock:
@@ -453,6 +615,10 @@ class SqlExecutions:
                                    "warehouse": {k: run.warehouse[k] for k in ("server", "database")},
                                    "time_limit_s": minutes * 60, "writes": "warehouse_write" in run.allow,
                                    "plan": run.plan}
+            if run.units:
+                job.update(statements=run.units, parts_dir=str(run.folder))
+            if run.params:
+                job["params"] = run.params
             if run.precondition:
                 job["precondition"] = run.precondition
         else:
@@ -460,6 +626,12 @@ class SqlExecutions:
                    "lakehouse": {k: lh[k] for k in ("workspace_id", "lakehouse_id", "name", "workspace_name") if k in lh},
                    "work_dir": str(self.root), "out": str(run.snapshot), "temp_dir": str(run.folder / "spill"),
                    "threads": run_threads(limits)}
+            if run.plan or run.profile:
+                job["explain"] = "plan" if run.plan else "profile"
+            if run.units:
+                job.update(statements=run.units, parts_dir=str(run.folder))
+            if run.params:
+                job["params"] = run.params
             memory = self._memory_budget(int(limits["sql_memory_limit_percent"]))
             job.update(memory_mb=memory["duckdb_mb"], memory_cap_mb=memory["cap_mb"],
                        memory_bound=memory["bound"], free_mb=memory["free_mb"])
@@ -467,6 +639,7 @@ class SqlExecutions:
             job["lakehouse"]["schemas_enabled"] = False
             job["local_root"] = str(self.test_lake)
         run.state, run.started = "running", time.time()
+        run.params = []  # the values go to the worker only; nothing keeps them
         try:
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -488,10 +661,11 @@ class SqlExecutions:
         run.time_limit_s = minutes * 60
         run.time_limit_from = ("policy" if limits.get("sql_time_limit_by_policy") else "sql") if minutes > 0 else ""
         if minutes > 0:
-            run.timer = threading.Timer(minutes * 60, self._time_up, args=(run,))
-            run.timer.daemon = True
+            # Awake time only: a run going when the PC slept isn't stopped on waking for time it didn't run.
+            run.timer = AwakeTimer(minutes * 60, self._time_up, args=(run,))
             run.timer.start()
-        threading.Thread(target=self._read, args=(run, proc), daemon=True, name=f"sql-run-{run.id}").start()
+        run.reader = threading.Thread(target=self._read, args=(run, proc), daemon=True, name=f"sql-run-{run.id}")
+        run.reader.start()
 
     def _answer(self, run: Execution, proc: subprocess.Popen[str], name: str) -> None:
         """The worker is about to read a lakehouse table and needs a storage token, or the
@@ -552,8 +726,14 @@ class SqlExecutions:
             with self._lock:
                 if kind == "started":
                     run.permission = str(event.get("permission") or "")
+                elif kind == "committing":
+                    run.committing = True
                 elif kind == "progress":
                     run.rows = int(event.get("rows") or 0)
+                elif kind == "statement" and run.units:
+                    run.current, run.rows = int(event.get("statement") or 0), 0
+                elif kind == "part" and run.units:
+                    run.parts.append(_part(event))
                 elif kind in ("done", "error"):
                     outcome = event
         code = proc.wait()
@@ -567,22 +747,31 @@ class SqlExecutions:
                 run.timer.cancel()
             run.ended = time.time()
             run.proc = None
-            if run.stop_reason == "timeout":
-                run.state, run.error_kind = "timed_out", "timeout"
-                run.error = time_limit_message(run.time_limit_from, run.time_limit_s) \
-                    or time_limit_message("sql", run.time_limit_s)
-            elif run.stop_reason == "cancel":
-                run.state, run.error = "cancelled", "Stopped."
-            elif outcome.get("event") == "done":
+            change = "warehouse_write" in run.allow
+            if outcome.get("event") == "done":  # finished before a Stop could end it: a change was kept
                 run.state = "completed"
                 run.rows = int(outcome.get("rows") or 0)
                 run.batches = [int(n) for n in outcome.get("batches") or []]
                 run.offsets = list(itertools.accumulate([0, *run.batches[:-1]])) if run.batches else []
                 run.columns = list(outcome.get("columns") or [])
                 run.affected, run.committed = int(outcome.get("affected") or 0), bool(outcome.get("committed"))
+                if run.units and run.parts:  # the run's own result is its last statement's
+                    last = run.parts[-1]
+                    run.rows, run.batches, run.offsets, run.columns = last["rows"], last["batches"], last["offsets"], last["columns"]
+            elif run.stop_reason == "timeout" or outcome.get("kind") == "timeout":
+                run.state, run.error_kind = "timed_out", "timeout"
+                if run.time_limit_s:
+                    run.error = (time_limit_message(run.time_limit_from, run.time_limit_s)
+                                 or time_limit_message("sql", run.time_limit_s)) + _change_kept(change, run.committing)
+                else:  # no limit of the app's: the warehouse's own timeout, in the worker's words
+                    run.error = str(outcome.get("message") or "The warehouse stopped the run at its time limit.")
+                run.failed_batch = int(outcome.get("batch") or 0)
+            elif run.stop_reason == "cancel":
+                run.state, run.error = "cancelled", "Stopped." + _change_kept(change, run.committing)
             elif outcome.get("event") == "error":
                 run.state, run.error_kind = "failed", str(outcome.get("kind") or "sql")
                 run.error = str(outcome.get("message") or "The query failed.")
+                run.failed_batch = int(outcome.get("batch") or 0)
                 if run.error_kind == "permission":
                     run.permission = str(outcome.get("permission") or "")
                     run.refused = {"permission": run.permission, "statement": outcome.get("statement"),
@@ -592,8 +781,20 @@ class SqlExecutions:
                 run.error = (f"The query's process stopped unexpectedly (exit code {code}). It may have run out of "
                              "memory: close other apps and run it again, or narrow the query (a filter, fewer "
                              "columns), or raise the memory share in Settings › SQL.")
+            if run.units and run.state != "completed":
+                run.failed_statement = int(outcome.get("statement") or run.current or 0) if run.state == "failed" else 0
             if run.state != "completed":
-                shutil.rmtree(run.folder, ignore_errors=True)
+                run.rows = 0  # rows read before it failed aren't a result: none are kept
+                if run.parts:
+                    # S14: the statements before the one that failed finished; their results stay. A worker says
+                    # a part only once its snapshot is written whole, so every part listed can be read.
+                    keep = {run.part_file(p["statement"]).name for p in run.parts}
+                    for f in run.folder.glob("*") if run.folder.is_dir() else []:
+                        if f.name not in keep:
+                            shutil.rmtree(f, ignore_errors=True) if f.is_dir() else f.unlink(missing_ok=True)
+                else:
+                    run.parts = []
+                    shutil.rmtree(run.folder, ignore_errors=True)
             self._finished(run)
         self._pump()
 
@@ -623,6 +824,7 @@ class SqlExecutions:
         from .localdata import EngineBusy, QueryCancelled
         state, kind, error, refused = "completed", "", "", None
         rows, batches, columns = 0, [], []
+        notes: list[str] = []
         engine = None
         try:
             verdicts = sql_policy.classify(_policy_statements(run.query, run.dialect), "local")
@@ -646,6 +848,7 @@ class SqlExecutions:
                             batches.append(batch.num_rows)
                             run.rows = rows
                     columns = [{"name": f.name, "type": str(f.type)} for f in stream.schema]
+                    notes = list(getattr(stream, "notes", None) or [])  # an engine without translation notes
         except QueryCancelled:
             state, error = "cancelled", "Stopped."
         except TimeoutError as exc:
@@ -662,7 +865,7 @@ class SqlExecutions:
             if refused is not None:
                 run.permission = refused["permission"]
             if state == "completed":
-                run.rows, run.batches, run.columns = rows, batches, columns
+                run.rows, run.batches, run.columns, run.notes = rows, batches, columns, notes
                 run.offsets = list(itertools.accumulate([0, *batches[:-1]])) if batches else []
             else:
                 shutil.rmtree(run.folder, ignore_errors=True)
@@ -674,49 +877,91 @@ class SqlExecutions:
             lh = run.lakehouse
             try:
                 self._audit("sql_execution", "ok" if run.state == "completed" else "error",
-                            (run.ended or time.time()) - (run.started or run.created),
+                            run.seconds(),
                             {"execution": run.id, "state": run.state, "dialect": run.dialect,
                              "permission": run.permission or "", "rows": run.rows, "target": run.target,
                              "workspace_id": lh.get("workspace_id", ""), "lakehouse_id": lh.get("lakehouse_id", ""),
                              "lakehouse": lh.get("name", ""), "project": run.project_name,
+                             **({"plan": True} if run.plan and run.target == "lakehouse" else {}),
+                             **({"profile": True} if run.profile else {}),
                              **({"workspace_id": run.warehouse.get("workspace_id", ""),
                                  "warehouse_id": run.warehouse.get("item_id", ""),
                                  "warehouse": run.warehouse.get("database", ""),
                                  **({"plan": True} if run.plan else {}),
                                  **({"affected": run.affected, "committed": run.committed}
-                                    if "warehouse_write" in run.allow else {})} if run.target == "warehouse" else {})})
+                                    if "warehouse_write" in run.allow else {}),
+                                 **({"failed_batch": run.failed_batch, "error_kind": run.error_kind}
+                                    if run.failed_batch else {})} if run.target == "warehouse" else {})})
             except Exception as exc:  # noqa: BLE001 - an audit problem never fails the run
                 print(f"audit: could not record sql_execution: {type(exc).__name__}", file=sys.stderr)
         run.query = ""  # the SQL isn't kept once the run is over
+        run.params = []
         self.cleanup()
 
     # ---- paging
 
-    def page(self, run_id: str, offset: int = 0, limit: int | None = None) -> dict[str, Any]:
-        """Rows ``offset`` to ``offset + limit`` of a completed run's result, read from its snapshot."""
+    def _result(self, run: Execution, part: int | None, what: str) -> _Result:
+        """The result ``page`` and ``export`` read: the run's own, or (S14) statement ``part``'s. A part
+        that finished can be read even when a later statement failed or the run was stopped."""
+        if part is None:
+            if run.state != "completed":
+                raise ValueError(f"The query is {run.state.replace('_', ' ')}, so there {what}.")
+            return _Result(run.snapshot, run.rows, run.offsets, run.columns, None)
+        found = next((p for p in run.parts if p["statement"] == int(part)), None)
+        if found is None:
+            raise ValueError(f"Statement {int(part)} has no result, so there {what}.")
+        return _Result(run.part_file(found["statement"]), found["rows"], found["offsets"], found["columns"], found["statement"])
+
+    def page(self, run_id: str, offset: int = 0, limit: int | None = None, sort: list[dict[str, Any]] | None = None,
+             filters: list[dict[str, Any]] | None = None, part: int | None = None) -> dict[str, Any]:
+        """Rows ``offset`` to ``offset + limit`` of a completed run's result, read from its snapshot;
+        with ``sort`` or ``filters`` ([{column, desc}], [{column, text}]), of every row sorted and
+        filtered (sql_view.py); with ``part``, of that statement's result (S14). Nothing runs again."""
         run = self._get(run_id)
-        if run.state != "completed":
-            raise ValueError(f"The query is {run.state.replace('_', ' ')}, so there are no rows to show.")
-        if not run.snapshot.exists():
+        res = self._result(run, part, "are no rows to show")
+        if not res.path.exists():
             raise RerunNeeded("This result was cleaned up. Run the query again to see it.")
         limit = int(limit or self._limits()["sql_page_rows"])
         limit = max(1, min(limit, app_settings.SQL_RANGES["sql_page_rows"][1]))
-        offset = max(0, min(int(offset), max(0, run.rows - 1)))
-        rows: list[list[Any]] = []
-        if run.rows:
-            with pa.memory_map(str(run.snapshot)) as source:
+        part_of = {"part": res.part} if res.part is not None else {}
+        filters = [f for f in sql_view.entries(filters, "filter") if str(f.get("text") or "").strip()]
+        if sort or filters:
+            sql_view.check_size(res.rows, "Sorting and filtering")
+            rows, total = sql_view.view_page(_whole(res.path, res.rows), max(0, int(offset)), limit, sort, filters)
+            offset = max(0, int(offset))
+            return {"id": run.id, "offset": offset, "limit": limit, "rows": [[_json_value(v) for v in r] for r in rows],
+                    "columns": res.columns, "total": total, "all_rows": res.rows, "sort": sort or [], "filters": filters,
+                    "has_previous": offset > 0, "has_next": offset + len(rows) < total, **part_of}
+        offset = max(0, min(int(offset), max(0, res.rows - 1)))
+        rows = []
+        if res.rows:
+            with pa.memory_map(str(res.path)) as source:
                 reader = pa.ipc.open_file(source)
-                i = bisect.bisect_right(run.offsets, offset) - 1
-                need, skip = limit, offset - run.offsets[i]
+                i = bisect.bisect_right(res.offsets, offset) - 1
+                need, skip = limit, offset - res.offsets[i]
                 while need > 0 and i < reader.num_record_batches:
                     batch = reader.get_batch(i).slice(skip, need)
                     columns = [c.to_pylist() for c in batch.columns]  # by position: names can repeat
                     rows.extend([list(r) for r in zip(*columns, strict=True)])
                     need -= batch.num_rows
                     skip, i = 0, i + 1
+            if len(rows) < min(limit, res.rows - offset):  # WR-225: a snapshot that holds fewer rows than were written
+                raise RerunNeeded(f"This result's file on this PC holds fewer rows than the {res.rows:,} the query "
+                                  "returned. Run the query again to see them.")
         return {"id": run.id, "offset": offset, "limit": limit, "rows": [[_json_value(v) for v in r] for r in rows],
-                "columns": run.columns, "total": run.rows, "has_previous": offset > 0,
-                "has_next": offset + len(rows) < run.rows}
+                "columns": res.columns, "total": res.rows, "all_rows": res.rows, "has_previous": offset > 0,
+                "has_next": offset + len(rows) < res.rows, **part_of}
+
+    def column_stats(self, run_id: str, column: int, part: int | None = None) -> dict[str, Any]:
+        """One column's statistics over every row of a completed run's result (sql_view.column_stats);
+        with ``part``, of that statement's result (S14)."""
+        run = self._get(run_id)
+        res = self._result(run, part, "are no rows to profile")
+        if not res.path.exists():
+            raise RerunNeeded("This result was cleaned up. Run the query again to see its statistics.")
+        sql_view.check_size(res.rows, "Column statistics")
+        stats = sql_view.column_stats(_whole(res.path, res.rows), column)
+        return {"id": run.id, **stats, **({"part": res.part} if res.part is not None else {})}
 
     def query_of(self, run_id: str) -> str:
         """The SQL a run ran, for the engine's own checks (GD-06); never sent to the page."""
@@ -730,30 +975,47 @@ class SqlExecutions:
             raise ValueError(f"The query is {run.state.replace('_', ' ')}, so there are no rows to compare.")
         if not run.snapshot.exists():
             raise RerunNeeded("This result was cleaned up. Run the query again to compare it.")
-        with pa.memory_map(str(run.snapshot)) as source:
-            table = pa.ipc.open_file(source).read_all()
+        table = _whole(run.snapshot, run.rows)
         return run.status(), table.rename_columns(_unique_names(table.schema).names)
 
     # ---- export
 
-    def export(self, run_id: str, fmt: str = "csv", name: str = "") -> dict[str, Any]:
-        """Stream a completed run's snapshot to a new file in Downloads; never replaces a file."""
+    def export(self, run_id: str, fmt: str = "csv", name: str = "", part: int | None = None,
+               raw: bool = False) -> dict[str, Any]:
+        """Stream a completed run's snapshot (or, with ``part``, one statement's, S14) to a new file in
+        Downloads; never replaces a file. A CSV protects text cells that start like a formula unless ``raw``
+        (Keep raw values, WR-228)."""
         if fmt not in EXPORT_FORMATS:
-            raise ValueError(f"Export as {' or '.join(EXPORT_FORMATS)}.")
+            raise ValueError(f"Export as {', '.join(EXPORT_FORMATS[:-1])} or {EXPORT_FORMATS[-1]}.")
         run = self._get(run_id)
-        if run.state != "completed":
-            raise ValueError(f"The query is {run.state.replace('_', ' ')}, so there is no result to export.")
-        if not run.snapshot.exists():
+        res = self._result(run, part, "is no result to export")
+        if fmt == "xlsx" and res.rows > EXCEL_MAX_ROWS:
+            raise ValueError(f"Excel holds at most {EXCEL_MAX_ROWS:,} rows and this result has "
+                             f"{res.rows:,}. Export it as CSV or Parquet instead.")
+        if fmt == "xlsx" and len(res.columns) > EXCEL_MAX_COLUMNS:
+            raise ValueError(f"Excel holds at most {EXCEL_MAX_COLUMNS:,} columns and this result has "
+                             f"{len(res.columns):,}. Export it as CSV or Parquet instead.")
+        if not res.path.exists():
             return {"rerun_needed": True, "message": "This result was cleaned up. Run the query again to export it."}
         folder = self._downloads()
         folder.mkdir(parents=True, exist_ok=True)
         base = f"{file_stem(name or run.lakehouse.get('name') or run.project_name or '')} query {time.strftime('%Y-%m-%d %H%M%S')}"
         path = _reserve(folder, base, "." + fmt)
-        export = Export(id=uuid.uuid4().hex[:12], execution=run.id, format=fmt, path=path, total=run.rows)
+        export = Export(id=uuid.uuid4().hex[:12], execution=run.id, format=fmt, path=path, total=res.rows,
+                        raw=bool(raw) and fmt == "csv")
         with self._lock:
             self._exports[export.id] = export
-        threading.Thread(target=self._write, args=(run, export), daemon=True, name=f"sql-export-{export.id}").start()
+            self._forget_old_exports()
+        threading.Thread(target=self._write, args=(res.path, export), daemon=True, name=f"sql-export-{export.id}").start()
         return export.status()
+
+    def _forget_old_exports(self) -> None:
+        """Keep the newest MAX_EXPORTS_KEPT finished exports (the page asks for an export's status only while it
+        runs and just after): each export was kept for the engine's life, so a long session's exports added up.
+        A running export is always kept. Called with ``_lock`` held."""
+        finished = [e.id for e in self._exports.values() if e.state != "running"]  # oldest first: insertion order
+        for export_id in finished[:max(0, len(finished) - MAX_EXPORTS_KEPT)]:
+            del self._exports[export_id]
 
     def export_status(self, export_id: str) -> dict[str, Any]:
         return self._get_export(export_id).status()
@@ -770,37 +1032,97 @@ class SqlExecutions:
             raise KeyError(f"No export {export_id!r}.")
         return export
 
-    def _write(self, run: Execution, export: Export) -> None:
+    def _write(self, snapshot: Path, export: Export) -> None:
         partial = export.path.with_name(export.path.name + ".partial")
         try:
-            with pa.memory_map(str(run.snapshot)) as source:
+            with pa.memory_map(str(snapshot)) as source:
                 reader = pa.ipc.open_file(source)
                 schema = reader.schema
-                if export.format == "parquet":
+                if export.format in ("parquet", "json"):
                     schema = _unique_names(schema)
+                notes = ExportNotes(schema)
                 with open(partial, "xb") as sink:
-                    writer = _writer(export.format, sink, schema)
-                    try:
-                        for i in range(reader.num_record_batches):
-                            if export.cancel.is_set():
-                                raise _Stopped()
-                            batch = reader.get_batch(i)
-                            if export.format == "parquet":
-                                batch = pa.RecordBatch.from_arrays(batch.columns, schema=schema)
-                            writer.write_batch(batch)
-                            export.rows += batch.num_rows
-                    finally:
-                        writer.close()
-            if export.cancel.is_set():
-                raise _Stopped()
-            jsonfile.replace(partial, export.path)  # over the empty file that reserved the name
-            export.state = "completed"
+                    if export.format in ("xlsx", "json"):
+                        self._write_rows(export, reader, schema, sink, notes)
+                    else:
+                        self._write_batches(export, reader, schema, sink)
+            if export.rows != export.total:  # WR-225: an export never holds fewer rows than the result without saying so
+                raise ValueError(f"The export read {export.rows:,} of the result's {export.total:,} rows from its "
+                                 "snapshot on this PC, so the file was removed. Run the query again and export it.")
+            # After the file is closed: Windows can't rename a file that is still open.
+            export.notes = notes.sentences() + ([csv_cells.note(export.protected)] if export.protected else [])
+            self._done(export, partial)
         except _Stopped:
             _discard(partial, export.path)  # before the state changes: a finished export leaves no files
             export.state = "cancelled"
         except Exception as exc:  # noqa: BLE001 - shown on the page
             _discard(partial, export.path)
-            export.state, export.error = "failed", str(exc) or type(exc).__name__
+            too_long = jsonfile.path_too_long(exc, export.path, "exported")  # Windows' 260 without long paths
+            export.state, export.error = "failed", str(too_long or exc) or type(exc).__name__
+
+    @staticmethod
+    def _write_batches(export: Export, reader: Any, schema: pa.Schema, sink: Any) -> None:
+        """CSV or Parquet, through Arrow's own writers. CSV gets binary as hex and lists as JSON text (_csv_ready)."""
+        csv = export.format == "csv"
+        header = schema
+        if csv:  # the header row's names are protected as the cells are (WR-228), counted once
+            header, export.protected = csv_cells.protect_header(csv_ready_schema(schema), raw=export.raw)
+        writer = _writer(export.format, sink, header)
+        try:
+            for i in range(reader.num_record_batches):
+                if export.cancel.is_set():
+                    raise _Stopped()
+                batch = reader.get_batch(i)
+                if export.format == "parquet":
+                    batch = pa.RecordBatch.from_arrays(batch.columns, schema=schema)
+                if csv:
+                    batch, protected = csv_cells.protect_batch(csv_ready_batch(batch), raw=export.raw)
+                    export.protected += protected
+                writer.write_batch(batch)
+                export.rows += batch.num_rows
+        finally:
+            writer.close()
+
+    @staticmethod
+    def _done(export: Export, partial: Path) -> None:
+        if export.cancel.is_set():
+            raise _Stopped()
+        jsonfile.replace(partial, export.path)  # over the empty file that reserved the name
+        export.state = "completed"
+
+    @staticmethod
+    def _write_rows(export: Export, reader: Any, schema: pa.Schema, sink: Any, notes: ExportNotes | None = None) -> None:
+        """Excel (one sheet, as the notebook's download writes it) or JSON (an array of objects, one per
+        row, keyed by the column names made unique), a batch at a time with Cancel between batches."""
+        def batches() -> Any:
+            for i in range(reader.num_record_batches):
+                if export.cancel.is_set():
+                    raise _Stopped()
+                yield reader.get_batch(i)
+
+        def counted(n: int) -> None:
+            export.rows += n
+
+        if export.format == "xlsx":
+            write_xlsx_batches(reader.schema.names, batches(), sink, counted, notes)
+            return
+        names = schema.names
+        whole = [pa.types.is_integer(f.type) for f in schema]
+        sink.write(b"[")
+        first = True
+        for batch in batches():
+            cols = [c.to_pylist() for c in batch.columns]
+            if notes is not None:
+                for name, col, is_whole in zip(names, cols, whole, strict=True):
+                    for v in col if is_whole else ():
+                        if v is not None and abs(v) > _JSON_SAFE:
+                            notes.add(name, "big")
+            for i in range(batch.num_rows):
+                row = {name: _json_cell(col[i]) for name, col in zip(names, cols, strict=True)}
+                sink.write((b"\n" if first else b",\n") + json.dumps(row, ensure_ascii=False, default=str).encode("utf-8"))
+                first = False
+            counted(batch.num_rows)
+        sink.write(b"\n]\n" if not first else b"]\n")
 
     # ---- clean-up
 
@@ -809,7 +1131,8 @@ class SqlExecutions:
         hours = float(self._limits()["sql_result_retention_hours"])
         now = time.time()
         with self._lock:
-            done = sorted((r for r in self._runs.values() if r.state in FINISHED), key=lambda r: r.ended or 0, reverse=True)
+            done = sorted((r for r in self._runs.values() if r.state in FINISHED and not r.pinned),
+                          key=lambda r: r.ended or 0, reverse=True)
             busy = {e.execution for e in self._exports.values() if e.state == "running"}
             for n, run in enumerate(done):
                 old = hours > 0 and now - (run.ended or now) > hours * 3600
@@ -827,10 +1150,11 @@ class SqlExecutions:
                     # not at the result's retention. Kept: a link (never followed), a spill written in
                     # the last SPILL_QUIET_S (a live run, should sql_temp_dir be shared), and a file
                     # still open (Windows won't delete it).
+                    # Its age is read first: removing the spill touches the folder, which would make it new.
+                    age = now - folder.stat().st_mtime
                     spill = folder / "spill"
                     if not (_linked(folder) or _linked(spill)) and _quiet(spill, now):
                         shutil.rmtree(spill, ignore_errors=True)
-                    age = now - folder.stat().st_mtime
                     if hours <= 0 or age > hours * 3600:
                         shutil.rmtree(folder, ignore_errors=True)
 
@@ -853,6 +1177,29 @@ def _quiet(spill: Path, now: float) -> bool:
 
 class _Stopped(Exception):
     pass
+
+
+@dataclass
+class _Result:
+    """A result to read: the run's own or one statement's (S14)."""
+    path: Path
+    rows: int
+    offsets: list[int]
+    columns: list[dict[str, str]]
+    part: int | None
+
+
+def _part(event: dict[str, Any]) -> dict[str, Any]:
+    """A worker's ``part`` event as the run keeps it (S14)."""
+    batches = [int(n) for n in event.get("batches") or []]
+    part: dict[str, Any] = {"statement": int(event.get("statement") or 0), "rows": int(event.get("rows") or 0),
+                            "columns": list(event.get("columns") or []), "batches": batches,
+                            "offsets": list(itertools.accumulate([0, *batches[:-1]])) if batches else []}
+    if event.get("affected") is not None:
+        part["affected"] = int(event["affected"])
+    if event.get("seconds") is not None:
+        part["seconds"] = float(event["seconds"])
+    return part
 
 
 _OUTSIDE_COMMAND = re.compile(r"(EXPORT|IMPORT)\s+DATABASE\b", re.IGNORECASE)
@@ -935,10 +1282,16 @@ def check_local(query: str, dialect: str, confirm: bool = False) -> tuple[list[s
     return verdicts, sql_policy.refused(verdicts, TARGET_ALLOWS["local"], confirm)
 
 
+# DuckDB's words when a query needs more memory than its memory_limit (a full temp drive is told apart first).
+_OUT_OF_MEMORY = "out of memory error"
+
+
 def local_error(exc: BaseException, project: Any, snapshot: Path | None) -> tuple[str, str]:
     """The kind and message of a local data project run that failed: DuckDB's own words, except where
     they mislead. DuckDB calls temp files that can't grow running out of memory; that is the project's
-    temp file limit when its settings set one, and otherwise the temp folder's drive being full."""
+    temp file limit when its settings set one, and otherwise the temp folder's drive being full. When it
+    does run out of memory, its advice (SET threads or memory_limit) is what a local run refuses, so the
+    message names the project's settings instead."""
     from . import disk_full
     message = str(exc).strip() or type(exc).__name__
     settings = getattr(project, "settings", None)
@@ -952,6 +1305,15 @@ def local_error(exc: BaseException, project: Any, snapshot: Path | None) -> tupl
         return "disk", (f"Stopped: the query ran out of room for its temp files, as the temp folder's drive is "
                         f"full{f' ({where})' if where else ''}. The statement that ran out of room didn't finish. "
                         "Free some space, or narrow the query, and run it again.")
+    if _OUT_OF_MEMORY in message.lower():
+        # DuckDB's own advice is to SET threads or memory_limit, which a local run refuses: they are
+        # the project's settings.
+        limit = str(getattr(settings, "memory_limit", "") or "")
+        share, change = ((f"this project's memory limit ({limit})", "raise the memory limit") if limit else
+                         ("DuckDB's default share of this PC's memory (80%)", "set a memory limit"))
+        return "memory", (f"Stopped: the query needed more memory than {share} allows. That statement didn't "
+                          f"finish. Narrow the query (a filter, fewer columns or tables), or {change} or lower "
+                          "the threads in the project's settings, and run it again.")
     if disk_full.is_disk_full(exc):
         named = getattr(exc, "filename", None)  # else the project's folder: its database is the usual writer
         path = named if isinstance(named, (str, Path)) and named else getattr(project, "root", None) or snapshot
@@ -970,6 +1332,30 @@ def local_refusal_message(stop: sql_policy.Verdict, allow: tuple[str, ...] = TAR
 def _refusal(stop: sql_policy.Verdict) -> dict[str, Any]:
     return {"permission": stop.kind, "statement": stop.statement, "label": sql_policy.LABELS.get(stop.kind, ""),
             "reason": stop.reason, "confirm_required": stop.confirm}
+
+
+_JSON_SAFE = 2 ** 53 - 1  # the largest whole number JavaScript reads exactly
+
+
+def _json_cell(v: Any) -> Any:
+    """A value JSON can hold as it is: NaN and infinity become null, bytes base64, dates and times
+    ISO 8601, decimals text (so no digits are lost), lists and objects value by value."""
+    if isinstance(v, float) and (v != v or v in (float("inf"), float("-inf"))):
+        return None
+    if isinstance(v, (bytes, bytearray)):
+        return base64.b64encode(bytes(v)).decode("ascii")
+    if isinstance(v, (dt.datetime, dt.date, dt.time)):
+        return v.isoformat()
+    if isinstance(v, decimal.Decimal):
+        return str(v)
+    if isinstance(v, dict):
+        return {str(k): _json_cell(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        # A map column comes back as (key, value) pairs.
+        return [_json_cell(x) for x in v]
+    if isinstance(v, dt.timedelta):
+        return v.total_seconds()
+    return v
 
 
 def _writer(fmt: str, sink: Any, schema: pa.Schema) -> Any:

@@ -2,12 +2,16 @@
 
 Databricks notebooks run here unchanged where the same thing exists locally:
 
-- ``fs``: the same calls as ``notebookutils.fs``, over the attached lakehouse and this PC.
-  ``dbfs:/`` and ``/Volumes/`` are Databricks storage and raise an error that says so.
+- ``fs``: over ``notebookutils.fs``, the attached lakehouse and this PC, answering as Databricks does:
+  ``ls`` lists Databricks' FileInfo, ``head`` notes a truncation, ``rm`` of nothing is False.
+  ``/Volumes/<catalog>/<schema>/<volume>/...`` (and ``dbfs:/Volumes/...``) is a Unity Catalog volume on this
+  PC (databricks_volumes, Preview), listed with its /Volumes path; the rest of ``dbfs:/`` is Databricks storage
+  and raises an error that says so.
 - ``notebook``: run another notebook from this PC's notebooks folder, exit with a value.
 - ``widgets``: text, dropdown, combobox and multiselect. Values come from the arguments a run
   passes, then the value set in the app, then the default.
 - ``secrets``: a secret scope is an Azure Key Vault name (Key Vault backed scopes), read as you.
+  A value read is shown as ``[REDACTED]`` in the notebook's output (secret_redaction.py).
 - ``jobs.taskValues``: kept for the run; runMultiple activities read their upstream values.
 - ``library.restartPython``: restarts Python after the cell, as in Databricks.
 - ``data.summarize``: a summary of a DataFrame.
@@ -17,14 +21,15 @@ from __future__ import annotations
 
 import builtins
 import json
+import os
 import re
 import types
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, NamedTuple
 
-from . import http_session
+from . import http_session, secret_redaction
 from .paging import Pages
-from .notebookutils_local import Host, NotebookExit, keyvault_error, on_vault, vault_url
+from .notebookutils_local import Host, NotebookExit, _split, keyvault_error, on_vault, vault_url
 from .retrying import send_with_retry
 
 
@@ -49,6 +54,10 @@ def _local_path(path: str) -> str:
     absolute path (``/mnt/raw``, ``/tmp/x``, ``/FileStore/...``) is DBFS, so it is refused rather than
     read as this PC's disk: a local path says ``file:``."""
     p = str(path)
+    from . import databricks_volumes
+    if databricks_volumes.is_volume_path(p):
+        databricks_volumes.parse(p)  # a volume on this PC; refused here when the path can't name a file in one
+        return p
     if p.lower().startswith(_DATABRICKS_STORAGE):
         raise ValueError(f"{path} is Databricks storage, which this PC can't reach. Use the attached lakehouse "
                          f"(Files/... or /lakehouse/default/Files/...) or a file: path on this PC.")
@@ -64,17 +73,136 @@ def fs_magic_path(path: str) -> str:
     return str(path) if _DRIVE.match(str(path)) else _local_path(path)
 
 
+# The Databricks Utilities reference (docs.databricks.com/aws/en/dev-tools/databricks-utils) is what
+# each call below answers as; where this PC can't, the call says so by name.
+
+
+class FileInfo(NamedTuple):
+    """What dbutils.fs.ls lists, as Databricks' Python FileInfo: a named tuple of path, name, size and
+    modificationTime (milliseconds since 1970). A folder's name and path end with ``/``, which is
+    what isDir() reads, and its size is 0."""
+
+    path: str
+    name: str
+    size: int
+    modificationTime: int  # noqa: N815 - Databricks' name
+
+    def isDir(self) -> bool:  # noqa: N802
+        return self.name.endswith("/")
+
+    def isFile(self) -> bool:  # noqa: N802
+        return not self.isDir()
+
+
+def _file_info(e: Any) -> FileInfo:
+    # A path on this PC is written with / as on Databricks (file:C:/data/x on Windows), so code that joins or
+    # splits paths on / and isDir()'s trailing / work the same; the path still reads back through dbutils.fs.
+    path = "file:" + e.path[5:].replace("\\", "/") if e.path.startswith("file:") else e.path
+    if not e.isDir:
+        return FileInfo(path, e.name, e.size, e.modificationTime)
+    return FileInfo(path.rstrip("/") + "/", e.name.rstrip("/") + "/", 0, e.modificationTime)
+
+
+def volume_arg(path: Any, whole: bool = False, change: bool = False) -> Any:
+    """A /Volumes path as the ``file:`` path of its folder on this PC, which notebookutils.fs reads; any other path
+    as it is. ``whole``: the call takes all of a folder (a recursive copy, a move, a recursive remove), so a folder
+    holding a link is refused. ``change``: the call removes or moves it, so the volume's own folder is refused."""
+    from . import databricks_volumes
+    if not databricks_volumes.is_volume_path(path):
+        return path
+    where = databricks_volumes.parse(str(path))
+    if change and not where.parts:
+        raise ValueError(f"{path} is the volume {where.full_name} itself, which a file call doesn't remove or move. "
+                         f"Use DROP VOLUME {where.full_name} in a SQL cell, or work on the files in it.")
+    local = databricks_volumes.local_path(str(path))
+    if whole and local.is_dir():
+        databricks_volumes.check_tree(local, where.uc_path())
+    return "file:" + str(local)
+
+
+def volume_info(e: Any) -> FileInfo:
+    """_file_info of a notebookutils entry, with the dbfs:/Volumes/... path Databricks' Python dbutils.fs.ls gives
+    for a file in a volume (never its folder on this PC)."""
+    info = _file_info(e)
+    from . import databricks_volumes
+    local = e.path[len("file:"):] if e.path.startswith("file:") else None
+    shown = databricks_volumes.uc_path(local) if local else None
+    if shown is None:
+        return info
+    return info._replace(path=shown + "/" if info.isDir() else shown)
+
+
 def _make_fs(nbu_fs: types.SimpleNamespace) -> types.SimpleNamespace:
     def wrap(fn: Callable[..., Any], paths: int = 1) -> Callable[..., Any]:
         def call(*args: Any, **kwargs: Any) -> Any:
             for a in [*args[:paths], *(v for k, v in kwargs.items() if k in _PATH_ARGS)]:
                 _local_path(a)
+            args = (*(volume_arg(a) for a in args[:paths]), *args[paths:])
+            kwargs = {k: volume_arg(v) if k in _PATH_ARGS else v for k, v in kwargs.items()}
             return fn(*args, **kwargs)
         call.__name__ = fn.__name__
         return call
 
-    def mv(src: str, dest: str, recurse: bool = False) -> bool:  # noqa: ARG001 - folders move whole
-        return nbu_fs.mv(_local_path(src), _local_path(dest))
+    def is_folder(path: str) -> bool:
+        if not nbu_fs.exists(path):
+            return False
+        listed = nbu_fs.ls(path)  # a file lists as itself
+        name = str(path).rstrip("/").rsplit("/", 1)[-1]
+        return not (len(listed) == 1 and not listed[0].isDir and listed[0].name == name)
+
+    def into(src: str, dest: str) -> str:
+        """As in Databricks (Hadoop's copy and rename), a file or folder copied or moved onto a folder
+        that exists goes inside it."""
+        if is_folder(dest):
+            return f"{str(dest).rstrip('/')}/{str(src).rstrip('/').rsplit('/', 1)[-1]}"
+        return dest
+
+    def ls(dir: str) -> list[FileInfo]:  # noqa: A002 - Databricks' name
+        return [volume_info(e) for e in nbu_fs.ls(volume_arg(_local_path(dir)))]
+
+    def head(file: str, maxBytes: int = 65536) -> str:  # noqa: N803
+        file = volume_arg(_local_path(file))
+        text: str = nbu_fs.head(file, maxBytes)
+        listed = nbu_fs.ls(file) if maxBytes > 0 else []
+        if len(listed) == 1 and not listed[0].isDir and listed[0].size > maxBytes:
+            print(f"[Truncated to first {maxBytes} bytes]")  # Databricks' note; the text is the value
+        return text
+
+    def put(file: str, contents: str, overwrite: bool = False) -> bool:
+        done: bool = nbu_fs.put(volume_arg(_local_path(file)), contents, overwrite)
+        print(f"Wrote {len(str(contents).encode('utf-8'))} bytes.")
+        return done
+
+    def cp(from_: str, to: str, recurse: bool = False) -> bool:
+        _local_path(from_)
+        _local_path(to)
+        from_, to = volume_arg(from_, whole=recurse), volume_arg(to)
+        return bool(nbu_fs.cp(from_, into(from_, to), recurse))
+
+    def mv(from_: str, to: str, recurse: bool = False) -> bool:  # noqa: ARG001 - a folder moves whole
+        _local_path(from_)
+        _local_path(to)
+        from_, to = volume_arg(from_, whole=True, change=True), volume_arg(to)
+        return bool(nbu_fs.mv(from_, into(from_, to)))
+
+    def rm(dir: str, recurse: bool = False) -> bool:  # noqa: A002 - Databricks' name
+        """True once it is gone; False when nothing was there, as in Databricks. Without recurse a
+        folder goes only when it is empty."""
+        _local_path(dir)
+        given, dir = dir, volume_arg(dir, whole=recurse, change=True)  # noqa: A001
+        if not nbu_fs.exists(dir):
+            return False
+        try:
+            return bool(nbu_fs.rm(dir, recurse))
+        except IsADirectoryError:
+            where, local = _split(dir)
+            if recurse or where != "local":
+                raise
+            try:
+                os.rmdir(local)  # only while it is empty: never what a recursive remove would take
+            except OSError:
+                raise IsADirectoryError(f"{given} is a folder that isn't empty. Pass recurse=True to remove it.") from None
+            return True
 
     def mount(*_a: Any, **_kw: Any) -> None:
         raise NotImplementedError("Mounting storage runs in Databricks. On this PC, read the attached lakehouse.")
@@ -82,8 +210,7 @@ def _make_fs(nbu_fs: types.SimpleNamespace) -> types.SimpleNamespace:
     def help(*_a: Any) -> None:  # noqa: A001
         print("dbutils.fs on this PC: ls, head, put, cp, mv, rm, mkdirs")
 
-    return types.SimpleNamespace(ls=wrap(nbu_fs.ls), head=wrap(nbu_fs.head), put=wrap(nbu_fs.put),
-                                 cp=wrap(nbu_fs.cp, 2), mv=mv, rm=wrap(nbu_fs.rm), mkdirs=wrap(nbu_fs.mkdirs),
+    return types.SimpleNamespace(ls=ls, head=head, put=put, cp=cp, mv=mv, rm=rm, mkdirs=wrap(nbu_fs.mkdirs),
                                  mount=mount, unmount=mount, updateMount=mount, mounts=lambda: [],
                                  refreshMounts=lambda: True, help=help)
 
@@ -135,11 +262,15 @@ class Widgets:
             return widget["default"]  # a bar value that isn't one of the choices (the bar says so)
         return value
 
-    def getArgument(self, name: str, optional: str | None = None) -> str | None:  # noqa: N802
+    def getArgument(self, name: str, optional: str | None = None) -> str:  # noqa: N802
+        """Deprecated in Databricks for get. A widget that isn't there answers ``optional``; with none
+        given, it raises as get does, rather than answering None."""
         try:
             return self.get(name)
         except InputWidgetNotDefined:
-            return optional
+            if optional is None:
+                raise
+            return str(optional)
 
     def getAll(self) -> dict[str, str]:  # noqa: N802
         return {n: self.get(n) for n in {*self.defined, *self.passed}}
@@ -180,7 +311,9 @@ def _make_secrets(get_secret: Callable[..., str], token: Callable[[str], str]) -
         return vault_url(scope)
 
     def get(scope: str, key: str) -> str:
-        return get_secret(scope, key)
+        value = get_secret(scope, key)
+        secret_redaction.remember(value)  # shown as [REDACTED] in the notebook's output, as in Databricks
+        return value
 
     def getBytes(scope: str, key: str) -> bytes:  # noqa: N802
         return get(scope, key).encode("utf-8")
@@ -218,11 +351,23 @@ def _make_secrets(get_secret: Callable[..., str], token: Callable[[str], str]) -
                                                         "(a scope is a Key Vault name)"))
 
 
+TASK_VALUE_BYTES = 48 * 1024  # Databricks: a value's JSON is at most 48 KiB
+TASK_VALUES = 250  # and a job run sets at most 250
+
+
 def _make_task_values(host: Host) -> types.SimpleNamespace:
     def set(key: str, value: Any) -> None:  # noqa: A001
-        json.dumps(value)  # Databricks keeps task values as JSON
+        size = len(json.dumps(value).encode("utf-8"))  # Databricks keeps task values as JSON
+        if size > TASK_VALUE_BYTES:
+            raise ValueError(f"Task value {key!r} is {size:,} bytes as JSON, and Databricks keeps at most "
+                             f"{TASK_VALUE_BYTES:,} (48 KiB), so it wasn't set. Set a smaller value, or write the "
+                             "data to a file and set its path.")
         task = host.tasks[-1] if host.tasks else host.notebook_name()
-        host.task_values.setdefault(task, {})[str(key)] = value
+        values = host.task_values.setdefault(task, {})
+        if str(key) not in values and sum(map(len, host.task_values.values())) >= TASK_VALUES:
+            raise ValueError(f"A job run sets at most {TASK_VALUES} task values, as in Databricks, so {key!r} "
+                             "wasn't set. Put related values together in one value.")
+        values[str(key)] = value
 
     def get(taskKey: str, key: str, default: Any = None, debugValue: Any = None) -> Any:  # noqa: N803
         if not host.tasks:
@@ -231,7 +376,10 @@ def _make_task_values(host: Host) -> types.SimpleNamespace:
                 raise TypeError("Run by hand, taskValues.get returns debugValue; pass debugValue=... "
                                 "or run the notebooks with runMultiple.")
             return debugValue
-        values = host.task_values.get(str(taskKey), {})
+        if str(taskKey) not in host.task_values:  # with a default too, as in Databricks
+            raise ValueError(f"No task named {taskKey!r} has run in this job run. Check the activity's name, and "
+                             "that it runs before this one.")
+        values = host.task_values[str(taskKey)]
         if str(key) in values:
             return values[str(key)]
         if default is None:
@@ -274,6 +422,36 @@ def _make_entry_point(host: Host) -> types.SimpleNamespace:
     return types.SimpleNamespace(getDbutils=lambda: types.SimpleNamespace(notebook=lambda: notebook))
 
 
+# A notebook that uses dbutils may be meant for Databricks, whose Runtime 17.0 and later run Spark SQL with
+# ANSI mode on; Spark here runs with it off, as Fabric does (spark_api.ANSI_NOTE). Which runtime a notebook
+# is meant for isn't known here, so the first use of dbutils in a session says which one Spark answers as.
+DATABRICKS_ANSI_NOTE = ("Note: this notebook uses dbutils, so it may be meant for Databricks. Spark SQL on this PC "
+                        "answers with ANSI mode off, as Fabric runs it. Databricks Runtime 17.0 and later run with "
+                        "ANSI mode on, where a CAST that fails or a division by zero stops the query instead of "
+                        "giving NULL. Use try_cast and try_divide where that matters, or run it on Databricks.")
+
+
+class _Dbutils(types.SimpleNamespace):
+    """dbutils, printing DATABRICKS_ANSI_NOTE the first time one of its parts is used once ``_kf_arm`` is called (not
+    while the kernel sets itself up)."""
+
+    def _kf_arm(self) -> None:
+        object.__getattribute__(self, "__dict__")["_kf_noted"] = False
+
+    def __getattribute__(self, name: str) -> Any:
+        if not name.startswith("_") and not object.__getattribute__(self, "__dict__").get("_kf_noted"):
+            object.__getattribute__(self, "__dict__")["_kf_noted"] = True
+            print(DATABRICKS_ANSI_NOTE)
+        return object.__getattribute__(self, name)
+
+
+def quiet_part(dbutils: Any, name: str) -> Any:
+    """``dbutils.<name>`` (None when it has none) read by the kernel itself, without the note."""
+    if isinstance(dbutils, _Dbutils):
+        return object.__getattribute__(dbutils, "__dict__").get(name)
+    return getattr(dbutils, name, None)
+
+
 def build(host: Host, notebookutils: types.ModuleType) -> types.SimpleNamespace:
     nbu = notebookutils
 
@@ -296,12 +474,12 @@ def build(host: Host, notebookutils: types.ModuleType) -> types.SimpleNamespace:
     notebook = types.SimpleNamespace(run=run, exit=nbu.notebook.exit, entry_point=_make_entry_point(host),
                                      help=lambda *_a: print("dbutils.notebook on this PC: run, exit"))
     aws = "AWS role credentials are a Databricks on AWS feature; this PC signs in to Microsoft as you."
-    return types.SimpleNamespace(
-        fs=_make_fs(nbu.fs), notebook=notebook, widgets=widgets,
+    return _Dbutils(
+        _kf_noted=True, fs=_make_fs(nbu.fs), notebook=notebook, widgets=widgets,
         secrets=_make_secrets(nbu.credentials.getSecret, nbu.credentials.getToken),
         jobs=types.SimpleNamespace(taskValues=_make_task_values(host)),
         library=types.SimpleNamespace(restartPython=restartPython, install=unsupported(
-            "Installing libraries runs in Databricks. On this PC the engine's packages are fixed.")),
+            "Installing libraries runs in Databricks. On this PC, install packages with %pip install in a cell.")),
         data=types.SimpleNamespace(summarize=summarize),
         credentials=types.SimpleNamespace(assumeRole=unsupported(aws), showCurrentRole=unsupported(aws),
                                           showRoles=unsupported(aws)),

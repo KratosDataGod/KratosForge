@@ -1,0 +1,3189 @@
+{
+ "dlonly": {
+  "behavior": "DirectLakeOnly",
+  "checked_at": "2026-11-24T08:00:00+00:00",
+  "counts": {
+   "fail": 1,
+   "info": 0,
+   "warn": 3
+  },
+  "direct_lake": true,
+  "env": "test",
+  "findings": [
+   {
+    "check": "Table missing",
+    "column": "",
+    "fix": null,
+    "message": "gold.v_sales_targets isn't a Delta table in the lakehouse. If it's a SQL view, Direct Lake on SQL always falls back to DirectQuery for it; otherwise queries on it fail.",
+    "severity": "fail",
+    "table": "v_sales_targets"
+   },
+   {
+    "check": "Parquet files",
+    "column": "",
+    "fix": "compact",
+    "message": "960 Parquet files, and F32 allows 1,000 a table, so a few more loads could pass it.",
+    "severity": "warn",
+    "table": "fact_returns"
+   },
+   {
+    "check": "Row groups",
+    "column": "",
+    "fix": "compact",
+    "message": "1,240 row groups, but F32 allows 1,000 a table. Queries on it fail until the table is compacted, because fallback is off.",
+    "severity": "warn",
+    "table": "fact_sales"
+   },
+   {
+    "check": "Rows",
+    "column": "",
+    "fix": null,
+    "message": "412,000,000 rows, but F32 allows 300,000,000 a table. Queries on it fail until the table is compacted, because fallback is off.",
+    "severity": "warn",
+    "table": "fact_sales"
+   }
+  ],
+  "keys_checked": false,
+  "limits": {
+   "files": 1000,
+   "model_bytes": 42949672960,
+   "row_groups": 1000,
+   "rows": 300000000,
+   "sku": "F32"
+  },
+  "model_bytes": 38654705664,
+  "name": "Sales",
+  "prediction": {
+   "behavior": "DirectLakeOnly",
+   "behavior_label": "Direct Lake only",
+   "behavior_meaning": "Nothing falls back. Past a limit, queries on the model fail.",
+   "by_sku": {
+    "F32": {
+     "counts": {
+      "might": 1,
+      "not_checked": 0,
+      "will": 2,
+      "within": 3
+     },
+     "limits": {
+      "files": 1000,
+      "model_bytes": 42949672960,
+      "row_groups": 1000,
+      "rows": 300000000,
+      "sku": "F32"
+     },
+     "model": {
+      "label": "Will fail",
+      "message": "fact_sales is past F32's row group limit. With Direct Lake only, queries on the model will fail instead of going to DirectQuery.",
+      "table": "fact_sales",
+      "verdict": "will"
+     },
+     "size": {
+      "bytes": 38654705664,
+      "level": "near",
+      "limit": 42949672960
+     },
+     "sku": "F32",
+     "tables": [
+      {
+       "at_horizon": {
+        "files": 840,
+        "row_groups": 1240,
+        "rows": 412000000
+       },
+       "bytes": 32212254720,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": "compact",
+         "fix_text": "Compact the table so its row groups are larger.",
+         "have": 1240,
+         "level": "over",
+         "limit": 1000,
+         "message": "The table has more row groups than F32 allows. Read from the Delta log and Parquet footers. Past this limit, queries on this model fail instead of falling back.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": "Filter or aggregate the rows the model needs into a Gold table, or move the workspace to F64 or larger.",
+         "have": 412000000,
+         "level": "over",
+         "limit": 300000000,
+         "message": "The table has more rows than F32 allows. Compaction doesn't change this. Past this limit, queries on this model fail instead of falling back.",
+         "noun": "row"
+        },
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 840,
+         "level": "within",
+         "limit": 1000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        }
+       ],
+       "delta_table": "gold.fact_sales",
+       "files": 840,
+       "forecast": {
+        "commits": 0,
+        "message": "No history read.",
+        "metric": "files",
+        "status": "no_history"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 1240,
+       "row_groups_estimated": false,
+       "rows": 412000000,
+       "status": "will",
+       "table": "fact_sales",
+       "view": false
+      },
+      {
+       "at_horizon": {
+        "files": 1320,
+        "row_groups": 837,
+        "rows": 31000000
+       },
+       "bytes": 5368709120,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": "compact",
+         "fix_text": "Compact the table, and batch the appends.",
+         "have": 960,
+         "level": "near",
+         "limit": 1000,
+         "message": "Within the limit now, but 41 more Parquet files would pass it. Each small append adds one.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 610,
+         "level": "within",
+         "limit": 1000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 31000000,
+         "level": "within",
+         "limit": 300000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.fact_returns",
+       "files": 960,
+       "forecast": {
+        "commits": 16,
+        "days": 11,
+        "message": "Crosses F32's Parquet file limit in about 11 days at the current rate (16 commits over 15 days).",
+        "metric": "files",
+        "status": "crossing"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 610,
+       "row_groups_estimated": false,
+       "rows": 31000000,
+       "status": "might",
+       "table": "fact_returns",
+       "view": false
+      },
+      {
+       "at_horizon": {
+        "files": 12,
+        "row_groups": 14,
+        "rows": 8200000
+       },
+       "bytes": 536870912,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 12,
+         "level": "within",
+         "limit": 1000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 14,
+         "level": "within",
+         "limit": 1000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 8200000,
+         "level": "within",
+         "limit": 300000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.dim_customer",
+       "files": 12,
+       "forecast": {
+        "commits": 0,
+        "message": "No history read.",
+        "metric": "files",
+        "status": "no_history"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 14,
+       "row_groups_estimated": false,
+       "rows": 8200000,
+       "status": "within",
+       "table": "dim_customer",
+       "view": false
+      },
+      {
+       "at_horizon": {
+        "files": 3,
+        "row_groups": 3,
+        "rows": 48000
+       },
+       "bytes": 268435456,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 3,
+         "level": "within",
+         "limit": 1000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 3,
+         "level": "within",
+         "limit": 1000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 48000,
+         "level": "within",
+         "limit": 300000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.dim_product",
+       "files": 3,
+       "forecast": {
+        "commits": 0,
+        "message": "No history read.",
+        "metric": "files",
+        "status": "no_history"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 3,
+       "row_groups_estimated": false,
+       "rows": 48000,
+       "status": "within",
+       "table": "dim_product",
+       "view": false
+      },
+      {
+       "at_horizon": null,
+       "bytes": null,
+       "causes": [
+        "view"
+       ],
+       "checks": [
+        {
+         "check": "Source is a view",
+         "evidence": "SQL endpoint view",
+         "fix": null,
+         "fix_text": "Materialize the view as a Delta table in Gold, then point the model's table at it.",
+         "level": "over",
+         "message": "Every query on this table fails, because Direct Lake reads only Delta tables and the model doesn't allow DirectQuery."
+        }
+       ],
+       "delta_table": "gold.v_sales_targets",
+       "files": null,
+       "forecast": null,
+       "read": true,
+       "reason": "",
+       "row_groups": null,
+       "row_groups_estimated": false,
+       "rows": null,
+       "status": "will",
+       "table": "v_sales_targets",
+       "view": true
+      },
+      {
+       "at_horizon": {
+        "files": 1,
+        "row_groups": 1,
+        "rows": 7305
+       },
+       "bytes": 268435456,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 1,
+         "level": "within",
+         "limit": 1000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 1,
+         "level": "within",
+         "limit": 1000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 7305,
+         "level": "within",
+         "limit": 300000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.dim_date",
+       "files": 1,
+       "forecast": {
+        "commits": 1,
+        "message": "Not enough history (1 commit over 0 days). A forecast needs at least 3 commits over 7 days.",
+        "metric": "files",
+        "status": "not_enough"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 1,
+       "row_groups_estimated": false,
+       "rows": 7305,
+       "status": "within",
+       "table": "dim_date",
+       "view": false
+      }
+     ],
+     "will_label": "Will fail"
+    },
+    "F64": {
+     "counts": {
+      "might": 0,
+      "not_checked": 0,
+      "will": 1,
+      "within": 5
+     },
+     "limits": {
+      "files": 5000,
+      "model_bytes": null,
+      "row_groups": 5000,
+      "rows": 1500000000,
+      "sku": "F64"
+     },
+     "model": {
+      "label": "Will fail",
+      "message": "v_sales_targets's source is a SQL view, so every query that reads it will fail.",
+      "table": "v_sales_targets",
+      "verdict": "will"
+     },
+     "size": {
+      "bytes": 38654705664,
+      "level": "",
+      "limit": null
+     },
+     "sku": "F64",
+     "tables": [
+      {
+       "at_horizon": {
+        "files": 840,
+        "row_groups": 1240,
+        "rows": 412000000
+       },
+       "bytes": 32212254720,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 840,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 1240,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 412000000,
+         "level": "within",
+         "limit": 1500000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.fact_sales",
+       "files": 840,
+       "forecast": {
+        "commits": 0,
+        "message": "No history read.",
+        "metric": "files",
+        "status": "no_history"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 1240,
+       "row_groups_estimated": false,
+       "rows": 412000000,
+       "status": "within",
+       "table": "fact_sales",
+       "view": false
+      },
+      {
+       "at_horizon": {
+        "files": 1320,
+        "row_groups": 837,
+        "rows": 31000000
+       },
+       "bytes": 5368709120,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 960,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 610,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 31000000,
+         "level": "within",
+         "limit": 1500000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.fact_returns",
+       "files": 960,
+       "forecast": {
+        "commits": 16,
+        "message": "Stays within F64's Parquet file limit for the next 90 days at the current rate (16 commits over 15 days).",
+        "metric": "files",
+        "status": "stays_within"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 610,
+       "row_groups_estimated": false,
+       "rows": 31000000,
+       "status": "within",
+       "table": "fact_returns",
+       "view": false
+      },
+      {
+       "at_horizon": {
+        "files": 12,
+        "row_groups": 14,
+        "rows": 8200000
+       },
+       "bytes": 536870912,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 12,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 14,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 8200000,
+         "level": "within",
+         "limit": 1500000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.dim_customer",
+       "files": 12,
+       "forecast": {
+        "commits": 0,
+        "message": "No history read.",
+        "metric": "files",
+        "status": "no_history"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 14,
+       "row_groups_estimated": false,
+       "rows": 8200000,
+       "status": "within",
+       "table": "dim_customer",
+       "view": false
+      },
+      {
+       "at_horizon": {
+        "files": 3,
+        "row_groups": 3,
+        "rows": 48000
+       },
+       "bytes": 268435456,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 3,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 3,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 48000,
+         "level": "within",
+         "limit": 1500000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.dim_product",
+       "files": 3,
+       "forecast": {
+        "commits": 0,
+        "message": "No history read.",
+        "metric": "files",
+        "status": "no_history"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 3,
+       "row_groups_estimated": false,
+       "rows": 48000,
+       "status": "within",
+       "table": "dim_product",
+       "view": false
+      },
+      {
+       "at_horizon": null,
+       "bytes": null,
+       "causes": [
+        "view"
+       ],
+       "checks": [
+        {
+         "check": "Source is a view",
+         "evidence": "SQL endpoint view",
+         "fix": null,
+         "fix_text": "Materialize the view as a Delta table in Gold, then point the model's table at it.",
+         "level": "over",
+         "message": "Every query on this table fails, because Direct Lake reads only Delta tables and the model doesn't allow DirectQuery."
+        }
+       ],
+       "delta_table": "gold.v_sales_targets",
+       "files": null,
+       "forecast": null,
+       "read": true,
+       "reason": "",
+       "row_groups": null,
+       "row_groups_estimated": false,
+       "rows": null,
+       "status": "will",
+       "table": "v_sales_targets",
+       "view": true
+      },
+      {
+       "at_horizon": {
+        "files": 1,
+        "row_groups": 1,
+        "rows": 7305
+       },
+       "bytes": 268435456,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 1,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 1,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 7305,
+         "level": "within",
+         "limit": 1500000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.dim_date",
+       "files": 1,
+       "forecast": {
+        "commits": 1,
+        "message": "Not enough history (1 commit over 0 days). A forecast needs at least 3 commits over 7 days.",
+        "metric": "files",
+        "status": "not_enough"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 1,
+       "row_groups_estimated": false,
+       "rows": 7305,
+       "status": "within",
+       "table": "dim_date",
+       "view": false
+      }
+     ],
+     "will_label": "Will fail"
+    }
+   },
+   "caveat": "SQL endpoint security (row-level or object-level) can't be read from this PC, and it alone can make queries fall back.",
+   "counts": {
+    "might": 1,
+    "not_checked": 0,
+    "will": 2,
+    "within": 3
+   },
+   "horizon_days": 90,
+   "kind": "sql",
+   "label": "Predicted from metadata on this PC. Fabric hasn't run a query.",
+   "limits": {
+    "files": 1000,
+    "model_bytes": 42949672960,
+    "row_groups": 1000,
+    "rows": 300000000,
+    "sku": "F32"
+   },
+   "model": {
+    "label": "Will fail",
+    "message": "fact_sales is past F32's row group limit. With Direct Lake only, queries on the model will fail instead of going to DirectQuery.",
+    "table": "fact_sales",
+    "verdict": "will"
+   },
+   "not_checked": [
+    "SQL endpoint security (row-level or object-level) can't be read from this PC, and it alone can make queries fall back.",
+    "How busy the capacity's memory is when people query. Fabric can page tables out under pressure, which metadata doesn't show.",
+    "Changes Microsoft makes to the guardrails after this app's table of them was last reviewed."
+   ],
+   "notes": [
+    "Nothing falls back. Past a limit, queries on the model fail.",
+    "4 tables had no forecast, because too little history was read. At the horizon, they're counted at today's numbers.",
+    "Model size at the horizon is counted at today's size, because the forecast covers only files, row groups and rows."
+   ],
+   "read_problem": "",
+   "size": {
+    "bytes": 38654705664,
+    "level": "near",
+    "limit": 42949672960
+   },
+   "sku": "F32",
+   "skus": {
+    "every_sku": [
+     "v_sales_targets"
+    ],
+    "horizon_days": 90,
+    "rows": [
+     {
+      "aliases": [],
+      "horizon": "will",
+      "sku": "F2",
+      "today": "will"
+     },
+     {
+      "aliases": [],
+      "horizon": "will",
+      "sku": "F4",
+      "today": "will"
+     },
+     {
+      "aliases": [],
+      "horizon": "will",
+      "sku": "F8",
+      "today": "will"
+     },
+     {
+      "aliases": [],
+      "horizon": "will",
+      "sku": "F16",
+      "today": "will"
+     },
+     {
+      "aliases": [],
+      "horizon": "will",
+      "sku": "F32",
+      "today": "will"
+     },
+     {
+      "aliases": [
+       "FT1",
+       "P1"
+      ],
+      "horizon": "within",
+      "sku": "F64",
+      "today": "within"
+     },
+     {
+      "aliases": [
+       "P2"
+      ],
+      "horizon": "within",
+      "sku": "F128",
+      "today": "within"
+     },
+     {
+      "aliases": [
+       "P3"
+      ],
+      "horizon": "within",
+      "sku": "F256",
+      "today": "within"
+     },
+     {
+      "aliases": [
+       "P4"
+      ],
+      "horizon": "within",
+      "sku": "F512",
+      "today": "within"
+     },
+     {
+      "aliases": [
+       "P5"
+      ],
+      "horizon": "within",
+      "sku": "F1024",
+      "today": "within"
+     },
+     {
+      "aliases": [],
+      "horizon": "within",
+      "sku": "F2048",
+      "today": "within"
+     },
+     {
+      "aliases": [],
+      "horizon": "within",
+      "sku": "F4096",
+      "today": "within"
+     },
+     {
+      "aliases": [],
+      "horizon": "within",
+      "sku": "F8192",
+      "today": "within"
+     }
+    ],
+    "smallest_horizon": "F64",
+    "smallest_today": "F64"
+   },
+   "tables": [
+    {
+     "at_horizon": {
+      "files": 840,
+      "row_groups": 1240,
+      "rows": 412000000
+     },
+     "bytes": 32212254720,
+     "causes": [],
+     "checks": [
+      {
+       "about": false,
+       "check": "Row groups",
+       "fix": "compact",
+       "fix_text": "Compact the table so its row groups are larger.",
+       "have": 1240,
+       "level": "over",
+       "limit": 1000,
+       "message": "The table has more row groups than F32 allows. Read from the Delta log and Parquet footers. Past this limit, queries on this model fail instead of falling back.",
+       "noun": "row group"
+      },
+      {
+       "about": false,
+       "check": "Rows",
+       "fix": null,
+       "fix_text": "Filter or aggregate the rows the model needs into a Gold table, or move the workspace to F64 or larger.",
+       "have": 412000000,
+       "level": "over",
+       "limit": 300000000,
+       "message": "The table has more rows than F32 allows. Compaction doesn't change this. Past this limit, queries on this model fail instead of falling back.",
+       "noun": "row"
+      },
+      {
+       "about": false,
+       "check": "Parquet files",
+       "fix": null,
+       "fix_text": null,
+       "have": 840,
+       "level": "within",
+       "limit": 1000,
+       "message": "Within the limit.",
+       "noun": "Parquet file"
+      }
+     ],
+     "delta_table": "gold.fact_sales",
+     "files": 840,
+     "forecast": {
+      "commits": 0,
+      "message": "No history read.",
+      "metric": "files",
+      "status": "no_history"
+     },
+     "read": true,
+     "reason": "",
+     "row_groups": 1240,
+     "row_groups_estimated": false,
+     "rows": 412000000,
+     "status": "will",
+     "table": "fact_sales",
+     "view": false
+    },
+    {
+     "at_horizon": {
+      "files": 1320,
+      "row_groups": 837,
+      "rows": 31000000
+     },
+     "bytes": 5368709120,
+     "causes": [],
+     "checks": [
+      {
+       "about": false,
+       "check": "Parquet files",
+       "fix": "compact",
+       "fix_text": "Compact the table, and batch the appends.",
+       "have": 960,
+       "level": "near",
+       "limit": 1000,
+       "message": "Within the limit now, but 41 more Parquet files would pass it. Each small append adds one.",
+       "noun": "Parquet file"
+      },
+      {
+       "about": false,
+       "check": "Row groups",
+       "fix": null,
+       "fix_text": null,
+       "have": 610,
+       "level": "within",
+       "limit": 1000,
+       "message": "Within the limit.",
+       "noun": "row group"
+      },
+      {
+       "about": false,
+       "check": "Rows",
+       "fix": null,
+       "fix_text": null,
+       "have": 31000000,
+       "level": "within",
+       "limit": 300000000,
+       "message": "Within the limit.",
+       "noun": "row"
+      }
+     ],
+     "delta_table": "gold.fact_returns",
+     "files": 960,
+     "forecast": {
+      "commits": 16,
+      "days": 11,
+      "message": "Crosses F32's Parquet file limit in about 11 days at the current rate (16 commits over 15 days).",
+      "metric": "files",
+      "status": "crossing"
+     },
+     "read": true,
+     "reason": "",
+     "row_groups": 610,
+     "row_groups_estimated": false,
+     "rows": 31000000,
+     "status": "might",
+     "table": "fact_returns",
+     "view": false
+    },
+    {
+     "at_horizon": {
+      "files": 12,
+      "row_groups": 14,
+      "rows": 8200000
+     },
+     "bytes": 536870912,
+     "causes": [],
+     "checks": [
+      {
+       "about": false,
+       "check": "Parquet files",
+       "fix": null,
+       "fix_text": null,
+       "have": 12,
+       "level": "within",
+       "limit": 1000,
+       "message": "Within the limit.",
+       "noun": "Parquet file"
+      },
+      {
+       "about": false,
+       "check": "Row groups",
+       "fix": null,
+       "fix_text": null,
+       "have": 14,
+       "level": "within",
+       "limit": 1000,
+       "message": "Within the limit.",
+       "noun": "row group"
+      },
+      {
+       "about": false,
+       "check": "Rows",
+       "fix": null,
+       "fix_text": null,
+       "have": 8200000,
+       "level": "within",
+       "limit": 300000000,
+       "message": "Within the limit.",
+       "noun": "row"
+      }
+     ],
+     "delta_table": "gold.dim_customer",
+     "files": 12,
+     "forecast": {
+      "commits": 0,
+      "message": "No history read.",
+      "metric": "files",
+      "status": "no_history"
+     },
+     "read": true,
+     "reason": "",
+     "row_groups": 14,
+     "row_groups_estimated": false,
+     "rows": 8200000,
+     "status": "within",
+     "table": "dim_customer",
+     "view": false
+    },
+    {
+     "at_horizon": {
+      "files": 3,
+      "row_groups": 3,
+      "rows": 48000
+     },
+     "bytes": 268435456,
+     "causes": [],
+     "checks": [
+      {
+       "about": false,
+       "check": "Parquet files",
+       "fix": null,
+       "fix_text": null,
+       "have": 3,
+       "level": "within",
+       "limit": 1000,
+       "message": "Within the limit.",
+       "noun": "Parquet file"
+      },
+      {
+       "about": false,
+       "check": "Row groups",
+       "fix": null,
+       "fix_text": null,
+       "have": 3,
+       "level": "within",
+       "limit": 1000,
+       "message": "Within the limit.",
+       "noun": "row group"
+      },
+      {
+       "about": false,
+       "check": "Rows",
+       "fix": null,
+       "fix_text": null,
+       "have": 48000,
+       "level": "within",
+       "limit": 300000000,
+       "message": "Within the limit.",
+       "noun": "row"
+      }
+     ],
+     "delta_table": "gold.dim_product",
+     "files": 3,
+     "forecast": {
+      "commits": 0,
+      "message": "No history read.",
+      "metric": "files",
+      "status": "no_history"
+     },
+     "read": true,
+     "reason": "",
+     "row_groups": 3,
+     "row_groups_estimated": false,
+     "rows": 48000,
+     "status": "within",
+     "table": "dim_product",
+     "view": false
+    },
+    {
+     "at_horizon": null,
+     "bytes": null,
+     "causes": [
+      "view"
+     ],
+     "checks": [
+      {
+       "check": "Source is a view",
+       "evidence": "SQL endpoint view",
+       "fix": null,
+       "fix_text": "Materialize the view as a Delta table in Gold, then point the model's table at it.",
+       "level": "over",
+       "message": "Every query on this table fails, because Direct Lake reads only Delta tables and the model doesn't allow DirectQuery."
+      }
+     ],
+     "delta_table": "gold.v_sales_targets",
+     "files": null,
+     "forecast": null,
+     "read": true,
+     "reason": "",
+     "row_groups": null,
+     "row_groups_estimated": false,
+     "rows": null,
+     "status": "will",
+     "table": "v_sales_targets",
+     "view": true
+    },
+    {
+     "at_horizon": {
+      "files": 1,
+      "row_groups": 1,
+      "rows": 7305
+     },
+     "bytes": 268435456,
+     "causes": [],
+     "checks": [
+      {
+       "about": false,
+       "check": "Parquet files",
+       "fix": null,
+       "fix_text": null,
+       "have": 1,
+       "level": "within",
+       "limit": 1000,
+       "message": "Within the limit.",
+       "noun": "Parquet file"
+      },
+      {
+       "about": false,
+       "check": "Row groups",
+       "fix": null,
+       "fix_text": null,
+       "have": 1,
+       "level": "within",
+       "limit": 1000,
+       "message": "Within the limit.",
+       "noun": "row group"
+      },
+      {
+       "about": false,
+       "check": "Rows",
+       "fix": null,
+       "fix_text": null,
+       "have": 7305,
+       "level": "within",
+       "limit": 300000000,
+       "message": "Within the limit.",
+       "noun": "row"
+      }
+     ],
+     "delta_table": "gold.dim_date",
+     "files": 1,
+     "forecast": {
+      "commits": 1,
+      "message": "Not enough history (1 commit over 0 days). A forecast needs at least 3 commits over 7 days.",
+      "metric": "files",
+      "status": "not_enough"
+     },
+     "read": true,
+     "reason": "",
+     "row_groups": 1,
+     "row_groups_estimated": false,
+     "rows": 7305,
+     "status": "within",
+     "table": "dim_date",
+     "view": false
+    }
+   ],
+   "will_label": "Will fail"
+  },
+  "sku": "F32",
+  "storage": "sql",
+  "tables": [
+   {
+    "bytes": 32212254720,
+    "delta_table": "gold.fact_sales",
+    "exists": true,
+    "files": 840,
+    "row_groups": 1240,
+    "row_groups_estimated": false,
+    "rows": 412000000,
+    "table": "fact_sales"
+   },
+   {
+    "bytes": 5368709120,
+    "delta_table": "gold.fact_returns",
+    "exists": true,
+    "files": 960,
+    "row_groups": 610,
+    "row_groups_estimated": false,
+    "rows": 31000000,
+    "table": "fact_returns"
+   },
+   {
+    "bytes": 536870912,
+    "delta_table": "gold.dim_customer",
+    "exists": true,
+    "files": 12,
+    "row_groups": 14,
+    "row_groups_estimated": false,
+    "rows": 8200000,
+    "table": "dim_customer"
+   },
+   {
+    "bytes": 268435456,
+    "delta_table": "gold.dim_product",
+    "exists": true,
+    "files": 3,
+    "row_groups": 3,
+    "row_groups_estimated": false,
+    "rows": 48000,
+    "table": "dim_product"
+   },
+   {
+    "delta_table": "gold.v_sales_targets",
+    "exists": false,
+    "table": "v_sales_targets"
+   },
+   {
+    "bytes": 268435456,
+    "delta_table": "gold.dim_date",
+    "exists": true,
+    "files": 1,
+    "row_groups": 1,
+    "row_groups_estimated": false,
+    "rows": 7305,
+    "table": "dim_date"
+   }
+  ],
+  "unread": [],
+  "workspace_name": "Sales Test"
+ },
+ "f32": {
+  "behavior": "automatic",
+  "checked_at": "2026-11-24T08:00:00+00:00",
+  "counts": {
+   "fail": 1,
+   "info": 0,
+   "warn": 3
+  },
+  "direct_lake": true,
+  "env": "test",
+  "findings": [
+   {
+    "check": "Table missing",
+    "column": "",
+    "fix": null,
+    "message": "gold.v_sales_targets isn't a Delta table in the lakehouse. If it's a SQL view, Direct Lake on SQL always falls back to DirectQuery for it; otherwise queries on it fail.",
+    "severity": "fail",
+    "table": "v_sales_targets"
+   },
+   {
+    "check": "Parquet files",
+    "column": "",
+    "fix": "compact",
+    "message": "960 Parquet files, and F32 allows 1,000 a table, so a few more loads could pass it.",
+    "severity": "warn",
+    "table": "fact_returns"
+   },
+   {
+    "check": "Row groups",
+    "column": "",
+    "fix": "compact",
+    "message": "1,240 row groups, but F32 allows 1,000 a table. Queries on it fall back to DirectQuery and run slower.",
+    "severity": "warn",
+    "table": "fact_sales"
+   },
+   {
+    "check": "Rows",
+    "column": "",
+    "fix": null,
+    "message": "412,000,000 rows, but F32 allows 300,000,000 a table. Queries on it fall back to DirectQuery and run slower.",
+    "severity": "warn",
+    "table": "fact_sales"
+   }
+  ],
+  "keys_checked": false,
+  "limits": {
+   "files": 1000,
+   "model_bytes": 42949672960,
+   "row_groups": 1000,
+   "rows": 300000000,
+   "sku": "F32"
+  },
+  "model_bytes": 38654705664,
+  "name": "Sales",
+  "prediction": {
+   "behavior": "automatic",
+   "behavior_label": "Automatic",
+   "behavior_meaning": "Past a limit, every query on the model goes to DirectQuery, which is slower. A table whose source is a view sends only the queries that read it.",
+   "by_sku": {
+    "F32": {
+     "counts": {
+      "might": 1,
+      "not_checked": 0,
+      "will": 2,
+      "within": 3
+     },
+     "limits": {
+      "files": 1000,
+      "model_bytes": 42949672960,
+      "row_groups": 1000,
+      "rows": 300000000,
+      "sku": "F32"
+     },
+     "model": {
+      "label": "Will fall back",
+      "message": "fact_sales is past F32's row group limit. With the Automatic setting, one table past a limit sends every query on the model to DirectQuery, including queries that don't read fact_sales.",
+      "table": "fact_sales",
+      "verdict": "will"
+     },
+     "size": {
+      "bytes": 38654705664,
+      "level": "near",
+      "limit": 42949672960
+     },
+     "sku": "F32",
+     "tables": [
+      {
+       "at_horizon": {
+        "files": 840,
+        "row_groups": 1240,
+        "rows": 412000000
+       },
+       "bytes": 32212254720,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": "compact",
+         "fix_text": "Compact the table so its row groups are larger.",
+         "have": 1240,
+         "level": "over",
+         "limit": 1000,
+         "message": "The table has more row groups than F32 allows. Read from the Delta log and Parquet footers. Past this limit, every query on this model goes to DirectQuery, not just queries on this table.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": "Filter or aggregate the rows the model needs into a Gold table, or move the workspace to F64 or larger.",
+         "have": 412000000,
+         "level": "over",
+         "limit": 300000000,
+         "message": "The table has more rows than F32 allows. Compaction doesn't change this. Past this limit, every query on this model goes to DirectQuery, not just queries on this table.",
+         "noun": "row"
+        },
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 840,
+         "level": "within",
+         "limit": 1000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        }
+       ],
+       "delta_table": "gold.fact_sales",
+       "files": 840,
+       "forecast": {
+        "commits": 0,
+        "message": "No history read.",
+        "metric": "files",
+        "status": "no_history"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 1240,
+       "row_groups_estimated": false,
+       "rows": 412000000,
+       "status": "will",
+       "table": "fact_sales",
+       "view": false
+      },
+      {
+       "at_horizon": {
+        "files": 1320,
+        "row_groups": 837,
+        "rows": 31000000
+       },
+       "bytes": 5368709120,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": "compact",
+         "fix_text": "Compact the table, and batch the appends.",
+         "have": 960,
+         "level": "near",
+         "limit": 1000,
+         "message": "Within the limit now, but 41 more Parquet files would pass it. Each small append adds one.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 610,
+         "level": "within",
+         "limit": 1000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 31000000,
+         "level": "within",
+         "limit": 300000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.fact_returns",
+       "files": 960,
+       "forecast": {
+        "commits": 16,
+        "days": 11,
+        "message": "Crosses F32's Parquet file limit in about 11 days at the current rate (16 commits over 15 days).",
+        "metric": "files",
+        "status": "crossing"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 610,
+       "row_groups_estimated": false,
+       "rows": 31000000,
+       "status": "might",
+       "table": "fact_returns",
+       "view": false
+      },
+      {
+       "at_horizon": {
+        "files": 12,
+        "row_groups": 14,
+        "rows": 8200000
+       },
+       "bytes": 536870912,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 12,
+         "level": "within",
+         "limit": 1000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 14,
+         "level": "within",
+         "limit": 1000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 8200000,
+         "level": "within",
+         "limit": 300000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.dim_customer",
+       "files": 12,
+       "forecast": {
+        "commits": 0,
+        "message": "No history read.",
+        "metric": "files",
+        "status": "no_history"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 14,
+       "row_groups_estimated": false,
+       "rows": 8200000,
+       "status": "within",
+       "table": "dim_customer",
+       "view": false
+      },
+      {
+       "at_horizon": {
+        "files": 3,
+        "row_groups": 3,
+        "rows": 48000
+       },
+       "bytes": 268435456,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 3,
+         "level": "within",
+         "limit": 1000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 3,
+         "level": "within",
+         "limit": 1000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 48000,
+         "level": "within",
+         "limit": 300000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.dim_product",
+       "files": 3,
+       "forecast": {
+        "commits": 0,
+        "message": "No history read.",
+        "metric": "files",
+        "status": "no_history"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 3,
+       "row_groups_estimated": false,
+       "rows": 48000,
+       "status": "within",
+       "table": "dim_product",
+       "view": false
+      },
+      {
+       "at_horizon": null,
+       "bytes": null,
+       "causes": [
+        "view"
+       ],
+       "checks": [
+        {
+         "check": "Source is a view",
+         "evidence": "SQL endpoint view",
+         "fix": null,
+         "fix_text": "Materialize the view as a Delta table in Gold, then point the model's table at it.",
+         "level": "over",
+         "message": "Every query on this table goes to DirectQuery, because Direct Lake reads only Delta tables."
+        }
+       ],
+       "delta_table": "gold.v_sales_targets",
+       "files": null,
+       "forecast": null,
+       "read": true,
+       "reason": "",
+       "row_groups": null,
+       "row_groups_estimated": false,
+       "rows": null,
+       "status": "will",
+       "table": "v_sales_targets",
+       "view": true
+      },
+      {
+       "at_horizon": {
+        "files": 1,
+        "row_groups": 1,
+        "rows": 7305
+       },
+       "bytes": 268435456,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 1,
+         "level": "within",
+         "limit": 1000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 1,
+         "level": "within",
+         "limit": 1000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 7305,
+         "level": "within",
+         "limit": 300000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.dim_date",
+       "files": 1,
+       "forecast": {
+        "commits": 1,
+        "message": "Not enough history (1 commit over 0 days). A forecast needs at least 3 commits over 7 days.",
+        "metric": "files",
+        "status": "not_enough"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 1,
+       "row_groups_estimated": false,
+       "rows": 7305,
+       "status": "within",
+       "table": "dim_date",
+       "view": false
+      }
+     ],
+     "will_label": "Will fall back"
+    },
+    "F64": {
+     "counts": {
+      "might": 0,
+      "not_checked": 0,
+      "will": 1,
+      "within": 5
+     },
+     "limits": {
+      "files": 5000,
+      "model_bytes": null,
+      "row_groups": 5000,
+      "rows": 1500000000,
+      "sku": "F64"
+     },
+     "model": {
+      "label": "Will fall back",
+      "message": "v_sales_targets's source is a SQL view, so every query that reads it will go to DirectQuery.",
+      "table": "v_sales_targets",
+      "verdict": "will"
+     },
+     "size": {
+      "bytes": 38654705664,
+      "level": "",
+      "limit": null
+     },
+     "sku": "F64",
+     "tables": [
+      {
+       "at_horizon": {
+        "files": 840,
+        "row_groups": 1240,
+        "rows": 412000000
+       },
+       "bytes": 32212254720,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 840,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 1240,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 412000000,
+         "level": "within",
+         "limit": 1500000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.fact_sales",
+       "files": 840,
+       "forecast": {
+        "commits": 0,
+        "message": "No history read.",
+        "metric": "files",
+        "status": "no_history"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 1240,
+       "row_groups_estimated": false,
+       "rows": 412000000,
+       "status": "within",
+       "table": "fact_sales",
+       "view": false
+      },
+      {
+       "at_horizon": {
+        "files": 1320,
+        "row_groups": 837,
+        "rows": 31000000
+       },
+       "bytes": 5368709120,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 960,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 610,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 31000000,
+         "level": "within",
+         "limit": 1500000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.fact_returns",
+       "files": 960,
+       "forecast": {
+        "commits": 16,
+        "message": "Stays within F64's Parquet file limit for the next 90 days at the current rate (16 commits over 15 days).",
+        "metric": "files",
+        "status": "stays_within"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 610,
+       "row_groups_estimated": false,
+       "rows": 31000000,
+       "status": "within",
+       "table": "fact_returns",
+       "view": false
+      },
+      {
+       "at_horizon": {
+        "files": 12,
+        "row_groups": 14,
+        "rows": 8200000
+       },
+       "bytes": 536870912,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 12,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 14,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 8200000,
+         "level": "within",
+         "limit": 1500000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.dim_customer",
+       "files": 12,
+       "forecast": {
+        "commits": 0,
+        "message": "No history read.",
+        "metric": "files",
+        "status": "no_history"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 14,
+       "row_groups_estimated": false,
+       "rows": 8200000,
+       "status": "within",
+       "table": "dim_customer",
+       "view": false
+      },
+      {
+       "at_horizon": {
+        "files": 3,
+        "row_groups": 3,
+        "rows": 48000
+       },
+       "bytes": 268435456,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 3,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 3,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 48000,
+         "level": "within",
+         "limit": 1500000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.dim_product",
+       "files": 3,
+       "forecast": {
+        "commits": 0,
+        "message": "No history read.",
+        "metric": "files",
+        "status": "no_history"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 3,
+       "row_groups_estimated": false,
+       "rows": 48000,
+       "status": "within",
+       "table": "dim_product",
+       "view": false
+      },
+      {
+       "at_horizon": null,
+       "bytes": null,
+       "causes": [
+        "view"
+       ],
+       "checks": [
+        {
+         "check": "Source is a view",
+         "evidence": "SQL endpoint view",
+         "fix": null,
+         "fix_text": "Materialize the view as a Delta table in Gold, then point the model's table at it.",
+         "level": "over",
+         "message": "Every query on this table goes to DirectQuery, because Direct Lake reads only Delta tables."
+        }
+       ],
+       "delta_table": "gold.v_sales_targets",
+       "files": null,
+       "forecast": null,
+       "read": true,
+       "reason": "",
+       "row_groups": null,
+       "row_groups_estimated": false,
+       "rows": null,
+       "status": "will",
+       "table": "v_sales_targets",
+       "view": true
+      },
+      {
+       "at_horizon": {
+        "files": 1,
+        "row_groups": 1,
+        "rows": 7305
+       },
+       "bytes": 268435456,
+       "causes": [],
+       "checks": [
+        {
+         "about": false,
+         "check": "Parquet files",
+         "fix": null,
+         "fix_text": null,
+         "have": 1,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "Parquet file"
+        },
+        {
+         "about": false,
+         "check": "Row groups",
+         "fix": null,
+         "fix_text": null,
+         "have": 1,
+         "level": "within",
+         "limit": 5000,
+         "message": "Within the limit.",
+         "noun": "row group"
+        },
+        {
+         "about": false,
+         "check": "Rows",
+         "fix": null,
+         "fix_text": null,
+         "have": 7305,
+         "level": "within",
+         "limit": 1500000000,
+         "message": "Within the limit.",
+         "noun": "row"
+        }
+       ],
+       "delta_table": "gold.dim_date",
+       "files": 1,
+       "forecast": {
+        "commits": 1,
+        "message": "Not enough history (1 commit over 0 days). A forecast needs at least 3 commits over 7 days.",
+        "metric": "files",
+        "status": "not_enough"
+       },
+       "read": true,
+       "reason": "",
+       "row_groups": 1,
+       "row_groups_estimated": false,
+       "rows": 7305,
+       "status": "within",
+       "table": "dim_date",
+       "view": false
+      }
+     ],
+     "will_label": "Will fall back"
+    }
+   },
+   "caveat": "SQL endpoint security (row-level or object-level) can't be read from this PC, and it alone can make queries fall back.",
+   "counts": {
+    "might": 1,
+    "not_checked": 0,
+    "will": 2,
+    "within": 3
+   },
+   "horizon_days": 90,
+   "kind": "sql",
+   "label": "Predicted from metadata on this PC. Fabric hasn't run a query.",
+   "limits": {
+    "files": 1000,
+    "model_bytes": 42949672960,
+    "row_groups": 1000,
+    "rows": 300000000,
+    "sku": "F32"
+   },
+   "model": {
+    "label": "Will fall back",
+    "message": "fact_sales is past F32's row group limit. With the Automatic setting, one table past a limit sends every query on the model to DirectQuery, including queries that don't read fact_sales.",
+    "table": "fact_sales",
+    "verdict": "will"
+   },
+   "not_checked": [
+    "SQL endpoint security (row-level or object-level) can't be read from this PC, and it alone can make queries fall back.",
+    "How busy the capacity's memory is when people query. Fabric can page tables out under pressure, which metadata doesn't show.",
+    "Changes Microsoft makes to the guardrails after this app's table of them was last reviewed."
+   ],
+   "notes": [
+    "Past a limit, every query on the model goes to DirectQuery, which is slower. A table whose source is a view sends only the queries that read it.",
+    "4 tables had no forecast, because too little history was read. At the horizon, they're counted at today's numbers.",
+    "Model size at the horizon is counted at today's size, because the forecast covers only files, row groups and rows."
+   ],
+   "read_problem": "",
+   "size": {
+    "bytes": 38654705664,
+    "level": "near",
+    "limit": 42949672960
+   },
+   "sku": "F32",
+   "skus": {
+    "every_sku": [
+     "v_sales_targets"
+    ],
+    "horizon_days": 90,
+    "rows": [
+     {
+      "aliases": [],
+      "horizon": "will",
+      "sku": "F2",
+      "today": "will"
+     },
+     {
+      "aliases": [],
+      "horizon": "will",
+      "sku": "F4",
+      "today": "will"
+     },
+     {
+      "aliases": [],
+      "horizon": "will",
+      "sku": "F8",
+      "today": "will"
+     },
+     {
+      "aliases": [],
+      "horizon": "will",
+      "sku": "F16",
+      "today": "will"
+     },
+     {
+      "aliases": [],
+      "horizon": "will",
+      "sku": "F32",
+      "today": "will"
+     },
+     {
+      "aliases": [
+       "FT1",
+       "P1"
+      ],
+      "horizon": "within",
+      "sku": "F64",
+      "today": "within"
+     },
+     {
+      "aliases": [
+       "P2"
+      ],
+      "horizon": "within",
+      "sku": "F128",
+      "today": "within"
+     },
+     {
+      "aliases": [
+       "P3"
+      ],
+      "horizon": "within",
+      "sku": "F256",
+      "today": "within"
+     },
+     {
+      "aliases": [
+       "P4"
+      ],
+      "horizon": "within",
+      "sku": "F512",
+      "today": "within"
+     },
+     {
+      "aliases": [
+       "P5"
+      ],
+      "horizon": "within",
+      "sku": "F1024",
+      "today": "within"
+     },
+     {
+      "aliases": [],
+      "horizon": "within",
+      "sku": "F2048",
+      "today": "within"
+     },
+     {
+      "aliases": [],
+      "horizon": "within",
+      "sku": "F4096",
+      "today": "within"
+     },
+     {
+      "aliases": [],
+      "horizon": "within",
+      "sku": "F8192",
+      "today": "within"
+     }
+    ],
+    "smallest_horizon": "F64",
+    "smallest_today": "F64"
+   },
+   "tables": [
+    {
+     "at_horizon": {
+      "files": 840,
+      "row_groups": 1240,
+      "rows": 412000000
+     },
+     "bytes": 32212254720,
+     "causes": [],
+     "checks": [
+      {
+       "about": false,
+       "check": "Row groups",
+       "fix": "compact",
+       "fix_text": "Compact the table so its row groups are larger.",
+       "have": 1240,
+       "level": "over",
+       "limit": 1000,
+       "message": "The table has more row groups than F32 allows. Read from the Delta log and Parquet footers. Past this limit, every query on this model goes to DirectQuery, not just queries on this table.",
+       "noun": "row group"
+      },
+      {
+       "about": false,
+       "check": "Rows",
+       "fix": null,
+       "fix_text": "Filter or aggregate the rows the model needs into a Gold table, or move the workspace to F64 or larger.",
+       "have": 412000000,
+       "level": "over",
+       "limit": 300000000,
+       "message": "The table has more rows than F32 allows. Compaction doesn't change this. Past this limit, every query on this model goes to DirectQuery, not just queries on this table.",
+       "noun": "row"
+      },
+      {
+       "about": false,
+       "check": "Parquet files",
+       "fix": null,
+       "fix_text": null,
+       "have": 840,
+       "level": "within",
+       "limit": 1000,
+       "message": "Within the limit.",
+       "noun": "Parquet file"
+      }
+     ],
+     "delta_table": "gold.fact_sales",
+     "files": 840,
+     "forecast": {
+      "commits": 0,
+      "message": "No history read.",
+      "metric": "files",
+      "status": "no_history"
+     },
+     "read": true,
+     "reason": "",
+     "row_groups": 1240,
+     "row_groups_estimated": false,
+     "rows": 412000000,
+     "status": "will",
+     "table": "fact_sales",
+     "view": false
+    },
+    {
+     "at_horizon": {
+      "files": 1320,
+      "row_groups": 837,
+      "rows": 31000000
+     },
+     "bytes": 5368709120,
+     "causes": [],
+     "checks": [
+      {
+       "about": false,
+       "check": "Parquet files",
+       "fix": "compact",
+       "fix_text": "Compact the table, and batch the appends.",
+       "have": 960,
+       "level": "near",
+       "limit": 1000,
+       "message": "Within the limit now, but 41 more Parquet files would pass it. Each small append adds one.",
+       "noun": "Parquet file"
+      },
+      {
+       "about": false,
+       "check": "Row groups",
+       "fix": null,
+       "fix_text": null,
+       "have": 610,
+       "level": "within",
+       "limit": 1000,
+       "message": "Within the limit.",
+       "noun": "row group"
+      },
+      {
+       "about": false,
+       "check": "Rows",
+       "fix": null,
+       "fix_text": null,
+       "have": 31000000,
+       "level": "within",
+       "limit": 300000000,
+       "message": "Within the limit.",
+       "noun": "row"
+      }
+     ],
+     "delta_table": "gold.fact_returns",
+     "files": 960,
+     "forecast": {
+      "commits": 16,
+      "days": 11,
+      "message": "Crosses F32's Parquet file limit in about 11 days at the current rate (16 commits over 15 days).",
+      "metric": "files",
+      "status": "crossing"
+     },
+     "read": true,
+     "reason": "",
+     "row_groups": 610,
+     "row_groups_estimated": false,
+     "rows": 31000000,
+     "status": "might",
+     "table": "fact_returns",
+     "view": false
+    },
+    {
+     "at_horizon": {
+      "files": 12,
+      "row_groups": 14,
+      "rows": 8200000
+     },
+     "bytes": 536870912,
+     "causes": [],
+     "checks": [
+      {
+       "about": false,
+       "check": "Parquet files",
+       "fix": null,
+       "fix_text": null,
+       "have": 12,
+       "level": "within",
+       "limit": 1000,
+       "message": "Within the limit.",
+       "noun": "Parquet file"
+      },
+      {
+       "about": false,
+       "check": "Row groups",
+       "fix": null,
+       "fix_text": null,
+       "have": 14,
+       "level": "within",
+       "limit": 1000,
+       "message": "Within the limit.",
+       "noun": "row group"
+      },
+      {
+       "about": false,
+       "check": "Rows",
+       "fix": null,
+       "fix_text": null,
+       "have": 8200000,
+       "level": "within",
+       "limit": 300000000,
+       "message": "Within the limit.",
+       "noun": "row"
+      }
+     ],
+     "delta_table": "gold.dim_customer",
+     "files": 12,
+     "forecast": {
+      "commits": 0,
+      "message": "No history read.",
+      "metric": "files",
+      "status": "no_history"
+     },
+     "read": true,
+     "reason": "",
+     "row_groups": 14,
+     "row_groups_estimated": false,
+     "rows": 8200000,
+     "status": "within",
+     "table": "dim_customer",
+     "view": false
+    },
+    {
+     "at_horizon": {
+      "files": 3,
+      "row_groups": 3,
+      "rows": 48000
+     },
+     "bytes": 268435456,
+     "causes": [],
+     "checks": [
+      {
+       "about": false,
+       "check": "Parquet files",
+       "fix": null,
+       "fix_text": null,
+       "have": 3,
+       "level": "within",
+       "limit": 1000,
+       "message": "Within the limit.",
+       "noun": "Parquet file"
+      },
+      {
+       "about": false,
+       "check": "Row groups",
+       "fix": null,
+       "fix_text": null,
+       "have": 3,
+       "level": "within",
+       "limit": 1000,
+       "message": "Within the limit.",
+       "noun": "row group"
+      },
+      {
+       "about": false,
+       "check": "Rows",
+       "fix": null,
+       "fix_text": null,
+       "have": 48000,
+       "level": "within",
+       "limit": 300000000,
+       "message": "Within the limit.",
+       "noun": "row"
+      }
+     ],
+     "delta_table": "gold.dim_product",
+     "files": 3,
+     "forecast": {
+      "commits": 0,
+      "message": "No history read.",
+      "metric": "files",
+      "status": "no_history"
+     },
+     "read": true,
+     "reason": "",
+     "row_groups": 3,
+     "row_groups_estimated": false,
+     "rows": 48000,
+     "status": "within",
+     "table": "dim_product",
+     "view": false
+    },
+    {
+     "at_horizon": null,
+     "bytes": null,
+     "causes": [
+      "view"
+     ],
+     "checks": [
+      {
+       "check": "Source is a view",
+       "evidence": "SQL endpoint view",
+       "fix": null,
+       "fix_text": "Materialize the view as a Delta table in Gold, then point the model's table at it.",
+       "level": "over",
+       "message": "Every query on this table goes to DirectQuery, because Direct Lake reads only Delta tables."
+      }
+     ],
+     "delta_table": "gold.v_sales_targets",
+     "files": null,
+     "forecast": null,
+     "read": true,
+     "reason": "",
+     "row_groups": null,
+     "row_groups_estimated": false,
+     "rows": null,
+     "status": "will",
+     "table": "v_sales_targets",
+     "view": true
+    },
+    {
+     "at_horizon": {
+      "files": 1,
+      "row_groups": 1,
+      "rows": 7305
+     },
+     "bytes": 268435456,
+     "causes": [],
+     "checks": [
+      {
+       "about": false,
+       "check": "Parquet files",
+       "fix": null,
+       "fix_text": null,
+       "have": 1,
+       "level": "within",
+       "limit": 1000,
+       "message": "Within the limit.",
+       "noun": "Parquet file"
+      },
+      {
+       "about": false,
+       "check": "Row groups",
+       "fix": null,
+       "fix_text": null,
+       "have": 1,
+       "level": "within",
+       "limit": 1000,
+       "message": "Within the limit.",
+       "noun": "row group"
+      },
+      {
+       "about": false,
+       "check": "Rows",
+       "fix": null,
+       "fix_text": null,
+       "have": 7305,
+       "level": "within",
+       "limit": 300000000,
+       "message": "Within the limit.",
+       "noun": "row"
+      }
+     ],
+     "delta_table": "gold.dim_date",
+     "files": 1,
+     "forecast": {
+      "commits": 1,
+      "message": "Not enough history (1 commit over 0 days). A forecast needs at least 3 commits over 7 days.",
+      "metric": "files",
+      "status": "not_enough"
+     },
+     "read": true,
+     "reason": "",
+     "row_groups": 1,
+     "row_groups_estimated": false,
+     "rows": 7305,
+     "status": "within",
+     "table": "dim_date",
+     "view": false
+    }
+   ],
+   "will_label": "Will fall back"
+  },
+  "sku": "F32",
+  "storage": "sql",
+  "tables": [
+   {
+    "bytes": 32212254720,
+    "delta_table": "gold.fact_sales",
+    "exists": true,
+    "files": 840,
+    "row_groups": 1240,
+    "row_groups_estimated": false,
+    "rows": 412000000,
+    "table": "fact_sales"
+   },
+   {
+    "bytes": 5368709120,
+    "delta_table": "gold.fact_returns",
+    "exists": true,
+    "files": 960,
+    "row_groups": 610,
+    "row_groups_estimated": false,
+    "rows": 31000000,
+    "table": "fact_returns"
+   },
+   {
+    "bytes": 536870912,
+    "delta_table": "gold.dim_customer",
+    "exists": true,
+    "files": 12,
+    "row_groups": 14,
+    "row_groups_estimated": false,
+    "rows": 8200000,
+    "table": "dim_customer"
+   },
+   {
+    "bytes": 268435456,
+    "delta_table": "gold.dim_product",
+    "exists": true,
+    "files": 3,
+    "row_groups": 3,
+    "row_groups_estimated": false,
+    "rows": 48000,
+    "table": "dim_product"
+   },
+   {
+    "delta_table": "gold.v_sales_targets",
+    "exists": false,
+    "table": "v_sales_targets"
+   },
+   {
+    "bytes": 268435456,
+    "delta_table": "gold.dim_date",
+    "exists": true,
+    "files": 1,
+    "row_groups": 1,
+    "row_groups_estimated": false,
+    "rows": 7305,
+    "table": "dim_date"
+   }
+  ],
+  "unread": [],
+  "workspace_name": "Sales Test"
+ },
+ "nc": {
+  "behavior": "automatic",
+  "checked_at": "2026-11-24T08:00:00+00:00",
+  "counts": {
+   "fail": 0,
+   "info": 0,
+   "warn": 0
+  },
+  "direct_lake": true,
+  "env": "test",
+  "findings": [],
+  "keys_checked": false,
+  "limits": {
+   "files": 1000,
+   "model_bytes": 42949672960,
+   "row_groups": 1000,
+   "rows": 300000000,
+   "sku": "F32"
+  },
+  "model_bytes": 0,
+  "name": "Sales",
+  "prediction": {
+   "behavior": "automatic",
+   "behavior_label": "Automatic",
+   "behavior_meaning": "Past a limit, every query on the model goes to DirectQuery, which is slower. A table whose source is a view sends only the queries that read it.",
+   "by_sku": {
+    "F32": {
+     "counts": {
+      "might": 0,
+      "not_checked": 6,
+      "will": 0,
+      "within": 0
+     },
+     "limits": {
+      "files": 1000,
+      "model_bytes": 42949672960,
+      "row_groups": 1000,
+      "rows": 300000000,
+      "sku": "F32"
+     },
+     "model": {
+      "label": "Not checked",
+      "message": "6 tables weren't read, so the model can't be judged against F32's limits.",
+      "table": "fact_sales",
+      "verdict": "not_checked"
+     },
+     "size": {
+      "bytes": null,
+      "level": "",
+      "limit": 42949672960
+     },
+     "sku": "F32",
+     "tables": [
+      {
+       "at_horizon": null,
+       "bytes": null,
+       "causes": [],
+       "checks": [],
+       "delta_table": "gold.fact_sales",
+       "files": null,
+       "forecast": null,
+       "read": false,
+       "reason": "Its Delta table wasn't read.",
+       "row_groups": null,
+       "row_groups_estimated": false,
+       "rows": null,
+       "status": "not_checked",
+       "table": "fact_sales",
+       "view": false
+      },
+      {
+       "at_horizon": null,
+       "bytes": null,
+       "causes": [],
+       "checks": [],
+       "delta_table": "gold.fact_returns",
+       "files": null,
+       "forecast": null,
+       "read": false,
+       "reason": "Its Delta table wasn't read.",
+       "row_groups": null,
+       "row_groups_estimated": false,
+       "rows": null,
+       "status": "not_checked",
+       "table": "fact_returns",
+       "view": false
+      },
+      {
+       "at_horizon": null,
+       "bytes": null,
+       "causes": [],
+       "checks": [],
+       "delta_table": "gold.dim_customer",
+       "files": null,
+       "forecast": null,
+       "read": false,
+       "reason": "Its Delta table wasn't read.",
+       "row_groups": null,
+       "row_groups_estimated": false,
+       "rows": null,
+       "status": "not_checked",
+       "table": "dim_customer",
+       "view": false
+      },
+      {
+       "at_horizon": null,
+       "bytes": null,
+       "causes": [],
+       "checks": [],
+       "delta_table": "gold.dim_product",
+       "files": null,
+       "forecast": null,
+       "read": false,
+       "reason": "Its Delta table wasn't read.",
+       "row_groups": null,
+       "row_groups_estimated": false,
+       "rows": null,
+       "status": "not_checked",
+       "table": "dim_product",
+       "view": false
+      },
+      {
+       "at_horizon": null,
+       "bytes": null,
+       "causes": [],
+       "checks": [],
+       "delta_table": "gold.v_sales_targets",
+       "files": null,
+       "forecast": null,
+       "read": false,
+       "reason": "Its Delta table wasn't read.",
+       "row_groups": null,
+       "row_groups_estimated": false,
+       "rows": null,
+       "status": "not_checked",
+       "table": "v_sales_targets",
+       "view": false
+      },
+      {
+       "at_horizon": null,
+       "bytes": null,
+       "causes": [],
+       "checks": [],
+       "delta_table": "gold.dim_date",
+       "files": null,
+       "forecast": null,
+       "read": false,
+       "reason": "Its Delta table wasn't read.",
+       "row_groups": null,
+       "row_groups_estimated": false,
+       "rows": null,
+       "status": "not_checked",
+       "table": "dim_date",
+       "view": false
+      }
+     ],
+     "will_label": "Will fall back"
+    },
+    "F64": {
+     "counts": {
+      "might": 0,
+      "not_checked": 6,
+      "will": 0,
+      "within": 0
+     },
+     "limits": {
+      "files": 5000,
+      "model_bytes": null,
+      "row_groups": 5000,
+      "rows": 1500000000,
+      "sku": "F64"
+     },
+     "model": {
+      "label": "Not checked",
+      "message": "6 tables weren't read, so the model can't be judged against F64's limits.",
+      "table": "fact_sales",
+      "verdict": "not_checked"
+     },
+     "size": {
+      "bytes": null,
+      "level": "",
+      "limit": null
+     },
+     "sku": "F64",
+     "tables": [
+      {
+       "at_horizon": null,
+       "bytes": null,
+       "causes": [],
+       "checks": [],
+       "delta_table": "gold.fact_sales",
+       "files": null,
+       "forecast": null,
+       "read": false,
+       "reason": "Its Delta table wasn't read.",
+       "row_groups": null,
+       "row_groups_estimated": false,
+       "rows": null,
+       "status": "not_checked",
+       "table": "fact_sales",
+       "view": false
+      },
+      {
+       "at_horizon": null,
+       "bytes": null,
+       "causes": [],
+       "checks": [],
+       "delta_table": "gold.fact_returns",
+       "files": null,
+       "forecast": null,
+       "read": false,
+       "reason": "Its Delta table wasn't read.",
+       "row_groups": null,
+       "row_groups_estimated": false,
+       "rows": null,
+       "status": "not_checked",
+       "table": "fact_returns",
+       "view": false
+      },
+      {
+       "at_horizon": null,
+       "bytes": null,
+       "causes": [],
+       "checks": [],
+       "delta_table": "gold.dim_customer",
+       "files": null,
+       "forecast": null,
+       "read": false,
+       "reason": "Its Delta table wasn't read.",
+       "row_groups": null,
+       "row_groups_estimated": false,
+       "rows": null,
+       "status": "not_checked",
+       "table": "dim_customer",
+       "view": false
+      },
+      {
+       "at_horizon": null,
+       "bytes": null,
+       "causes": [],
+       "checks": [],
+       "delta_table": "gold.dim_product",
+       "files": null,
+       "forecast": null,
+       "read": false,
+       "reason": "Its Delta table wasn't read.",
+       "row_groups": null,
+       "row_groups_estimated": false,
+       "rows": null,
+       "status": "not_checked",
+       "table": "dim_product",
+       "view": false
+      },
+      {
+       "at_horizon": null,
+       "bytes": null,
+       "causes": [],
+       "checks": [],
+       "delta_table": "gold.v_sales_targets",
+       "files": null,
+       "forecast": null,
+       "read": false,
+       "reason": "Its Delta table wasn't read.",
+       "row_groups": null,
+       "row_groups_estimated": false,
+       "rows": null,
+       "status": "not_checked",
+       "table": "v_sales_targets",
+       "view": false
+      },
+      {
+       "at_horizon": null,
+       "bytes": null,
+       "causes": [],
+       "checks": [],
+       "delta_table": "gold.dim_date",
+       "files": null,
+       "forecast": null,
+       "read": false,
+       "reason": "Its Delta table wasn't read.",
+       "row_groups": null,
+       "row_groups_estimated": false,
+       "rows": null,
+       "status": "not_checked",
+       "table": "dim_date",
+       "view": false
+      }
+     ],
+     "will_label": "Will fall back"
+    }
+   },
+   "caveat": "SQL endpoint security (row-level or object-level) can't be read from this PC, and it alone can make queries fall back.",
+   "counts": {
+    "might": 0,
+    "not_checked": 6,
+    "will": 0,
+    "within": 0
+   },
+   "horizon_days": 90,
+   "kind": "sql",
+   "label": "Predicted from metadata on this PC. Fabric hasn't run a query.",
+   "limits": {
+    "files": 1000,
+    "model_bytes": 42949672960,
+    "row_groups": 1000,
+    "rows": 300000000,
+    "sku": "F32"
+   },
+   "model": {
+    "label": "Not checked",
+    "message": "6 tables weren't read, so the model can't be judged against F32's limits.",
+    "table": "fact_sales",
+    "verdict": "not_checked"
+   },
+   "not_checked": [
+    "The tables' Delta logs, because there's no OneLake sign-in on this PC.",
+    "SQL endpoint security (row-level or object-level) can't be read from this PC, and it alone can make queries fall back.",
+    "How busy the capacity's memory is when people query. Fabric can page tables out under pressure, which metadata doesn't show.",
+    "Changes Microsoft makes to the guardrails after this app's table of them was last reviewed."
+   ],
+   "notes": [
+    "Past a limit, every query on the model goes to DirectQuery, which is slower. A table whose source is a view sends only the queries that read it.",
+    "Model size at the horizon is counted at today's size, because the forecast covers only files, row groups and rows."
+   ],
+   "read_problem": "no_signin",
+   "size": {
+    "bytes": null,
+    "level": "",
+    "limit": 42949672960
+   },
+   "sku": "F32",
+   "skus": {
+    "every_sku": [],
+    "horizon_days": 90,
+    "rows": [
+     {
+      "aliases": [],
+      "horizon": "not_checked",
+      "sku": "F2",
+      "today": "not_checked"
+     },
+     {
+      "aliases": [],
+      "horizon": "not_checked",
+      "sku": "F4",
+      "today": "not_checked"
+     },
+     {
+      "aliases": [],
+      "horizon": "not_checked",
+      "sku": "F8",
+      "today": "not_checked"
+     },
+     {
+      "aliases": [],
+      "horizon": "not_checked",
+      "sku": "F16",
+      "today": "not_checked"
+     },
+     {
+      "aliases": [],
+      "horizon": "not_checked",
+      "sku": "F32",
+      "today": "not_checked"
+     },
+     {
+      "aliases": [
+       "FT1",
+       "P1"
+      ],
+      "horizon": "not_checked",
+      "sku": "F64",
+      "today": "not_checked"
+     },
+     {
+      "aliases": [
+       "P2"
+      ],
+      "horizon": "not_checked",
+      "sku": "F128",
+      "today": "not_checked"
+     },
+     {
+      "aliases": [
+       "P3"
+      ],
+      "horizon": "not_checked",
+      "sku": "F256",
+      "today": "not_checked"
+     },
+     {
+      "aliases": [
+       "P4"
+      ],
+      "horizon": "not_checked",
+      "sku": "F512",
+      "today": "not_checked"
+     },
+     {
+      "aliases": [
+       "P5"
+      ],
+      "horizon": "not_checked",
+      "sku": "F1024",
+      "today": "not_checked"
+     },
+     {
+      "aliases": [],
+      "horizon": "not_checked",
+      "sku": "F2048",
+      "today": "not_checked"
+     },
+     {
+      "aliases": [],
+      "horizon": "not_checked",
+      "sku": "F4096",
+      "today": "not_checked"
+     },
+     {
+      "aliases": [],
+      "horizon": "not_checked",
+      "sku": "F8192",
+      "today": "not_checked"
+     }
+    ],
+    "smallest_horizon": "",
+    "smallest_today": ""
+   },
+   "tables": [
+    {
+     "at_horizon": null,
+     "bytes": null,
+     "causes": [],
+     "checks": [],
+     "delta_table": "gold.fact_sales",
+     "files": null,
+     "forecast": null,
+     "read": false,
+     "reason": "Its Delta table wasn't read.",
+     "row_groups": null,
+     "row_groups_estimated": false,
+     "rows": null,
+     "status": "not_checked",
+     "table": "fact_sales",
+     "view": false
+    },
+    {
+     "at_horizon": null,
+     "bytes": null,
+     "causes": [],
+     "checks": [],
+     "delta_table": "gold.fact_returns",
+     "files": null,
+     "forecast": null,
+     "read": false,
+     "reason": "Its Delta table wasn't read.",
+     "row_groups": null,
+     "row_groups_estimated": false,
+     "rows": null,
+     "status": "not_checked",
+     "table": "fact_returns",
+     "view": false
+    },
+    {
+     "at_horizon": null,
+     "bytes": null,
+     "causes": [],
+     "checks": [],
+     "delta_table": "gold.dim_customer",
+     "files": null,
+     "forecast": null,
+     "read": false,
+     "reason": "Its Delta table wasn't read.",
+     "row_groups": null,
+     "row_groups_estimated": false,
+     "rows": null,
+     "status": "not_checked",
+     "table": "dim_customer",
+     "view": false
+    },
+    {
+     "at_horizon": null,
+     "bytes": null,
+     "causes": [],
+     "checks": [],
+     "delta_table": "gold.dim_product",
+     "files": null,
+     "forecast": null,
+     "read": false,
+     "reason": "Its Delta table wasn't read.",
+     "row_groups": null,
+     "row_groups_estimated": false,
+     "rows": null,
+     "status": "not_checked",
+     "table": "dim_product",
+     "view": false
+    },
+    {
+     "at_horizon": null,
+     "bytes": null,
+     "causes": [],
+     "checks": [],
+     "delta_table": "gold.v_sales_targets",
+     "files": null,
+     "forecast": null,
+     "read": false,
+     "reason": "Its Delta table wasn't read.",
+     "row_groups": null,
+     "row_groups_estimated": false,
+     "rows": null,
+     "status": "not_checked",
+     "table": "v_sales_targets",
+     "view": false
+    },
+    {
+     "at_horizon": null,
+     "bytes": null,
+     "causes": [],
+     "checks": [],
+     "delta_table": "gold.dim_date",
+     "files": null,
+     "forecast": null,
+     "read": false,
+     "reason": "Its Delta table wasn't read.",
+     "row_groups": null,
+     "row_groups_estimated": false,
+     "rows": null,
+     "status": "not_checked",
+     "table": "dim_date",
+     "view": false
+    }
+   ],
+   "will_label": "Will fall back"
+  },
+  "sku": "F32",
+  "storage": "sql",
+  "tables": [],
+  "unread": [
+   {
+    "reason": "There's no OneLake sign-in on this PC.",
+    "table": "fact_sales"
+   },
+   {
+    "reason": "There's no OneLake sign-in on this PC.",
+    "table": "fact_returns"
+   },
+   {
+    "reason": "There's no OneLake sign-in on this PC.",
+    "table": "dim_customer"
+   },
+   {
+    "reason": "There's no OneLake sign-in on this PC.",
+    "table": "dim_product"
+   },
+   {
+    "reason": "There's no OneLake sign-in on this PC.",
+    "table": "v_sales_targets"
+   },
+   {
+    "reason": "There's no OneLake sign-in on this PC.",
+    "table": "dim_date"
+   }
+  ],
+  "workspace_name": "Sales Test"
+ }
+}

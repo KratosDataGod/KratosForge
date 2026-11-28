@@ -16,16 +16,17 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Callable, cast
+from urllib.parse import unquote
 
 import polars as pl
 import pyarrow as pa
 from deltalake import CommitProperties, DeltaTable, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
-from .. import delta_profile, durable
+from .. import delta_profile, delta_read, durable, maintenance
 from ..errors import NotSetUp
 from ..leases import LeaseBusy, LeaseLost, Leases, LocalBackend, check_held, table_key
-from ..retrying import local_retry, staged_commit_race
+from ..retrying import commit_conflict, local_retry, lost_commit, staged_commit_race
 from ..onelake import FileStore, TableRef, storage_options
 from ..redact import describe
 
@@ -106,7 +107,7 @@ def _read(uri: str, options: dict[str, str] | None, version: int | None = None) 
         table = DeltaTable(uri, storage_options=options, version=version)
     except TableNotFoundError:
         return None
-    return cast(pl.DataFrame, pl.from_arrow(table.to_pyarrow_table()))  # a Table gives a DataFrame
+    return cast(pl.DataFrame, pl.from_arrow(delta_read.arrow(table)))  # a Table gives a DataFrame
 
 
 read_table_uri = _read  # any Delta table by URI: a local path, or OneLake with storage options
@@ -131,6 +132,9 @@ def _at(loaded: DeltaTable | None, uri: str, options: dict[str, str] | None, ver
 def lazy(table: DeltaTable, uri: str, options: dict[str, str] | None) -> pl.LazyFrame:
     """``table`` as a LazyFrame, so a filter or column list is applied while reading: files whose
     statistics rule them out are skipped and unused columns are never loaded."""
+    if delta_read.needs_kernel(table):
+        # Polars' and pyarrow's Delta readers get column mapping or deletion vectors wrong: read the rows whole.
+        return pl.from_arrow(delta_read.arrow(table)).lazy()  # type: ignore[union-attr]
     if options is None and "://" not in uri:
         # On this PC Polars reads the files itself and skips them by their Delta statistics.
         return pl.scan_delta(table)
@@ -173,6 +177,26 @@ class Store:
     # so [source] landing reads this environment's own LH_Landing, as before.
     landing_zones: Callable[[], dict[str, Any] | None] | None = None
     _landing: dict[str, Any] | None = None
+    # Each entity table's own Delta profile and readers ((lakehouse, schema, table) -> (profile, readers)),
+    # from its delta_features (Project.delta_policies; the Engine sets it). A table not here, like the run
+    # log, is checked with the default profile and readers. Replaced whole, never changed in place.
+    delta_policies: dict[tuple[str, str, str], tuple[delta_profile.Profile, tuple[str, ...]]] = {}
+    # Each layer lakehouse's Keep history in days (Layer.retention_days; the Engine sets it): a write's log
+    # cleanup keeps what time travel inside it reads (maintenance.after_write). Replaced whole, never changed.
+    history_days: dict[str, int] = {}
+
+    def _after_write(self, lakehouse: str, uri: str, before: int | None, table: DeltaTable) -> None:
+        """After a write's commit (made with maintenance.WRITE_HOOKS): the log cleanup its checkpoint left."""
+        maintenance.after_write(uri, before, table, self.options(), self.history_days.get(lakehouse))
+
+    def delta_policy(self, lakehouse: str, schema: str, table: str) -> tuple[delta_profile.Profile | None, tuple[str, ...] | None]:
+        """The profile and readers a write to this table is checked with (None, None: the defaults)."""
+        return self.delta_policies.get((lakehouse, schema, table), (None, None))
+
+    def _check_delta(self, lakehouse: str, schema: str, table: str, current: DeltaTable) -> None:
+        """Refuse a write to ``current`` before anything is committed when it is outside the table's
+        profile, or uses a feature one of its readers can't read (delta_profile.check_table)."""
+        delta_profile.check_table(current, *self.delta_policy(lakehouse, schema, table))
 
     def landing_map(self) -> dict[str, Any] | None:
         if self.landing_zones is None:
@@ -290,7 +314,10 @@ class Store:
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
         if current is not None:
-            delta_profile.check_table(current)
+            self._check_delta(lakehouse, schema, table, current)
+        wanted = {"overwrite": "overwrite", "error": None}.get(
+            "error" if mode == "overwrite" and read_version is None else mode, "merge")
+        schema_mode = delta_read.schema_mode_for(current, data.schema.names, wanted, f"{schema}.{table}")
         # An append goes through the table as loaded: delta-rs commits it on top of any commit made since.
         target: Any = current if mode == "append" and current is not None else uri
         extra: dict[str, Any] = {}
@@ -303,21 +330,24 @@ class Store:
                 target = _at(current, uri, self.options(), int(read_version))
                 extra["predicate"] = "true"
         try:
-            how = extra.get("mode", mode)
             check_held()  # the table's lease is still ours, with time to commit (HD-016)
             # Appends never conflict with each other, so one that loses the race for a version is made on
             # the next; delta-rs's default 15 tries ran out with four runs appending to the run log at once.
             retries = APPEND_COMMIT_RETRIES if mode == "append" else None
+            before = current.version() if current is not None else None  # delta-rs moves a table it's handed on
             for attempt in range(APPEND_RACE_ATTEMPTS):
                 try:
                     write_deltalake(target, data, **({"mode": mode} | extra), storage_options=self.options(),
-                                    schema_mode={"overwrite": "overwrite", "error": None}.get(how, "merge"),
+                                    schema_mode=schema_mode, post_commithook_properties=maintenance.WRITE_HOOKS,
                                     commit_properties=CommitProperties(custom_metadata=metadata, max_commit_retries=retries)
                                     if metadata or retries else None)
                     break
                 except OSError as exc:  # on Windows that same race can surface as the staged commit refused
-                    if mode != "append" or attempt == APPEND_RACE_ATTEMPTS - 1 or not staged_commit_race(exc):
+                    if not staged_commit_race(exc):
                         raise
+                    if mode != "append" or attempt == APPEND_RACE_ATTEMPTS - 1:
+                        # Nothing was committed: the conflict delta-rs reports elsewhere, in its own type.
+                        raise commit_conflict(f"{schema}.{table}'s next version") from exc
                     time.sleep(0.05 * (attempt + 1))
                 except CommitFailedError as exc:
                     # Two first appends to a table not made yet each create it; the one that loses is
@@ -333,7 +363,8 @@ class Store:
                     current = open_table(uri, self.options())
                     if current is None:
                         raise
-                    delta_profile.check_table(current)
+                    before = current.version()
+                    self._check_delta(lakehouse, schema, table, current)
                     safe = self._delta_safe(uri, schema, table, data.schema, True, current)
                     if safe != data.schema:
                         data = data.cast(safe)
@@ -342,7 +373,10 @@ class Store:
             if extra.get("mode") == "error" and "already exists" in str(exc):
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
             raise
-        return self._committed(uri, target if isinstance(target, DeltaTable) else DeltaTable(uri, storage_options=self.options()))
+        committed = target if isinstance(target, DeltaTable) else DeltaTable(uri, storage_options=self.options())
+        version = self._committed(uri, committed)
+        self._after_write(lakehouse, uri, before, committed)
+        return version
 
     def write_stream(self, lakehouse: str, schema: str, table: str, rows: Any,
                      metadata: dict[str, str] | None = None, read_version: int | None = None) -> int:
@@ -356,7 +390,8 @@ class Store:
             rows = pa.RecordBatchReader.from_batches(safe, (b.cast(safe) for b in rows))
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
-        current = delta_profile.open_target(uri, self.options())
+        current = delta_profile.open_target(uri, self.options(), *self.delta_policy(lakehouse, schema, table))
+        was = current.version() if current is not None else None
         target: Any = uri
         extra: dict[str, Any] = {"mode": "error"}
         if read_version is not None:
@@ -372,7 +407,10 @@ class Store:
         try:
             check_held()
             write_deltalake(target, rows, **extra, storage_options=self.options(),
-                            schema_mode="overwrite" if read_version is not None else None,
+                            schema_mode=delta_read.schema_mode_for(current, rows.schema.names,
+                                                                   "overwrite" if read_version is not None else None,
+                                                                   f"{schema}.{table}"),
+                            post_commithook_properties=maintenance.WRITE_HOOKS,
                             commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
         except Exception as exc:
             if not self.removes_unwritten:
@@ -388,8 +426,13 @@ class Store:
                 self.last_cleanup = self._remove_unwritten(lakehouse, schema, table, before, read_version)
             if read_version is None and "already exists" in str(exc):
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
+            if (conflict := lost_commit(exc, f"{schema}.{table}'s next version")) is not None:
+                raise conflict from exc  # Windows: lost the staged-commit race; nothing was committed
             raise
-        return self._committed(uri, target if isinstance(target, DeltaTable) else DeltaTable(uri, storage_options=self.options()))
+        committed = target if isinstance(target, DeltaTable) else DeltaTable(uri, storage_options=self.options())
+        version = self._committed(uri, committed)
+        self._after_write(lakehouse, uri, was, committed)
+        return version
 
     def _delta_safe(self, uri: str, schema: str, table: str, columns: pa.Schema, append: bool,
                     loaded: DeltaTable | None | bool = False) -> pa.Schema:
@@ -465,9 +508,15 @@ class Store:
                 return {"removed": 0, "note": "another writer committed to the table meanwhile, so the files this "
                                               "write left are left for VACUUM"}
             # With no commit since the write started, no version of the log can name a file that wasn't
-            # there then; the latest version's files are left out anyway, to be sure.
-            named = set(pa.table(current.get_add_actions()).column("path").to_pylist()) if current is not None else set()
-            new = sorted(p for p in self._data_files(lakehouse, schema, table) - before if p not in named)
+            # there then; the latest version's files are left out anyway, to be sure. Each in every spelling
+            # (as the log writes it, and decoded: region=North%2520America is the folder region=North%20America),
+            # compared as the disk does (on Windows, ignoring case), so a second spelling only keeps a file.
+            from ..maintenance import path_key
+            named: set[str] = set()
+            if current is not None:
+                for p in cast(list[str], pa.table(current.get_add_actions()).column("path").to_pylist()):
+                    named |= {path_key(p), path_key(unquote(p))}
+            new = sorted(p for p in self._data_files(lakehouse, schema, table) - before if path_key(p) not in named)
             self._delete_data_files(lakehouse, schema, table, new)
             return {"removed": len(new), "note": f"removed {len(new)} data file{'' if len(new) == 1 else 's'} this write left"}
         except Exception as exc:  # noqa: BLE001 - the write's own error is what the run reports
@@ -482,7 +531,7 @@ class Store:
             t = DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options())
         except TableNotFoundError:
             return None, None
-        return cast(pl.DataFrame, pl.from_arrow(t.to_pyarrow_table())), t.version()
+        return cast(pl.DataFrame, pl.from_arrow(delta_read.arrow(t))), t.version()
 
     def schema_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.Schema | None, int | None]:
         """The table's schema and the Delta version it was read at, as read_at gives them but without
@@ -562,14 +611,17 @@ class Store:
             self.create_if_absent(lakehouse, schema, table, dict(empty.schema))
             target = DeltaTable(uri, storage_options=self.options(), version=0)
         current = DeltaTable(uri, storage_options=self.options())
-        delta_profile.check_table(current)
+        self._check_delta(lakehouse, schema, table, current)
         if version is not None and current.version() != version:
             raise CommitFailedError(f"{table} changed since version {version}")
         predicate = " AND ".join(f"t.{c} = s.{c}" for c in on)
         check_held()
-        target.merge(data, predicate, source_alias="s", target_alias="t") \
-            .when_not_matched_insert_all().execute()
-        return self._committed(uri, DeltaTable(uri, storage_options=self.options()))
+        target.merge(data, predicate, source_alias="s", target_alias="t",
+                     post_commithook_properties=maintenance.WRITE_HOOKS).when_not_matched_insert_all().execute()
+        committed = DeltaTable(uri, storage_options=self.options())
+        version = self._committed(uri, committed)
+        self._after_write(lakehouse, uri, current.version(), committed)
+        return version
 
     def upsert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
                metadata: dict[str, str] | None = None, prune: list[str] | None = None,
@@ -595,7 +647,7 @@ class Store:
         current = open_table(uri, self.options())
         data = self._merge_source(uri, schema, table, df, current)
         if current is not None:
-            delta_profile.check_table(current)
+            self._check_delta(lakehouse, schema, table, current)
         target = _at(current, uri, self.options(), read_version)
         # The keys' range bounds the target rows that can match, so delta-rs skips files by their
         # statistics and scans less (a 1,000-row merge into 5 million rows peaks at half the memory).
@@ -607,7 +659,10 @@ class Store:
             bounds = f"(({bounds}) OR t.`{col}` >= {int(first)})"
         predicate = " AND ".join(([bounds] if bounds else []) + [f"t.`{c}` = s.`{c}`" for c in on])
         check_held()
-        merger = target.merge(data, predicate, source_alias="s", target_alias="t", merge_schema=True,
+        evolve = delta_read.schema_mode_for(current, data.schema.names, "merge", f"{schema}.{table}") is not None
+        before = current.version() if current is not None else None
+        merger = target.merge(data, predicate, source_alias="s", target_alias="t", merge_schema=evolve,
+                              post_commithook_properties=maintenance.WRITE_HOOKS,
                               commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
         if delete_flag:
             # Rows flagged in df remove their match from the table; the flag itself is never written.
@@ -618,7 +673,9 @@ class Store:
         else:
             merger = merger.when_matched_update_all().when_not_matched_insert_all()
         metrics = merger.execute()
-        return self._committed(uri, target), metrics
+        version = self._committed(uri, target)
+        self._after_write(lakehouse, uri, before, target)
+        return version, metrics
 
     def history(self, lakehouse: str, schema: str, table: str, limit: int = 20) -> list[dict[str, Any]]:
         try:
@@ -785,7 +842,9 @@ class LocalStore(Store):
             return
         uri = self.uri(META_LAKEHOUSE, "meta", table)
         try:
-            with self.compaction_lease(META_LAKEHOUSE, "meta", table, wait=0):
+            with self.compaction_lease(META_LAKEHOUSE, "meta", table, wait=0), maintenance.compaction_lock(uri, wait=0):
+                kept = maintenance.kept_days(DeltaTable(uri).metadata().configuration)
+                maintenance.keep_log(uri, maintenance.retention_hours(max(kept or 0, maintenance.MIN_RETENTION_DAYS)))
                 dt_ = DeltaTable(uri)
                 dt_.optimize.compact()
                 durable.sync_commits(uri, version + 1, dt_.version())
@@ -793,6 +852,18 @@ class LocalStore(Store):
             _log.debug("The %s table is being compacted by another writer; skipped this round", table)
         except Exception as exc:  # noqa: BLE001 - only slower reads until the next round
             _log.warning("Couldn't compact the %s table: %s", table, describe(exc))
+
+    def _remove_unwritten(self, lakehouse: str, schema: str, table: str, before: set[str],
+                          read_version: int | None) -> dict[str, Any]:
+        """Under the table's compaction lock: a compaction (the Maintain page's Optimize, a notebook's OPTIMIZE)
+        doesn't take the table's write lease, and the files it has written but not yet committed, or committed
+        after the version was checked here, look just like this write's. While one runs, nothing is removed."""
+        try:
+            with maintenance.compaction_lock(self.uri(lakehouse, schema, table), wait=0):
+                return super()._remove_unwritten(lakehouse, schema, table, before, read_version)
+        except LeaseBusy:
+            return {"removed": 0, "note": "the table was being compacted meanwhile, so the files this write left are "
+                                          "left for VACUUM"}
 
     def compaction_lease(self, lakehouse: str, schema: str, table: str, wait: float) -> Any:
         """Held around every compaction of a table on this PC (the meta tables now and then, Optimize

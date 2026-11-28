@@ -205,34 +205,72 @@ def test_the_delta_table_merge_builder(lake):
     out, text = run("from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'sales').merge(spark.table('sales'), "
                     "'sales.id = source.id').execute()")
     assert out["status"] == "error" and "no whenMatched or whenNotMatched clause" in text
+    # RESTORE runs here (test_spark_maint.py) only when the app allows it; with no app to ask, nothing changes.
     out, text = run("from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'sales').restoreToVersion(0)")
-    assert out["status"] == "error" and "runs in Fabric" in text
+    assert out["status"] == "error" and "only inside KratosForge" in text
 
 
-def test_auto_merge_on_is_refused_rather_than_dropping_new_columns(lake):
-    out, text = run("spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')\n"
-                    "spark.createDataFrame([(4, 'APAC', 40.0, 'new')], ['id', 'region', 'amount', 'extra'])"
-                    ".createOrReplaceTempView('s')\n"
-                    "spark.sql('MERGE INTO sales t USING s ON t.id = s.id WHEN NOT MATCHED THEN INSERT *')")
-    assert out["status"] == "error" and "autoMerge.enabled is on" in text and "runs in Fabric" in text, text
-    assert len(rows(lake)) == 3
-    out, text = run("spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')\n"
-                    "spark.createDataFrame([(4, 'APAC', 40.0, 'new')], ['id', 'region', 'amount', 'extra'])"
-                    ".createOrReplaceTempView('s')\n"
-                    "from delta.tables import DeltaTable\n"
-                    "DeltaTable.forName(spark, 'sales').alias('t').merge(spark.table('s').alias('s'), 't.id = s.id')"
-                    ".whenNotMatchedInsertAll().execute()")
-    assert out["status"] == "error" and "autoMerge.enabled is on" in text, text
-    assert len(rows(lake)) == 3
+NEW = ("spark.createDataFrame([(1, 'EU', 11.0, 'a'), (4, 'APAC', 40.0, 'b')], ['id', 'region', 'amount', 'Extra'])"
+       ".createOrReplaceTempView('s')\n")
+EVOLVED = [{"id": 1, "region": "EU", "amount": 11.0, "Extra": "a"},
+           {"id": 2, "region": "US", "amount": 20.0, "Extra": None},
+           {"id": 3, "region": "EU", "amount": 30.0, "Extra": None},
+           {"id": 4, "region": "APAC", "amount": 40.0, "Extra": "b"}]
 
 
-def test_merge_with_schema_evolution_says_it_runs_in_fabric(lake):
-    out, text = run("spark.sql('MERGE WITH SCHEMA EVOLUTION INTO sales t USING sales s ON t.id = s.id "
-                    "WHEN MATCHED THEN UPDATE SET *')")
-    assert out["status"] == "error" and "WITH SCHEMA EVOLUTION" in text and "runs in Fabric" in text, text
-    out, text = run("spark.sql('-- keep new columns\\nMERGE WITH SCHEMA EVOLUTION INTO sales t USING sales s "
-                    "ON t.id = s.id WHEN MATCHED THEN UPDATE SET *')")
-    assert out["status"] == "error" and "runs in Fabric" in text, text
+@pytest.mark.parametrize("code", [
+    ("spark.sql('MERGE WITH SCHEMA EVOLUTION INTO sales t USING s ON t.id = s.id "
+    "WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *')"),
+    ("spark.sql('-- keep new columns\\nMERGE WITH SCHEMA EVOLUTION INTO sales t USING s ON t.id = s.id "
+    "WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *')"),
+    ("spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')\n"
+    "spark.sql('MERGE INTO sales t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *')"),
+    ("from delta.tables import DeltaTable\n"
+    "DeltaTable.forName(spark, 'sales').alias('t').merge(spark.table('s').alias('s'), 't.id = s.id')"
+    ".withSchemaEvolution().whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()"),
+])
+def test_merge_with_schema_evolution_adds_the_sources_new_columns_in_one_commit(lake, code):
+    before = DeltaTable(str(lake / "dbo" / "sales")).version()
+    out, text = run(NEW + code)
+    assert out["status"] == "ok", text
+    assert rows(lake) == EVOLVED
+    assert DeltaTable(str(lake / "dbo" / "sales")).version() == before + 1
+
+
+BAD_NEW = ("spark.createDataFrame([(4, 'APAC', 40.0, 'b')], ['id', 'region', 'amount', 'Region Name'])"
+           ".createOrReplaceTempView('s')\n")
+EVOLVE = {
+    "sql": "spark.sql('MERGE WITH SCHEMA EVOLUTION INTO sales t USING s ON t.id = s.id WHEN NOT MATCHED THEN INSERT *')",
+    "autoMerge": ("spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')\n"
+                  "spark.sql('MERGE INTO sales t USING s ON t.id = s.id WHEN NOT MATCHED THEN INSERT *')"),
+    "builder": ("from delta.tables import DeltaTable\n"
+                "DeltaTable.forName(spark, 'sales').alias('t').merge(spark.table('s').alias('s'), 't.id = s.id')"
+                ".withSchemaEvolution().whenNotMatchedInsertAll().execute()"),
+}
+
+
+@pytest.mark.parametrize("path", sorted(EVOLVE))
+def test_schema_evolution_refuses_a_new_column_fabric_cant_read_and_writes_nothing(lake, path):
+    # (Two new names that differ only in case can't reach here: DuckDB renames the second, NOTE to NOTE_1.)
+    before = DeltaTable(str(lake / "dbo" / "sales")).version()
+    out, text = run(BAD_NEW + EVOLVE[path])
+    assert out["status"] == "error" and "only reads with column mapping" in text, text
+    assert DeltaTable(str(lake / "dbo" / "sales")).version() == before
+
+
+def test_merge_without_schema_evolution_keeps_the_tables_columns(lake):
+    """As in Delta, INSERT * without schema evolution leaves out a source column the table hasn't got."""
+    out, text = run(NEW + "spark.sql('MERGE INTO sales t USING s ON t.id = s.id WHEN NOT MATCHED THEN INSERT *')")
+    assert out["status"] == "ok", text
+    assert rows(lake)[-1] == {"id": 4, "region": "APAC", "amount": 40.0}
+
+
+def test_schema_evolution_is_off_again_for_the_next_merge(lake):
+    out, text = run(NEW + "spark.sql('MERGE WITH SCHEMA EVOLUTION INTO sales t USING (SELECT id, region, amount FROM s) u "
+                    "ON t.id = u.id WHEN MATCHED THEN UPDATE SET *')\n"
+                    "spark.sql('MERGE INTO sales t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET *')")
+    assert out["status"] == "ok", text
+    assert "Extra" not in rows(lake)[0]
 
 
 def test_a_merge_must_be_the_only_statement_and_nothing_runs_otherwise(lake):

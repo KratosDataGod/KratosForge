@@ -120,6 +120,25 @@ def test_a_pasted_image_stays_while_the_markdown_still_shows_it(tmp_path):
     assert "attachments" not in json.loads(_save(store, nb))["cells"][0]
 
 
+def test_a_markdown_cell_brings_the_pictures_its_source_shows(tmp_path):
+    """The app draws pasted images (#2579): one picture type each, only those the source names."""
+    store, nb, raw = _open(tmp_path, "jupyter_4_4")
+    image = json.loads(raw)["cells"][0]["attachments"]
+    assert nb["cells"][0]["attachments"] == {k: {m: v} for k, b in image.items() for m, v in b.items() if m.startswith("image/")}
+    assert all("attachments" not in c for c in nb["cells"][1:])
+
+
+def test_attachment_images_keep_only_pictures_the_source_shows():
+    from fabric_desktop.notebook import ATTACHMENT_IMAGE_MAX, _attachment_images
+    bundles = {"a.png": {"image/png": ["iVBO", "Rw=="], "text/plain": "x"}, "b.html": {"text/html": "<b>x</b>"},
+               "c.svg": {"image/svg+xml": "PHN2Zz4="}, "big.png": {"image/png": "A" * (ATTACHMENT_IMAGE_MAX + 1)},
+               "unused.png": {"image/png": "iVBO"}, 3: {"image/png": "x"}, "odd.png": "not a bundle"}
+    src = "![](attachment:a.png) ![](attachment:b.html) ![](attachment:c.svg) ![](attachment:big.png) ![](attachment:odd.png)"
+    assert _attachment_images(bundles, src) == {"a.png": {"image/png": "iVBORw=="}, "c.svg": {"image/svg+xml": "PHN2Zz4="}}
+    assert _attachment_images(None, src) is None
+    assert _attachment_images({"a.png": {"text/plain": "x"}}, "![](attachment:a.png)") is None
+
+
 def test_an_unchanged_raw_cell_stays_raw(tmp_path):
     store, nb, _raw = _open(tmp_path, "jupyter_4_4")
     nb["cells"][1]["source"] += "\n"
@@ -141,6 +160,25 @@ def test_a_setting_the_file_has_off_stays_as_the_file_has_it_and_one_turned_off_
     nb["cells"][1]["meta"] = {}
     md = json.loads(_save(store, nb))["cells"][1]["metadata"]
     assert md.get("jupyter", {}).get("outputs_hidden") is not True
+
+
+def test_a_slide_start_mark_is_saved_under_fabric_desktop_and_other_metadata_stays(tmp_path):
+    # Present mode (nbpresent.js): "Starts a slide" on a cell is one key of KratosForge's own; the
+    # cell's other tools' settings are kept as they were, and taking the mark off removes only it.
+    store, nb, raw = _open(tmp_path, "fabric_export")
+    before = json.loads(raw)
+    nb["cells"][1].setdefault("meta", {})["slide_start"] = True
+    after = json.loads(_save(store, nb))
+    md = after["cells"][1]["metadata"]
+    assert md["fabric_desktop"] == {"slide_start": True}
+    assert {k: v for k, v in md.items() if k != "fabric_desktop"} == before["cells"][1]["metadata"]
+    assert [_without_ids(c) for i, c in enumerate(after["cells"]) if i != 1] == \
+        [_without_ids(c) for i, c in enumerate(before["cells"]) if i != 1]
+    again = store.load("nb")
+    assert again["cells"][1]["meta"]["slide_start"] is True
+    assert not any(c.get("meta", {}).get("slide_start") for i, c in enumerate(again["cells"]) if i != 1)
+    del again["cells"][1]["meta"]["slide_start"]
+    assert json.loads(_save(store, again))["cells"][1]["metadata"] == before["cells"][1]["metadata"]
 
 
 def test_settings_kept_in_the_file_by_the_app_keep_its_format(tmp_path):
@@ -171,3 +209,21 @@ def test_a_cell_title_longer_than_the_app_keeps_still_counts_as_unchanged(tmp_pa
     loaded = store.load("nb")
     loaded["cells"][2]["source"] += "\n"
     assert json.loads(_save(store, loaded))["cells"][1]["outputs"] == nb["cells"][1]["outputs"]
+
+
+def test_protect_from_deletion_set_by_another_tool_stays_when_the_cell_is_edited(tmp_path):
+    # WR-136: editable and deletable false are KratosForge's only as part of frozen (with
+    # run_control.frozen); on their own they're JupyterLab's and stay. Unfreezing drops all three.
+    raw = (FIXTURES / "jupyter_4_4.ipynb").read_bytes()
+    nb = json.loads(raw)
+    nb["cells"][1]["metadata"]["deletable"] = False
+    nb["cells"][2]["metadata"].update(editable=False, deletable=False, run_control={"frozen": True})
+    (tmp_path / "nb.ipynb").write_text(json.dumps(nb, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    store = NotebookStore(tmp_path)
+    loaded = store.load("nb")
+    assert loaded["cells"][2]["meta"].get("frozen") is True
+    loaded["cells"][1]["source"] += "\nedited = True"
+    del loaded["cells"][2]["meta"]["frozen"]
+    after = json.loads(_save(store, loaded))
+    assert after["cells"][1]["metadata"]["deletable"] is False
+    assert not {"editable", "deletable", "run_control"} & set(after["cells"][2]["metadata"])

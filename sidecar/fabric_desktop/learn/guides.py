@@ -28,7 +28,7 @@ FILE = Path(__file__).resolve().parent / "rule_guides.json"
 DOCS = ("notebook-best-practices.md", "sql-best-practices.md", "semantic-model-rules.md",
         "orchestration/activity-registry.md")
 
-_RULE = re.compile(r"^((NB|SQ|SM)\d{3}|PG\d{1,2}|FOREACH)$")
+_RULE = re.compile(r"^((NB|SQ|SM|SE|DM|WH)\d{3}|PG\d{1,2}|FOREACH)$")
 _CODES = re.compile(r"`([a-z0-9_]+)`")
 _FIELDS = {"Why:": "why", "When it's fine:": "fine", "Safe to leave:": "fine", "Do this instead:": "instead",
            "Principle:": "principle", "Impact:": "impact", "How to check:": "check", "Source:": None}
@@ -43,7 +43,7 @@ def parse(markdown: str) -> dict[str, dict[str, Any]]:
     for section in re.split(r"^### ", markdown, flags=re.M)[1:]:
         head, _, body = section.partition("\n")
         rule_id = head.strip()
-        if not _RULE.match(rule_id):
+        if not _RULE.fullmatch(rule_id):
             continue
         out[rule_id] = _section(re.split(r"^## ", body, flags=re.M)[0])
     return out
@@ -90,7 +90,7 @@ def _example(guide: dict[str, Any], lines: list[str]) -> None:
     part: str | None = None
     kept: dict[str, list[str]] = {"before": [], "after": []}
     for line in lines:
-        mark = _MARK.match(line)
+        mark = _MARK.fullmatch(line)
         if mark:
             part = mark.group(2).lower()
             if mark.group(3):

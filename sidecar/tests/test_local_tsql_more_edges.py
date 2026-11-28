@@ -12,7 +12,7 @@ COLUMNS = {"dbo": {"t": {"x": "NOT A TYPE ((", "y": "INTEGER", "s": "VARCHAR"}}}
 
 @pytest.mark.parametrize("query, message", [
     ("PRINT 'x'", "doesn't run T-SQL PRINT yet"),
-    ("SET LANGUAGE us_english", "doesn't run T-SQL SET yet"),
+    ("SET LANGUAGE French", "SET LANGUAGE FRENCH isn't mapped yet"),
     ("SET @x = 1", "doesn't run T-SQL SET yet"),
     (";", "The query is empty"),
     ("SELECT PATINDEX('%b%') FROM t", "PATINDEX takes a pattern and a text"),
@@ -52,9 +52,9 @@ def test_patindex_with_an_unclosed_bracket_matches_it_as_text():
     assert "\\[a" in text
 
 
-def test_in_a_subquery_isnt_trimmed():
+def test_in_a_subquery_is_trimmed_as_tsql_pads_it():  # WR-246: 'a ' IN (SELECT 'a') is true in T-SQL
     (text,), notes = tsql.translate("SELECT 1 FROM t WHERE s IN (SELECT s FROM t)", columns=COLUMNS)
-    assert text == "SELECT 1 FROM t WHERE s IN (SELECT s FROM t)"
+    assert text == "SELECT 1 FROM t WHERE RTRIM(s, ' ') IN (SELECT RTRIM(s, ' ') FROM t)"
 
 
 def test_typing_that_fails_falls_back_to_duckdb_rules_with_a_note(monkeypatch):

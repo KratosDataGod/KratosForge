@@ -101,7 +101,7 @@ def same_target(a: dict[str, Any], b: dict[str, Any]) -> bool:
 
 def check_name(name: str) -> str:
     name = (name or "").strip()
-    if not _NAME.match(name):
+    if not _NAME.fullmatch(name):
         raise ValueError("Give the shortcut a name without \\ / : * ? \" < > |")
     return name
 

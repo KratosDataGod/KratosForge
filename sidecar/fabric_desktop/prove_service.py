@@ -13,8 +13,6 @@ publish workspace, so a proof never changes the published notebook that schedule
 
 from __future__ import annotations
 
-import base64
-import datetime as dt
 import hashlib
 import json
 import logging
@@ -26,16 +24,18 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from . import b64, delta_read
 from . import app_settings, depgraph, envprofile, jsonfile, notebook_cells, proof, receipts, redact, replay, scorecard, verify, wizard
 from .notebook import check_watches, leaf_name
 from .fabric_run import TERMINAL, fabric_ipynb
 from .kernel_proc import ProcessKernel
 from .measure import RunMeter
-from .onelake import DFS_HOST, FileStore, TableRef, check_name, read_storage_options, storage_options
+from .onelake import FileStore, TableRef, check_name, lakehouse_root, read_storage_options, storage_options, table_uri
 from .proof_runtime import PROOF_ROOT
 from .redact import describe
 from .side_by_side import machine
 from . import known_folders
+from .timeutil import now_iso as _now, parse_time as _parse
 
 NOTEBOOK_JOB = "RunNotebook"
 _GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
@@ -48,16 +48,6 @@ _log = logging.getLogger(__name__)
 _PROOFS_SAVING = threading.Lock()  # proofs.jsonl is read, changed and written whole
 
 
-def _now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-
-
-def _parse(at: Any) -> dt.datetime | None:
-    try:
-        t = dt.datetime.fromisoformat(str(at).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
 
 
 
@@ -138,7 +128,7 @@ class ProveMixin:
             raise ValueError("A receipt file is saved whole so it can be checked against its id. "
                              "To leave parts out, export a report (HTML or Markdown).")
         out = self.receipt_export(id, format, hide)
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         folder.mkdir(parents=True, exist_ok=True)
         ext = {"html": "html", "markdown": "md", "json": "json"}[out["format"]]
         base = f"receipt-{id[:12]}{'-redacted' if hide else ''}"
@@ -180,12 +170,13 @@ class ProveMixin:
         """Save a replay bundle to the Downloads folder, as a new file. With ``include_sample``,
         up to replay.SAMPLE_ROWS rows of each table read, unless policy turns samples off."""
         if include_sample and not app_settings.value("allow_replay_samples"):
-            raise PermissionError("Your organization doesn't allow data samples in replay bundles.")
+            raise PermissionError("Your organization doesn't allow data samples in replay bundles. "
+                                  + app_settings.ask_it("allow_replay_samples"))
         bundle = self._replay_bundle(name, cells, failed, lakehouse_ref)
         samples = replay.samples(bundle, self._replay_sample) if include_sample else None
         if not include_ids:
             bundle = replay.strip_ids(bundle)
-        folder = known_folders.downloads()
+        folder = known_folders.export_folder()
         stem = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name)[:60] or "notebook"
         stamp = time.strftime("%Y%m%d-%H%M%S")
         for n in range(1, 100):
@@ -219,7 +210,7 @@ class ProveMixin:
         uri = TableRef(row["workspace_id"], row["lakehouse_id"], schema, table, flat=flat).uri
         try:
             opened = DeltaTable(uri, version=row["version"], storage_options=read_storage_options(token))
-            return opened.to_pyarrow_dataset().head(replay.SAMPLE_ROWS)
+            return delta_read.head(opened, replay.SAMPLE_ROWS)
         except OSError as exc:  # delta-rs raises OSError when OneLake doesn't answer
             raise ConnectionError(SAMPLE_UNREACHABLE) from exc
 
@@ -232,7 +223,7 @@ class ProveMixin:
     def replay_bundles_list(self) -> list[dict[str, Any]]:
         """Replay bundles in the Downloads folder, newest first."""
         rows = []
-        for path in sorted(known_folders.downloads().glob("replay-*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)[:50]:
+        for path in sorted(known_folders.export_folder().glob("replay-*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)[:50]:
             try:
                 b = replay.read(path)
             except (ValueError, OSError):
@@ -245,7 +236,7 @@ class ProveMixin:
     def replay_bundle_open(self, path: str | None = None, content: str | None = None) -> dict[str, Any]:
         """Open a bundle (a file's ``path``, or its ``content`` in base64) as a new notebook,
         "<notebook> replay", that remembers the bundle. Nothing runs."""
-        data = Path(path).read_bytes() if path else base64.b64decode(content or "", validate=True)
+        data = Path(path).read_bytes() if path else b64.decode_exact(content or "")
         if len(data) > self.MAX_BUNDLE_BYTES:
             raise ValueError("That file is too large for a replay bundle.")
         bundle_id = hashlib.sha256(data).hexdigest()[:16]
@@ -361,7 +352,7 @@ class ProveMixin:
         """A pinned table: whether its version can still be read, and its latest version."""
         from deltalake import DeltaTable
         schema, table = t["table"].split(".", 1)
-        uri = f"{root}/Tables/{table}" if flat else f"{root}/Tables/{schema}/{table}"
+        uri = table_uri(root, schema, table, flat)
         row: dict[str, Any] = {"table": t["table"], "version": t["version"], "readable": True, "latest": None, "why": ""}
 
         def opts() -> dict[str, str]:  # two small reads on the ordered lane: OneLake's short read limits (#1303)
@@ -369,7 +360,7 @@ class ProveMixin:
             return read_storage_options(o["bearer_token"]) if "bearer_token" in o else o
         try:
             row["latest"] = DeltaTable(uri, storage_options=opts()).version()
-            DeltaTable(uri, version=t["version"], storage_options=opts()).to_pyarrow_dataset().head(1)
+            delta_read.head(DeltaTable(uri, version=t["version"], storage_options=opts()), 1)
         except Exception as exc:  # noqa: BLE001 - said on the banner
             row["readable"] = False
             row["why"] = (f"Version {t['version']} can't be read any more (vacuumed or its log was cleaned up)"
@@ -452,19 +443,23 @@ class ProveMixin:
         """Write the bundle's sample of each table into the replay's sandbox, where reads then find it."""
         import zipfile
 
-        import pyarrow.parquet as pq
         from deltalake import write_deltalake
         path = self._replay_copy(info)
         bundle = replay.read(path)
+        seeded: set[str] = set()
         with zipfile.ZipFile(path) as z:
             for s in bundle.get("samples") or []:
                 table = s["table"].split("/", 1)[-1]
                 if table in tables:
+                    if replay_key(table) in seeded:
+                        raise ValueError(f"The bundle holds two samples of {table}, so the replay can't tell which "
+                                         f"one to read. For {table}, pick Use the latest version instead.")
+                    seeded.add(replay_key(table))
                     schema, name = replay_key(table).split(".", 1)
                     check_name("schema", schema)  # replay.read checked it too: never build a path from a bad name
                     check_name("table", name)
                     uri = f"{root}/{PROOF_ROOT}/{rid}/pc/tables/{schema}/{name}"
-                    write_deltalake(uri, pq.read_table(z.open(s["file"])), storage_options=options())
+                    write_deltalake(uri, replay.read_sample(z, s["file"], table), storage_options=options())
 
     def replay_result(self, name: str, stopped_at: int, status: str,
                       outputs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -559,7 +554,23 @@ class ProveMixin:
             lines = jsonfile.read_text(self._proofs_file).splitlines()
         except OSError:
             return []
-        return [json.loads(line) for line in lines if line.strip()]
+        except ValueError:  # not UTF-8 (a disk error, another program): kept aside, as side_by_side.jsonl is
+            try:
+                jsonfile.set_aside(self._proofs_file)
+            except OSError as exc:  # in use: the next read tries again
+                _log.warning("%s isn't UTF-8 text and couldn't be set aside: %s", self._proofs_file.name, exc)
+            return []
+        rows = []
+        for line in filter(str.strip, lines):
+            try:
+                row = json.loads(line)
+            except (ValueError, RecursionError):  # a line cut off by a power cut: the others still read
+                row = None
+            if isinstance(row, dict) and isinstance(row.get("id"), str):
+                rows.append(row)
+            else:
+                _log.warning("A line of %s isn't a saved proof and is skipped.", self._proofs_file.name)
+        return rows
 
     def _proof_save(self, record: dict[str, Any]) -> None:
         # A proof's own thread saves as it ends while a request (Delete outputs) may save too: one at a
@@ -576,7 +587,7 @@ class ProveMixin:
     # Where a proof reads and writes. Tests replace these with local folders.
 
     def _proof_location(self, lakehouse_ref: dict[str, str]) -> tuple[str, Callable[[], dict[str, str]]]:
-        root = f"abfss://{lakehouse_ref['workspace_id']}@{DFS_HOST}/{lakehouse_ref['lakehouse_id']}"
+        root = lakehouse_root(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])
         return root, lambda: storage_options(self.auth.storage_token())  # type: ignore[attr-defined]
 
     def _proof_tables(self, lakehouse_ref: dict[str, str]) -> Any:
@@ -595,7 +606,7 @@ class ProveMixin:
         from deltalake import DeltaTable
         schema, table = key.split(".", 1)
         uri = f"{root}/{PROOF_ROOT}/{proof_id}/{side}/tables/{schema}/{table}"
-        return DeltaTable(uri, storage_options=options()).to_pyarrow_dataset()
+        return delta_read.dataset(DeltaTable(uri, storage_options=options()))
 
     # ---- what the app calls
 
@@ -685,7 +696,7 @@ class ProveMixin:
             live["pc"].pop("cells", None)
             saved[r["id"]] = live
         rows = [r for r in saved.values() if not name or r.get("name") == name]
-        return sorted(rows, key=lambda r: r.get("started_at") or "", reverse=True)[:limit]
+        return sorted(rows, key=lambda r: str(r.get("started_at") or ""), reverse=True)[:limit]
 
     def prove_cancel(self, id: str) -> dict[str, Any]:  # noqa: A002
         record = self._proof_state().get(id)

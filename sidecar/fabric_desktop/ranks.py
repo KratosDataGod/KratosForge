@@ -41,6 +41,9 @@ PATHS: dict[str, dict[str, Any]] = {
     "enterprise-architecture": {"title": "Enterprise Architecture",
                                 "modules": ("LM-30", "LM-31", "LM-32", "LM-33", "LM-34", "LM-35", "LAB-10", "LAB-11")},
 }
+# Lessons a Learn path gained after its ranks were set, by the path they're in. They aren't needed for a
+# rank, so nobody who finished the path before loses a rank it gave them.
+ADDED_AFTER = {"LM-36": "enterprise-architecture"}
 
 TIERS = ("The Forge", "The Pack", "The Myth")
 

@@ -94,6 +94,13 @@ PLATFORM_FLOWS = [
           "a lakehouse with schemas), pick the readers, confirm, and check the OneLake security role in Fabric.")]),
 ]
 
+# With --warehouse (WR-218): local T-SQL's answers next to the test warehouse's (warehouse_livecheck.py).
+WAREHOUSE_FLOWS = [
+    Flow(17, "Local T-SQL gives the test warehouse's answers, or the documented difference", ["FEAT-FAB-11", "FEAT-SQL-01"],
+         [("Read warehouse-check.md: any case marked 'docs are wrong' or 'local differs' goes back to the warehouse "
+          "workstream.")]),
+]
+
 
 @dataclass
 class Step:
@@ -111,7 +118,8 @@ class SmokeTest:
     def __init__(self, workspace_id: str, credential: Any, fabric: Any, out_dir: Path,
                  live_test: Callable[[Path], Any] | None = None, run_in_fabric: bool = False,
                  support_bundle: Callable[[Path], Path] | None = None, run_id: str = "", client_id: str = "",
-                 platform_test: Callable[[Path], Any] | None = None):
+                 platform_test: Callable[[Path], Any] | None = None,
+                 warehouse_check: Callable[[Path], Any] | None = None):
         self.workspace_id = workspace_id
         self.credential, self.fabric = credential, fabric
         self.run_id = run_id or uuid.uuid4().hex[:12]
@@ -123,6 +131,9 @@ class SmokeTest:
         self.support_bundle = support_bundle or _support_bundle
         # Builds the PlatformTest for the central platform's flows (--platform); None leaves them out.
         self.platform_test = platform_test
+        # Builds the WarehouseCheck for flow 17 (--warehouse); None leaves it out.
+        self.warehouse_check = warehouse_check
+        self.warehouse: dict[str, Any] = {}
         self.steps: list[Step] = []
         self.live: dict[str, Any] = {}
         self.platform: dict[str, Any] = {}
@@ -140,6 +151,8 @@ class SmokeTest:
             "Flow 10: save a support bundle and check it holds no token, user name, tenant id or workspace id.",
             *([("Flows 11-16 (--platform): make the central platform in the test workspace, use it and delete it again; "
                "see the platform plan below.")] if self.platform_test else []),
+            *([("Flow 17 (--warehouse): run each documented local T-SQL case in the test warehouse, in a scratch "
+               "schema that is dropped at the end; see the warehouse check plan below.")] if self.warehouse_check else []),
             "Flows 7 and 8, and the by-hand part of every flow: listed in the summary for a person to tick.",
             f"Write the results to {self.dir}.",
         ]
@@ -176,6 +189,10 @@ class SmokeTest:
             self._live(self.live_test)
         if fabric.status == "passed" and self.platform_test:
             self._platform(self.platform_test)
+        warehouse_check = self.warehouse_check
+        if fabric.status == "passed" and warehouse_check:
+            self._step(17, "warehouse.check", "The warehouse check ran in a scratch schema and dropped it",
+                       lambda: self._warehouse(warehouse_check))
         self._step(10, "support.bundle", "A support bundle holds nothing personal", self._bundle)
         return self._finish(started)
 
@@ -235,11 +252,40 @@ class SmokeTest:
                                f"{len(left)} item(s) left behind: see platform/platform-ledger.json" if left else
                                "Every platform item it made was deleted."))
 
+    def _warehouse(self, warehouse_check: Callable[[Path], Any]) -> str:
+        check = warehouse_check(self.dir / "warehouse")
+        try:
+            self.warehouse = check.run()
+        finally:
+            self.warehouse = self.warehouse or {"outcome": "failed", "refused": [], "counts": {}}
+        if self.warehouse["refused"]:
+            raise RuntimeError("; ".join(self.warehouse["refused"]))
+        counts = self.warehouse["counts"]
+        found = counts.get("docs are wrong", 0) + counts.get("local differs", 0)
+        self.steps.append(Step(17, "warehouse.findings", "Every case is as documented",
+                               "failed" if found else "passed",
+                               ", ".join(f"{n} {v}" for v, n in sorted(counts.items())), required=False))
+        return self.warehouse["cleanup"]
+
     def _bundle(self) -> str:
         with tempfile.TemporaryDirectory() as tmp:
             path = self.support_bundle(Path(tmp))
             with zipfile.ZipFile(path) as z:
-                text = "\n".join(z.read(n).decode("utf-8", "replace") for n in z.namelist())
+                parts = [z.read(n).decode("utf-8", "replace") for n in z.namelist()]
+        for part in list(parts):  # a JSON file may hold a value escaped (\u00e9 for é): look at its strings too
+            try:
+                todo = [json.loads(part)]
+            except (ValueError, RecursionError):
+                continue
+            while todo:
+                item = todo.pop()
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    todo += [*item, *item.values()]
+                elif isinstance(item, list):
+                    todo += item
+        text = "\n".join(parts)
         found = []
         if _TOKEN.search(text):
             found.append("a token")
@@ -256,7 +302,7 @@ class SmokeTest:
 
     def _finish(self, started: str) -> dict[str, Any]:
         flows = []
-        for f in FLOWS + (PLATFORM_FLOWS if self.platform_test else []):
+        for f in FLOWS + (PLATFORM_FLOWS if self.platform_test else []) + (WAREHOUSE_FLOWS if self.warehouse_check else []):
             mine = [s for s in self.steps if s.flow == f.n]
             failing = [s for s in mine if s.status == "failed" and s.required]
             automated = "failed" if failing else ("passed" if any(s.status == "passed" for s in mine) else "none")
@@ -273,6 +319,8 @@ class SmokeTest:
             if self.live else None,
             "platform_test": {k: self.platform.get(k) for k in ("run_id", "outcome", "refused", "left_behind", "kept")}
             if self.platform else None,
+            "warehouse_check": {k: self.warehouse.get(k) for k in ("run_id", "outcome", "refused", "counts", "cleanup")}
+            if self.warehouse else None,
         }
         self.dir.mkdir(parents=True, exist_ok=True)
         (self.dir / "smoke.json").write_text(json.dumps(result, indent=2), encoding="utf-8")

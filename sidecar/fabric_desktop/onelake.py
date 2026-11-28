@@ -10,7 +10,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 from urllib.parse import quote, unquote, urlsplit
 
 import requests
@@ -33,9 +33,39 @@ _BAD_NAME = re.compile(r"[\"'#%+:?`/\\]")
 
 
 def check_name(kind: str, name: str) -> str:
-    if not name or _BAD_NAME.search(name) or name != name.strip():
+    if not name or _BAD_NAME.search(name) or name != name.strip() or name in (".", ".."):
         raise ValueError(f"Invalid {kind} name {name!r}: avoid quotes, # % + : ? ` / \\ and edge spaces.")
     return name
+
+
+_BAD_ID = re.compile(r"[/@\\?#%:\s]")
+
+
+def workspace_root(workspace_id: str) -> str:
+    """A workspace's OneLake container, ``abfss://<workspace>@onelake...``: what OpenLineage calls a
+    dataset namespace. The id is checked as lakehouse_root checks it."""
+    return lakehouse_root(workspace_id, "_").rsplit("/", 1)[0]
+
+
+def lakehouse_root(workspace_id: str, lakehouse_id: str) -> str:
+    """The OneLake address of a lakehouse, ``abfss://<workspace>@onelake.../<lakehouse>``: the one place it
+    is built (tests/test_table_uris.py fails on another). The ids are GUIDs, which ABFS reads where a
+    name with spaces fails; one that would change the address's shape (a slash, @, ?, #, %, :, or . or ..
+    alone) is refused."""
+    for kind, value in (("workspace", workspace_id), ("lakehouse", lakehouse_id)):
+        if not value or _BAD_ID.search(value) or value in (".", ".."):
+            raise ValueError(f"Invalid {kind} id {value!r} for a OneLake address.")
+    return f"abfss://{workspace_id}@{DFS_HOST}/{lakehouse_id}"
+
+
+def table_uri(root: str, schema: str, table: str, flat: bool = False) -> str:
+    """A Delta table's folder under a lakehouse ``root`` (lakehouse_root, or a local folder in tests and
+    runs on this PC): ``<root>/Tables/<schema>/<table>``, or ``<root>/Tables/<table>`` in a lakehouse
+    without schemas. Names are checked as Fabric checks them, so none can step into another folder."""
+    check_name("table", table)
+    if flat:
+        return f"{root}/Tables/{table}"
+    return f"{root}/Tables/{check_name('schema', schema)}/{table}"
 
 
 @dataclass(frozen=True)
@@ -56,8 +86,7 @@ class TableRef:
     @property
     def uri(self) -> str:
         # GUIDs avoid ABFS failures on workspace names with spaces.
-        folder = self.table if self.flat else f"{self.schema}/{self.table}"
-        return f"abfss://{self.workspace_id}@{DFS_HOST}/{self.lakehouse_id}/Tables/{folder}"
+        return table_uri(lakehouse_root(self.workspace_id, self.lakehouse_id), self.schema, self.table, self.flat)
 
 
 # Uploads on a slow line. delta-rs sends each data file as 5 MB parts, 10 at a time, with several
@@ -147,6 +176,35 @@ def _onelake_error(resp: requests.Response, what: str) -> requests.HTTPError:
                               + (f" Request id {request_id}." if request_id else ""), response=resp)
 
 
+class OneLakeBadReply(requests.HTTPError):
+    """A OneLake answer that isn't what OneLake sends (an outage page, a cut-off or wrongly shaped
+    body): refused, so nothing in it is listed. Still a requests.HTTPError, with the response."""
+
+
+def _bad_reply(resp: requests.Response, what: str) -> OneLakeBadReply:
+    return OneLakeBadReply(f"OneLake didn't {what} because its answer wasn't one Fabric Desktop by KratosBI can "
+                           "read, so nothing from it was used. Try again in a minute.", response=resp)
+
+
+def _reply(resp: requests.Response, what: str, key: str) -> list[dict[str, Any]]:
+    """The records under ``key`` in a OneLake JSON answer (none when the key is missing)."""
+    try:
+        body = resp.json()
+    except (ValueError, RecursionError):
+        body = None
+    records = body.get(key, []) if isinstance(body, dict) else None
+    if not isinstance(records, list) or not all(isinstance(r, dict) for r in records):
+        raise _bad_reply(resp, what)
+    return records
+
+
+def _names(resp: requests.Response, what: str, key: str) -> list[str]:
+    names = [r.get("name") for r in _reply(resp, what, key)]
+    if not all(isinstance(n, str) and n for n in names):
+        raise _bad_reply(resp, what)
+    return cast(list[str], names)
+
+
 class TableCatalog:
     """Read-only listing through the OneLake Delta table API (Unity Catalog compatible)."""
 
@@ -156,31 +214,32 @@ class TableCatalog:
         self._http = session or http_session.session()
         self._sleep = sleep
 
-    def _get(self, url: str, what: str, **params: Any) -> dict[str, Any]:
+    def _get(self, url: str, what: str, **params: Any) -> requests.Response:
         resp = send_with_retry(lambda: self._http.get(url, params=params, timeout=60,
                                                       headers={"Authorization": f"Bearer {self._token()}"}),
                                "GET", sleep=self._sleep)
         if resp.status_code >= 400:
             raise _onelake_error(resp, what)
-        return resp.json()
+        return resp
 
     def list_schemas(self, workspace_id: str, lakehouse_id: str) -> list[str]:
         url = f"{TABLE_API}/{workspace_id}/{lakehouse_id}/api/2.1/unity-catalog/schemas"
-        return [s["name"] for s in self._get(url, "list the lakehouse's schemas", catalog_name=lakehouse_id).get("schemas", [])]
+        what = "list the lakehouse's schemas"
+        return _names(self._get(url, what, catalog_name=lakehouse_id), what, "schemas")
 
     def list_tables(self, workspace_id: str, lakehouse_id: str, schema: str) -> list[str]:
         url = f"{TABLE_API}/{workspace_id}/{lakehouse_id}/api/2.1/unity-catalog/tables"
-        body = self._get(url, f"list the tables in {schema}", catalog_name=lakehouse_id, schema_name=schema)
-        return [t["name"] for t in body.get("tables", [])]
+        what = f"list the tables in {schema}"
+        return _names(self._get(url, what, catalog_name=lakehouse_id, schema_name=schema), what, "tables")
 
 
 def _iso(http_date: str | None) -> str:
     """An HTTP date (as the DFS API gives lastModified) as ISO 8601, or "" when there isn't one."""
-    if not http_date:
+    if not http_date or not isinstance(http_date, str):
         return ""
     try:
         return email.utils.parsedate_to_datetime(http_date).isoformat()
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, IndexError, OverflowError):
         return ""
 
 
@@ -253,13 +312,18 @@ class FileStore:
             resp = self._read(url, params=dict(params), timeout=60)
             if resp.status_code >= 400:
                 raise _onelake_error(resp, f"list {directory or 'Files'}")
-            for p in resp.json().get("paths", []):
-                path = p["name"].split("/", 1)[1]  # drop the lakehouse GUID
+            what = f"list {directory or 'Files'}"
+            for p in _reply(resp, what, "paths"):
+                name, size = p.get("name"), str(p.get("contentLength") or 0)
+                if not isinstance(name, str) or "/" not in name or not (size.isascii() and size.isdigit()
+                                                                         and len(size) <= 19):
+                    raise _bad_reply(resp, what)
+                path = name.split("/", 1)[1]  # drop the lakehouse GUID
                 if UPLOADING.search(path):
                     continue  # an upload's new file before its rename, or one a crash left (EA-007)
                 entries.append({"name": path.rsplit("/", 1)[-1], "path": path,
                                 "is_dir": str(p.get("isDirectory", "")).lower() == "true",
-                                "size": int(p.get("contentLength") or 0), "modified": _iso(p.get("lastModified"))})
+                                "size": int(size), "modified": _iso(p.get("lastModified"))})
             token = resp.headers.get("x-ms-continuation")
             if not token or max_results:
                 break

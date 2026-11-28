@@ -116,15 +116,29 @@ class Host:
         if context is None:
             lh.attach(None)
         else:
-            schemas = bool(context.get("schemas_enabled", True))
+            known = context.get("schemas_enabled")  # else asked of the engine the first time a cell needs it
+            schemas: list[bool] = [] if known is None else [bool(known)]
+
+            def schemas_enabled() -> bool:
+                if not schemas:
+                    schemas.append(bool(self.channel.call("schemas_enabled")))
+                return schemas[0]
+
             lh.attach(lh.Attached(
                 workspace_id=context["workspace_id"], lakehouse_id=context["lakehouse_id"], name=context["name"],
                 workspace_name=context.get("workspace_name") or "",
                 storage_token=lambda: self.channel.call("token", "storage"),
                 work_dir=Path(context["work_dir"]),
                 history_file=Path(context["history_file"]) if context.get("history_file") else None,
-                schemas_enabled=lambda: schemas))
+                schemas_enabled=schemas_enabled))
         setattr(lh, "write_guard", (lambda name, schema, table: self.channel.call("write_guard", name, schema, table)) if guard else None)  # noqa: B010 - a module hook
+        # OPTIMIZE, VACUUM and RESTORE ask the engine every time: it knows the workspaces (and refuses when it can't say).
+        setattr(lh, "maintenance_guard", lambda op, workspace_id, table: self.channel.call("maintenance_guard", op, workspace_id, table))  # noqa: B010 - a module hook
+        # MERGE, UPDATE, DELETE, VACUUM and RESTORE on a Prod-marked workspace: the engine answers, with the
+        # workspaces the person typed the name of for this run (kernel_proc.ProcessKernel._prod_refusal).
+        setattr(lh, "in_kernel_process", True)  # noqa: B010 - a module hook: every write here is a cell's
+        setattr(lh, "prod_guard", lambda op, workspace_id, workspace_name, table, notebook: self.channel.call(  # noqa: B010 - a module hook
+            "prod_guard", op, workspace_id, workspace_name, table, notebook == lh.NO_CELL))
         return True
 
     def bind_proof(self, config: dict[str, Any], side: str, root: str) -> bool:
@@ -175,11 +189,14 @@ class Host:
     def forget_guest(self, notebook: str) -> dict[str, Any]:
         return self.kernel.forget_guest(notebook)
 
+    def rename_guest(self, old: str, new: str) -> dict[str, Any]:
+        return self.kernel.rename_guest(old, new)
+
     def ping(self) -> dict[str, Any]:
         return {"pid": os.getpid(), "python": sys.version.split()[0]}
 
     OPS = ("start", "poll", "interrupt", "debug", "variables", "variable_detail", "complete", "inspect", "attach", "bind_proof", "unbind_proof",
-           "finish_proof", "proof_log", "reads", "frame_page", "frame_profile", "frame_chart", "frame_wrangle", "frame_query_profile", "ipywidget_event", "frame_download", "forget_guest", "ping")
+           "finish_proof", "proof_log", "reads", "frame_page", "frame_profile", "frame_chart", "frame_wrangle", "frame_query_profile", "ipywidget_event", "frame_download", "forget_guest", "rename_guest", "ping")
 
     def handle(self, message: dict[str, Any]) -> None:
         mid = message.get("id")
@@ -216,26 +233,64 @@ def main() -> None:
     os.dup2(2, 1)
     devnull = os.open(os.devnull, os.O_RDONLY)
     os.dup2(devnull, 0)
-    sys.stdout = os.fdopen(1, "w", encoding="utf-8", errors="replace", buffering=1)
+    # Both reach the engine's sidecar.log as they are (kernel_proc starts this process with the engine's
+    # stderr), so what isn't a cell's output (a background thread's print, a log line) is redacted here:
+    # credential-shaped text and the values dbutils.secrets read.
+    from .secret_redaction import RedactedStream
+    sys.stdout = RedactedStream(os.fdopen(1, "w", encoding="utf-8", errors="replace", buffering=1))
+    sys.stderr = RedactedStream(sys.stderr)
     sys.stdin = open(os.devnull, encoding="utf-8")  # noqa: SIM115 - for the life of the process
     channel = Channel(proto_in, proto_out)
     host = Host(channel)
     channel.send({"id": "ready", "result": host.ping()})
     for line in proto_in:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            message = json.loads(line)
-        except ValueError:
-            print(f"kernel_host: not JSON: {line[:200]}", file=sys.stderr)
-            continue
-        if "op" in message:
-            threading.Thread(target=host.handle, args=(message,), daemon=True, name=f"request-{message.get('op')}").start()
-        else:
-            channel.answer(message)
+        dispatch(host, channel, line)
     # The engine closed our stdin: it is gone or wants us gone.
     os._exit(0)
+
+
+MAX_LINE = 64 * 1024 * 1024  # one protocol message; a cell's code and its outputs fit well inside
+
+
+def dispatch(host: Host, channel: Channel, line: str) -> str | None:
+    """One line from the engine: a request is run on its own thread, an answer wakes its caller.
+    A line that isn't a message (cut short, not JSON, nested too deep, too long, not an object, an
+    answer without an id) is refused by name on stderr and skipped, so the kernel and the cell
+    paused in it carry on. Returns the refusal, or None when the line was taken."""
+    line = line.strip()
+    if not line:
+        return None
+    problem = None
+    message: Any = None
+    if len(line) > MAX_LINE:
+        problem = f"longer than {MAX_LINE // (1024 * 1024)} MB"
+    else:
+        try:
+            message = json.loads(line)
+        except RecursionError:
+            problem = "nested too deep"
+        except ValueError:
+            problem = "not JSON"
+    if problem is None and not isinstance(message, dict):
+        problem = f"a JSON {type(message).__name__}, not an object"
+    if problem is None and "op" in message:
+        if not isinstance(message["op"], str) or ("args" in message and not isinstance(message["args"], (dict, type(None)))):
+            problem = "a request whose op isn't text or whose args aren't an object"
+            if "id" in message:  # its caller is waiting: it gets the refusal as its answer
+                channel.send({"id": message["id"], "error": {"type": "ValueError", "message": f"Malformed request: {problem}"}})
+    elif problem is None and not isinstance(message.get("id"), str):
+        problem = "an answer without an id"
+    if problem is not None:
+        # Never the line itself: it can carry cell code or values. Its length, and the op if it has one.
+        op = message.get("op") if isinstance(message, dict) and isinstance(message.get("op"), str) else None
+        print(f"kernel_host: skipped a line that is {problem} ({len(line)} characters"
+              f"{f', op {op[:40]!r}' if op else ''})", file=sys.stderr)
+        return problem
+    if "op" in message:
+        threading.Thread(target=host.handle, args=(message,), daemon=True, name=f"request-{message['op'][:40]}").start()
+    else:
+        channel.answer(message)
+    return None
 
 
 if __name__ == "__main__":

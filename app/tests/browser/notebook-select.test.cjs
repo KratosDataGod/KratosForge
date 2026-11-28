@@ -64,8 +64,9 @@ test("Ctrl+Shift+Enter runs the cursor's line, dedented, or the selected text", 
   await editor.click();
   await page().keyboard.press("Control+Home");
   await page().keyboard.press("ArrowDown");  // on "    print('line', i * 10)", where i isn't defined yet
-  await page().evaluate(() => rpc("start_cell", { code: "i = 4" }));
-  await page().waitForFunction(() => rpc("poll_cell", {}).then((s) => s.status !== "running"));
+  // In this notebook's own kernel: with a process per notebook, another notebook's i isn't seen.
+  await page().evaluate(() => rpc("start_cell", { code: "i = 4", notebook: state.notebook.name }));
+  await page().waitForFunction(() => rpc("poll_cell", { notebook: state.notebook.name }).then((s) => s.status !== "running"));
   await page().keyboard.press("Control+Shift+Enter");
   await cell(3).locator(".cell-results").getByText("line 40").waitFor();
   await cell(3).getByText("Ran the selection on this PC").waitFor();

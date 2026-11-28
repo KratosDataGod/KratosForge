@@ -11,6 +11,12 @@ const page = () => app.page;
 before(async () => {
   if (skip) return;
   app = await openApp({ engine: ["app_settings"], viewport: { width: 1440, height: 900 }, mocks: { readiness_check: () => [] } });
+  // The app's start redraws the page it is on once the engine has answered (startMain: environment, settings
+  // and the metadata project, then render(), then sync_pc_schedules). Under load that redraw landed in the
+  // middle of a tab row's check and the row was briefly gone, so wait for it first.
+  for (const end = Date.now() + 20000; !app.calls.some((c) => c.method === "sync_pc_schedules"); await new Promise((r) => setTimeout(r, 25))) {
+    if (Date.now() > end) throw new Error("the app's start never finished (no sync_pc_schedules call)");
+  }
 });
 after(async () => { if (app) await app.close(); });
 

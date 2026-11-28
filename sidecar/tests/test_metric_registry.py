@@ -203,3 +203,20 @@ def _strings(value: Any) -> list[str]:
     if isinstance(value, (list, tuple)):
         return [s for v in value for s in _strings(v)]
     return []
+
+
+@pytest.mark.parametrize("opener", ["[", "'", '"'], ids=["bracket", "quote", "dquote"])
+def test_an_unclosed_quote_or_bracket_is_one_token_to_the_end(opener):
+    """An unclosed "[" (or quote) takes the rest of the text in one step, so a long run of them is read once,
+    not rescanned from each one: 100,000 of them fold to one token."""
+    from fabric_desktop import metric_registry
+    text = "SUM(x) + " + opener + "a" * 10 + opener * 100_000
+    tokens = metric_registry._TOKEN.findall(text)
+    assert len(tokens) <= 8 and tokens[-1].startswith(opener)
+    assert metric_registry._folded(text).startswith("sum(x)+")
+
+
+def test_an_unclosed_backtick_is_one_token_to_the_end():
+    from fabric_desktop import metric_registry
+    tokens = metric_registry._TOKEN.findall("SUM(x) + `" + "a [ ' " * 20_000)
+    assert len(tokens) <= 8 and tokens[-1].startswith("`")

@@ -40,7 +40,10 @@ TEXT_DIFFERS = "expressions differ (text only)"
 INFERRED = "inferred"
 MAX_TEXT = 80  # the most of any free text a row or report carries
 # Quoted names and strings keep their spacing; any other run of spaces is kept only between two words.
-_TOKEN = re.compile(r"'(?:[^']|'')*'|\[(?:[^\]]|\]\])*\]|\"(?:[^\"]|\"\")*\"|`[^`]*`|\s+|\w+|.", re.DOTALL)
+# Quoted names and strings, each to its close or, unclosed, to the end of the text in one step: the possessive
+# repeat never gives back, so an unclosed "[" can't make every later "[" rescan the rest (linear, not quadratic).
+_TOKEN = re.compile(r"'(?:[^']|'')*+(?:'|\Z)|\[(?:[^\]]|\]\])*+(?:\]|\Z)|\"(?:[^\"]|\"\")*+(?:\"|\Z)|`[^`]*+(?:`|\Z)"
+                    r"|\s+|\w+|.", re.DOTALL)
 
 
 def _cut(value: Any) -> str:

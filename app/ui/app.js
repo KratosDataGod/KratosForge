@@ -2324,7 +2324,8 @@ async function newNotebook(lakehouse, into = null) {
 }
 
 function notebookPayload() {
-  return { name: state.notebook.name, cells: state.notebook.cells.map((c) => ({ type: c.type, source: c.source, meta: c.meta, cell_id: c.cell_id })),
+  return { name: state.notebook.name, cells: state.notebook.cells.map((c) => ({ type: c.type, source: c.source, meta: c.meta, cell_id: c.cell_id,
+    ...(c.type === "markdown" && c.attachments ? { attachments: c.attachments } : {}) })),
     lakehouse_ref: state.notebook.lakehouse, compute: state.notebook.compute, workspace: state.notebook.workspace };
 }
 

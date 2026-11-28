@@ -2936,8 +2936,9 @@ ATTACHMENT_IMAGE_MAX = 10 * 1024 * 1024  # base64 characters for one image, as t
 
 def _attachment_images(attachments: Any, source: str) -> dict[str, dict[str, str]] | None:
     """The images pasted into a Markdown cell (its ``attachments``) that its source shows, for the app
-    to draw: one image type each, base64 as text, each under ATTACHMENT_IMAGE_MAX. Saving never writes
-    these back; merge_saved keeps the file's own attachments."""
+    to draw: one image type each, base64 as text, each under ATTACHMENT_IMAGE_MAX. Saving writes the
+    file's own attachments back as they were (merge_saved); only names the file didn't have are taken
+    from the app, through _app_attachments."""
     used = _attachments_used(attachments, source) or {}
     out: dict[str, dict[str, str]] = {}
     for name, bundle in used.items():
@@ -2953,6 +2954,53 @@ def _attachment_images(attachments: Any, source: str) -> dict[str, dict[str, str
     return out or None
 
 
+# What an image pasted or dropped into a Markdown cell in the app may be when it is saved: never SVG
+# (the app only pastes raster images), a plain file name, and base64 that decodes.
+PASTED_IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp")
+_PASTED_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
+_BASE64 = re.compile(r"[A-Za-z0-9+/]*={0,2}")
+
+
+def _image_signature_ok(mime: str, head: bytes) -> bool:
+    """Whether the decoded bytes start as a ``mime`` picture does (its file signature)."""
+    if mime == "image/png":
+        return head.startswith(b"\x89PNG\r\n\x1a\n")
+    if mime == "image/jpeg":
+        return head.startswith(b"\xff\xd8\xff")
+    if mime == "image/gif":
+        return head.startswith((b"GIF87a", b"GIF89a"))
+    return head[:4] == b"RIFF" and head[8:12] == b"WEBP"
+
+
+def _app_attachments(attachments: Any, source: str) -> dict[str, dict[str, str]] | None:
+    """The images the app sends with a Markdown cell that are fit to write into the file: each one
+    its source still shows, under a plain name, one allowed image type, valid base64 of at most
+    ATTACHMENT_IMAGE_MAX characters that decodes to that type's file signature. Anything else is left
+    out, never written."""
+    if not isinstance(attachments, dict):
+        return None
+    out: dict[str, dict[str, str]] = {}
+    for name, bundle in attachments.items():
+        if not isinstance(name, str) or not _PASTED_NAME.fullmatch(name) or f"attachment:{name}" not in source:
+            continue
+        if not isinstance(bundle, dict) or len(bundle) != 1:
+            continue
+        ((mime, data),) = bundle.items()
+        if mime not in PASTED_IMAGE_TYPES or not isinstance(data, str) or not data or len(data) > ATTACHMENT_IMAGE_MAX:
+            continue
+        if len(data) % 4 or not _BASE64.fullmatch(data):
+            continue
+        try:
+            head = base64.b64decode(data[:32], validate=True)
+            base64.b64decode(data, validate=True)
+        except ValueError:
+            continue
+        if not _image_signature_ok(mime, head):
+            continue
+        out[name] = {mime: data}
+    return out or None
+
+
 def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
     """``new`` (from to_ipynb) with what Fabric Desktop doesn't own carried over from the notebook
     as it was on disk: notebook-level keys (its kernel and language among them), other tools'
@@ -2961,7 +3009,9 @@ def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
 
     - a cell whose type, source and settings didn't change is kept exactly as it was in the file,
       its outputs, execution count, attachments and every other tool's metadata with it;
-    - a changed cell keeps the other tools' metadata and the attachments its source still shows.
+    - a changed cell keeps the other tools' metadata and the attachments its source still shows,
+      as the file has them; images the app added under new names (to_ipynb checked them) join them,
+      and an attachment the source no longer shows is dropped, as Jupyter does.
       Its outputs and execution count are dropped: they came from code that isn't there any more."""
     saved_meta = before.get("metadata")
     old_meta = saved_meta if isinstance(saved_meta, dict) else {}
@@ -3018,9 +3068,11 @@ def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
             continue
         cell["metadata"] = _merge_cell_metadata(cell["metadata"], old_md)
         if cell["cell_type"] == "markdown":
-            used = _attachments_used(old.get("attachments"), "".join(cell["source"]))
+            used = (cell.get("attachments") or {}) | (_attachments_used(old.get("attachments"), "".join(cell["source"])) or {})
             if used:
                 cell["attachments"] = used
+            else:
+                cell.pop("attachments", None)
         cells.append({k: cell[k] for k in old if k in cell} | cell)  # the file's key order, so the diff is the edit
     minor = before.get("nbformat_minor")
     # In the file's key order (Fabric writes nbformat first and its own "notebookName"), so the rest
@@ -3090,6 +3142,10 @@ def to_ipynb(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
                 "metadata": _cell_metadata(c.get("meta") or {}), "source": c.get("source", "").splitlines(keepends=True)}
         if cell["cell_type"] == "code":
             cell.update(execution_count=None, outputs=[])
+        else:
+            images = _app_attachments(c.get("attachments"), c.get("source", ""))
+            if images:
+                cell["attachments"] = images
         nb_cells.append(cell)
     metadata: dict[str, Any] = {
         "kernelspec": {"name": "python3", "display_name": "Python 3", "language": "python"},

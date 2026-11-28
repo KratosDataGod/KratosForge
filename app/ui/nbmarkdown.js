@@ -152,6 +152,87 @@ function mdKeys(cell) {
   }));
 }
 
+// ---------- images pasted or dropped into the cell (N22) ----------
+
+// A picture pasted or dropped into a Markdown cell's editor is kept in the notebook as a Jupyter
+// attachment (cell.attachments, {name: {mime: base64}}) and the cell gets ![name](attachment:name),
+// as JupyterLab and VS Code do. Only these raster types, never SVG; the engine checks them again on
+// save and drops any the source no longer shows (so Ctrl+Z, then save, leaves nothing behind).
+// It is drawn only through mdImageData()'s data: URL; nothing is fetched.
+const MD_PASTE_TYPES = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
+const MD_PASTE_TOO_BIG = `This image is too big to add to the notebook. Images can be up to ${Math.floor(MD_IMAGE_MAX * 3 / 4 / 1024 / 1024 * 10) / 10} MB.`;
+const MD_PASTE_TYPE_OFF = "Only PNG, JPEG, GIF and WebP images can be added to a Markdown cell.";
+
+function mdPasteFiles(data) {
+  const files = [...(data?.files || [])];
+  if (!files.length) {
+    for (const it of data?.items || []) if (it.kind === "file") { const f = it.getAsFile(); if (f) files.push(f); }
+  }
+  return files.filter((f) => String(f.type).startsWith("image/"));
+}
+
+// A name the cell doesn't use yet: image.png, image-2.png, ...
+function mdPasteName(cell, ext, taken) {
+  for (let n = 1; ; n++) {
+    const name = n === 1 ? `image.${ext}` : `image-${n}.${ext}`;
+    const used = (cell.attachments && Object.prototype.hasOwnProperty.call(cell.attachments, name))
+      || taken.has(name) || cell.source.includes(`attachment:${name}`);
+    if (!used) return name;
+  }
+}
+
+function mdBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+async function mdAddImages(cell, view, files, at) {
+  const ok = files.filter((f) => MD_PASTE_TYPES[f.type]);
+  if (!ok.length) { toast(MD_PASTE_TYPE_OFF); return; }
+  if (ok.some((f) => Math.ceil(f.size / 3) * 4 > MD_IMAGE_MAX)) { toast(MD_PASTE_TOO_BIG); return; }
+  const added = {};
+  const taken = new Set();
+  const refs = [];
+  for (const f of ok) {
+    let b64;
+    try { b64 = mdBase64(await f.arrayBuffer()); } catch { toast("The image couldn't be read."); return; }
+    if (!b64 || b64.length > MD_IMAGE_MAX) { toast(MD_PASTE_TOO_BIG); return; }
+    const name = mdPasteName(cell, MD_PASTE_TYPES[f.type], taken);
+    taken.add(name);
+    added[name] = { [f.type]: b64 };
+    refs.push(`![${name}](attachment:${name})`);
+  }
+  if (!state.notebook?.cells.includes(cell) || editors.peek(cell.id) !== view) return;  // the cell went away while reading
+  cell.attachments = { ...(cell.attachments || {}), ...added };
+  const pos = at ?? view.state.selection.main;
+  const from = typeof pos === "number" ? pos : pos.from;
+  const to = typeof pos === "number" ? pos : pos.to;
+  const text = refs.join("\n");
+  view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length }, userEvent: "input.paste" });
+  view.focus();
+}
+
+function mdPasteImages(cell) {
+  const take = (e, view, files, at) => {
+    if (cell.type !== "markdown" || view.state.readOnly || !files.length) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    mdAddImages(cell, view, files, at);
+    return true;
+  };
+  return CM.Prec.highest(CM.EditorView.domEventHandlers({
+    paste(e, view) { return take(e, view, mdPasteFiles(e.clipboardData), null); },
+    drop(e, view) {
+      const files = mdPasteFiles(e.dataTransfer);
+      if (!files.length) return false;
+      const at = view.posAtCoords({ x: e.clientX, y: e.clientY }) ?? view.state.selection.main.head;
+      return take(e, view, files, at);
+    },
+  }));
+}
+
 // ---------- the cell while it is edited ----------
 
 function mdFinish(cell) {

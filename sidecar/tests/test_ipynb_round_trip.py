@@ -139,6 +139,70 @@ def test_attachment_images_keep_only_pictures_the_source_shows():
     assert _attachment_images({"a.png": {"text/plain": "x"}}, "![](attachment:a.png)") is None
 
 
+PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+
+
+def test_an_image_pasted_in_the_app_is_written_and_dropped_once_the_source_drops_it(tmp_path):
+    """N22: a picture pasted into a Markdown cell is saved as a Jupyter attachment; undoing the
+    pasted text and saving again leaves it out of the file, as Jupyter does."""
+    store, nb, raw = _open(tmp_path, "jupyter_4_4")
+    file_image = json.loads(raw)["cells"][0]["attachments"]
+    cell = nb["cells"][0]
+    cell["source"] += "\n\n![image.png](attachment:image.png)"
+    cell["attachments"] = dict(cell["attachments"]) | {"image.png": {"image/png": PNG}}
+    written = json.loads(_save(store, nb))["cells"][0]["attachments"]
+    assert written == file_image | {"image.png": {"image/png": PNG}}  # the file's own picture kept as it was
+    nb = store.load("nb")
+    assert nb["cells"][0]["attachments"]["image.png"] == {"image/png": PNG}
+    nb["cells"][0]["source"] = nb["cells"][0]["source"].replace("![image.png](attachment:image.png)", "")
+    assert json.loads(_save(store, nb))["cells"][0]["attachments"] == file_image
+
+
+def test_an_image_pasted_into_a_new_notebook_is_written(tmp_path):
+    store = NotebookStore(tmp_path)
+    store.save("new", [{"type": "markdown", "source": "![a](attachment:image.png)", "attachments": {"image.png": {"image/png": PNG},
+                                                                                                    "image-2.png": {"image/png": PNG}}},
+                       {"type": "code", "source": "x = 1", "attachments": {"image.png": {"image/png": PNG}}}])
+    cells = json.loads((tmp_path / "new.ipynb").read_bytes())["cells"]
+    assert cells[0]["attachments"] == {"image.png": {"image/png": PNG}}  # image-2.png isn't shown: not written
+    assert "attachments" not in cells[1]  # a code cell has none
+
+
+def test_attachments_from_the_app_that_arent_plain_pictures_are_never_written(tmp_path):
+    from fabric_desktop.notebook import ATTACHMENT_IMAGE_MAX
+    gif = "R0lGODlhAQABAAAAACw="  # GIF89a... starts "GIF8"
+    bad = {
+        "svg.svg": {"image/svg+xml": "PHN2Zz4="},
+        "html.png": {"text/html": "PGI+"},
+        "big.png": {"image/png": "iVBO" * (ATTACHMENT_IMAGE_MAX // 4 + 1)},
+        "notb64.png": {"image/png": "not base64!"},
+        "pad.png": {"image/png": "iVBORw"},
+        "liar.png": {"image/png": gif},  # a GIF's bytes, said to be a PNG
+        "two.png": {"image/png": PNG, "image/gif": gif},
+        "list.png": {"image/png": [PNG]},
+        "../up.png": {"image/png": PNG},
+        "odd.png": "not a bundle",
+    }
+    src = " ".join(f"![](attachment:{k})" for k in [*bad, "ok.gif"])
+    store = NotebookStore(tmp_path)
+    store.save("bad", [{"type": "markdown", "source": src, "attachments": bad | {"ok.gif": {"image/gif": "R0lGODlhAQABAAAAACw="}}}])
+    cell = json.loads((tmp_path / "bad.ipynb").read_bytes())["cells"][0]
+    assert cell["attachments"] == {"ok.gif": {"image/gif": "R0lGODlhAQABAAAAACw="}}
+    store.save("bad2", [{"type": "markdown", "source": src, "attachments": bad}])
+    assert "attachments" not in json.loads((tmp_path / "bad2.ipynb").read_bytes())["cells"][0]
+
+
+def test_the_files_own_attachment_wins_over_one_the_app_sends_under_its_name(tmp_path):
+    """The app can't change a picture the file holds: what it sends back under that name is ignored,
+    so a file's SVG or oversized image (which the app never loads) stays as it was."""
+    store, nb, raw = _open(tmp_path, "jupyter_4_4")
+    file_image = json.loads(raw)["cells"][0]["attachments"]
+    [name] = file_image
+    nb["cells"][0]["source"] += "\n\nEdited."
+    nb["cells"][0]["attachments"] = {name: {"image/png": PNG}}
+    assert json.loads(_save(store, nb))["cells"][0]["attachments"] == file_image
+
+
 def test_an_unchanged_raw_cell_stays_raw(tmp_path):
     store, nb, _raw = _open(tmp_path, "jupyter_4_4")
     nb["cells"][1]["source"] += "\n"

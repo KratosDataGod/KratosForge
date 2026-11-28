@@ -989,6 +989,7 @@ function editorFor(cell) {
         CM.EditorView.contentAttributes.of({ "aria-label": cell.type === "markdown" ? "Markdown cell" : "Code cell", tabindex: "0" }),
         dbgEditorMarks(cell),  // debugging.js: breakpoints and the paused line
         cell.type === "markdown" ? mdKeys(cell) : [],  // nbmarkdown.js: Ctrl+B, Ctrl+I and Ctrl+K
+        mdPasteImages(cell),  // nbmarkdown.js: a pasted or dropped picture becomes an attachment (Markdown cells only)
         CM.highlightSpecialChars(), CM.history(), CM.drawSelection(), CM.dropCursor(), CM.indentOnInput(),
         CM.bracketMatching(), CM.closeBrackets(), CM.highlightActiveLine(), CM.highlightSelectionMatches(),
         CM.syntaxHighlighting(editorHighlight),

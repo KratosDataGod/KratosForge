@@ -58,6 +58,10 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E81 | The least workspace role for four groups and two apps | 1.3.1 | C | SIM +FV | config | 20 | |
 | E82 | Share a warehouse and a semantic model: ReadData, ReadAll and Build | 1.3.2 | C | SIM +FV | config | 20 | |
 | E83 | A schedule or a storage event trigger for six pipelines | 1.4.2 | C | SIM +FV | config | 25 | |
+| E85 | A default domain, a subdomain and who assigns workspaces | 1.1.2 | C | SIM | config | 20 | |
+| E86 | OneLake settings for a workspace: outside apps, SAS tokens, cache and diagnostics | 1.1.3 | C | SIM +FV | config | 20 | |
+| E87 | Apache Airflow runtime settings: starter or custom pool, node size, autoscale and a private package | 1.1.4 | C | SIM | config | 20 | |
+| E88 | A four-stage deployment pipeline: workspaces, rules per item type and pairing | 1.2.3 | C | SIM +FV | config | 25 | |
 
 ## 2. Ingest and transform data
 
@@ -94,6 +98,7 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E78 | A wide sales table with each customer as they were on the day | 2.2.7 | C | LV | pyspark | 25 | LAB-05 |
 | E79 | Sliding windows and warm episodes over freezer readings | 2.3.5 | C | LV | duckdb | 25 | LM-15 |
 | E84 | Five shortcuts: type, location, identity and cache | 2.2.3 | C | SIM +FV | config | 25 | |
+| E89 | Incremental copy in a pipeline: parameters, two watermarks and a safe save | 2.2.5 | C | LV +FV | pipeline | 30 | |
 
 ## 3. Monitor and optimize an analytics solution
 
@@ -111,6 +116,9 @@ columns), `runs` (new: recorded pipeline, notebook, refresh and capacity histori
 | E64 | Read a query plan and fix the expensive step | 3.3.6 | G | LV | duckdb | 20 | LM-18 |
 | E72 | Monitor ingestion: the Copy runs that succeeded but didn't load what they should | 3.1.1 | C | SIM +FV | duckdb (`runs`) | 20 | |
 | E80 | Compact a partitioned Delta table and keep time travel | 3.3.1 | C | LV | delta | 25 | LM-25 |
+| E90 | Refresh history: failures in a row, a schedule turned off and slow refreshes | 3.1.3 | C | SIM +FV | duckdb (`runs`) | 20 | LM-09 |
+| E91 | Alerts: pipeline notifications, refresh failure emails and Activator rules | 3.1.4 | C | SIM +FV | config | 20 | |
+| E92 | Optimize a pipeline: partitioned copy, copy parallelism, throughput and no waits | 3.3.2 | C | SIM +FV | config | 25 | |
 
 ## Broken environments (Troubleshoot)
 
@@ -146,11 +154,11 @@ validation checks both the fix and that nothing else changed.
 
 | | Count |
 | --- | --- |
-| Exercises | 84 (70 Guided or Challenge, 14 Troubleshoot) |
-| LOCAL VERIFIED | 40 |
-| SIMULATED | 34 |
+| Exercises | 92 (78 Guided or Challenge, 14 Troubleshoot) |
+| LOCAL VERIFIED | 41 |
+| SIMULATED | 41 |
 | KNOWLEDGE ONLY | 10 |
-| With a planned FABRIC VERIFIED version | 42 |
+| With a planned FABRIC VERIFIED version | 48 |
 | Capstones | 3 |
 | Built from existing Learn lessons or labs | 26 |
 

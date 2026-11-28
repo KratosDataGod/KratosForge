@@ -140,6 +140,18 @@ class ModelBpaMixin:
                            "traceback": (saved_error or {}).get("traceback", ""), "pip": (saved_error or {}).get("pip", "")}
                           if failed else None}
 
+    def model_bpa_share(self, env: str = "test", layer: str | None = None, name: str | None = None,
+                        approve: bool = False, confirm: str = "") -> dict[str, Any]:
+        """Add the model's last check, its Error and Warning findings, to the central Optimize lakehouse,
+        so they show in Optimize > Opportunities. Without ``approve`` and the matching ``confirm`` it
+        writes nothing and asks first (the Optimize lakehouse's consent step); rows are shaped by
+        ``model_bpa_share.analysis_rows`` and carry no saving."""
+        from . import model_bpa_share
+
+        rows = model_bpa_share.analysis_rows(self.model_bpa_status(env, layer, name))
+        return self._optimize_share_analysis(  # type: ignore[attr-defined]
+            rows, "this model's best practices check", approve=approve, confirm=confirm)
+
     def model_bpa_risk(self, env: str = "test", layer: str | None = None, name: str | None = None,
                        refresh: bool = False) -> dict[str, Any]:
         """The risk check for checking this model in Fabric: capacity, policy and earlier checks. Read only."""

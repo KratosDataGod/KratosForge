@@ -8,23 +8,46 @@
 // is marked "Starts a slide" (its cell menu; saved as metadata.fabric_desktop.slide_start in the
 // .ipynb), only the marks start slides. A cell with nothing to show is left out.
 
+const NBP_MAX_DOTS = 20;
 const nbPresent = { opening: false, root: null, slides: [], at: 0, from: null, strip: false, fullscreen: false, keys: null, focus: null };
 
-// A Markdown source cut at its # and ## heading lines (outside fenced code): the text before the
-// first such heading, then one piece per heading.
+// A Markdown source cut at its # and ## headings (outside fenced code): the text before the first such
+// heading, then one piece per heading. An underlined heading (=== or ---, a level 1 or 2 heading) cuts
+// before its paragraph, read as markdownHeadings (nbcells.js) reads one, so a heading starts the same
+// slide wherever it is in the cell.
 function nbPresentPieces(source) {
   const pieces = [[]];
   let fence = null;
+  let para = 0;  // the paragraph lines so far at the end of the current piece, which an underline makes a heading
+  let inList = false;
+  const cut = (keep) => {  // a new piece from the last `keep` lines, when there's text before them
+    const cur = pieces.at(-1);
+    if (cur.slice(0, cur.length - keep).some((l) => l.trim())) pieces.push(cur.splice(cur.length - keep));
+  };
   for (const line of String(source || "").split("\n")) {
     const mark = line.match(/^ {0,3}(`{3,}|~{3,})/);
     if (fence) {
       if (mark && mark[1][0] === fence[0] && mark[1].length >= fence.length && !line.slice(line.indexOf(mark[1]) + mark[1].length).trim()) fence = null;
-    } else if (mark) {
-      fence = mark[1];
-    } else if (/^ {0,3}#{1,2}(\s|$)/.test(line) && pieces.at(-1).some((l) => l.trim())) {
-      pieces.push([]);
+      pieces.at(-1).push(line);
+      continue;
     }
+    if (mark) {
+      fence = mark[1];
+      para = 0;
+      inList = false;
+      pieces.at(-1).push(line);
+      continue;
+    }
+    const atx = /^ {0,3}#{1,2}(\s|$)/.test(line);
+    const under = para > 0 && /^ {0,3}(=+|-+)\s*$/.test(line);
+    if (atx) cut(0);
+    else if (under) cut(para);
     pieces.at(-1).push(line);
+    if (!line.trim()) inList = false;
+    else if (/^\s*([-*+]|\d+[.)])\s/.test(line)) inList = true;
+    const text = !atx && !/^ {0,3}#{1,6}(\s|$)/.test(line) && !under && !inList && line.trim() && !/^ {0,3}>/.test(line)
+      && (para > 0 || !/^( {4}|\t)/.test(line));
+    para = text ? para + 1 : 0;
   }
   return pieces.map((p) => p.join("\n"));
 }
@@ -119,7 +142,8 @@ async function nbPresentOpen(nb) {
       btn("‹ Previous", null, () => nbPresentGo(nbPresent.at - 1), "tool", { "data-nbp-prev": true, "aria-keyshortcuts": "ArrowLeft PageUp" }),
       h("span", { class: "nbp-count" }),
       btn("Next ›", null, () => nbPresentGo(nbPresent.at + 1), "tool", { "data-nbp-next": true, "aria-keyshortcuts": "ArrowRight PageDown" }),
-      h("span", { class: "nbp-dots", "aria-hidden": "true" }, slides.map(() => h("span", { class: "nbp-dot" }))),
+      // A dot per slide while they fit on the bar; a longer deck has the count alone (400 dots ran off it).
+      slides.length <= NBP_MAX_DOTS ? h("span", { class: "nbp-dots", "aria-hidden": "true" }, slides.map(() => h("span", { class: "nbp-dot" }))) : null,
       h("span", { class: "spacer" }),
       h("span", { class: "muted-text nbp-hint" }, "← → to move · Esc to leave")),
     h("div", { class: "sr-only", role: "status", "aria-live": "polite", "data-nbp-live": true }));
@@ -202,8 +226,11 @@ function nbPresentStrip(on) {
   }
 }
 
-// While presenting, the keys are Present's: the window's other key handlers (Back on Alt+Left, the
-// notebook's command keys) don't see the ones it uses. Tab stays inside.
+// While presenting, every key is Present's: the window's other key handlers (Back on Alt+Left, the
+// notebook's command keys, the debugger's F5, F10 and F11, find, the command bar, ?) see none of them,
+// so nothing behind the slides runs or opens. Tab stays inside. Copying the slide's text (Ctrl+C, and
+// Ctrl+A to select it) and zoom (Ctrl+=, Ctrl+-, Ctrl+0) keep the browser's own behaviour; any other
+// key with Ctrl, Alt or an F key is stopped (F5 would reload the window).
 function nbPresentKey(e) {
   if (!nbPresent.root) return;
   const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
@@ -217,7 +244,14 @@ function nbPresentKey(e) {
   else if (plain && !e.shiftKey && (e.key === "s" || e.key === "S")) nbPresentStrip(!nbPresent.strip);
   else if (e.key === "F5" && e.ctrlKey && e.shiftKey) { /* already presenting */ }
   else handled = false;
-  if (!handled) return;
+  if (!handled) {
+    // Copying the slide's text, and WebView2's own zoom (Ctrl+=, Ctrl+-, Ctrl+0; features.js "Window"), keep
+    // the browser's behaviour.
+    const own = (e.ctrlKey || e.metaKey) && !e.altKey && (/^[ac]$/i.test(e.key) && !e.shiftKey || /^[=+\-0]$/.test(e.key));
+    if (!own && (e.ctrlKey || e.metaKey || e.altKey || /^F\d{1,2}$/.test(e.key))) e.preventDefault();
+    e.stopImmediatePropagation();
+    return;
+  }
   if (e.key !== "Tab" || e.defaultPrevented) e.preventDefault();
   e.stopImmediatePropagation();
 }

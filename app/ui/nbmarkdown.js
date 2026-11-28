@@ -44,10 +44,21 @@ function mdEdit(view, from, to, insert, selFrom, selTo) {
 }
 
 // **text**, *text* or `text` around the selection, or around a placeholder that is left selected.
+// Spaces at either end of the selection stay outside the marks, since "** text **" isn't bold.
 function mdWrap(view, mark, placeholder) {
   const { from, to } = view.state.selection.main;
-  const text = view.state.sliceDoc(from, to) || placeholder;
-  mdEdit(view, from, to, mark + text + mark, from + mark.length, from + mark.length + text.length);
+  const picked = view.state.sliceDoc(from, to);
+  const lead = picked.length - picked.trimStart().length;
+  const text = picked.trim() || placeholder;
+  const start = picked.trim() ? from + lead : from;
+  const end = picked.trim() ? to - (picked.length - picked.trimEnd().length) : to;
+  mdEdit(view, start, end, mark + text + mark, start + mark.length, start + mark.length + text.length);
+}
+
+// The longest run of backticks in text (0 when there are none).
+function mdTicks(text, atLineStart = false) {
+  const runs = text.match(atLineStart ? /^ {0,3}`+/gm : /`+/g) || [];
+  return Math.max(0, ...runs.map((r) => r.trim().length));
 }
 
 // A prefix on each selected line ("## ", "- ", or "1. ", "2. " ...), or a new line with a placeholder.
@@ -79,17 +90,27 @@ function mdInsertLink(view) {
   mdEdit(view, from, to, "[link text](url)", from + 1, from + 10);
 }
 
-// `code` on one line; a fenced block when the selection spans lines.
+// `code` on one line; a fenced block when the selection spans lines. Text that holds backticks gets a
+// longer run around it (and a space inside when it starts or ends with one), and a fence longer than
+// any fence inside it, so the code stays one piece of code.
 function mdCode(view) {
   const st = view.state;
   const { from, to } = st.selection.main;
   const text = st.sliceDoc(from, to);
-  if (!text.includes("\n")) return mdWrap(view, "`", "code");
+  if (!text.includes("\n")) {
+    if (!text.includes("`")) return mdWrap(view, "`", "code");
+    const ticks = "`".repeat(mdTicks(text) + 1);
+    const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
+    const insert = ticks + pad + text + pad + ticks;
+    const at = from + ticks.length + pad.length;
+    return mdEdit(view, from, to, insert, at, at + text.length);
+  }
+  const fence = "`".repeat(Math.max(3, mdTicks(text, true) + 1));
   const lead = from === st.doc.lineAt(from).from ? "" : "\n";
   const tail = to === st.doc.lineAt(to).to ? "" : "\n";
   const body = text.replace(/\n$/, "");
-  const start = from + lead.length + 4;
-  mdEdit(view, from, to, `${lead}\`\`\`\n${body}\n\`\`\`${tail}`, start, start + body.length);
+  const start = from + lead.length + fence.length + 1;
+  mdEdit(view, from, to, `${lead}${fence}\n${body}\n${fence}${tail}`, start, start + body.length);
 }
 
 // A table of two columns and two rows, on lines of its own after a blank line.

@@ -137,7 +137,7 @@ def test_the_audit_job_covers_every_lock_that_ships():
     assert "uses: ./.github/actions/dependency-audit\n" in job
     action = AUDIT_ACTION.read_text(encoding="utf-8")
     for lock in ("sidecar/constraints.txt", "sidecar/engine-requirements.txt", "sidecar/fabric_desktop/engines/dbconnect_locks/*.txt",
-                 "app/ui/vendor/*/package-lock.json", "vscode/package-lock.json", "app/src-tauri/Cargo.lock"):
+                 "sidecar/fabric_desktop/engines/snowpark_locks/*.txt", "app/ui/vendor/*/package-lock.json", "vscode/package-lock.json", "app/src-tauri/Cargo.lock"):
         assert lock in action, lock
     assert "audit_exceptions.py npm" in action
     # a failed audit fails the job: no step of it is let off

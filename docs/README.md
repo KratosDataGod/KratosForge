@@ -61,6 +61,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [finops/usage-import.md](finops/usage-import.md) | Engineers, capacity admins, FinOps | Import a Capacity Metrics app export as measured CU and compare it with this app's estimates; import an Azure Cost Management export for what each capacity was billed |
 | [optimize/README.md](optimize/README.md) | Engineers, platform owners, admins | The central lakehouse (Preview): setting it up, permissions, what each installation writes, who can see what, the policy key |
 | [optimize/excellence-assessment.md](optimize/excellence-assessment.md) | Engineers, platform owners | Fabric Excellence Assessment methodology: controls, outcomes, evidence, profiles, scores and their limits (on Optimize > Assessment > Excellence, Preview) |
+| [optimize/excellence-api-matrix.md](optimize/excellence-api-matrix.md) | Engineers, platform owners | Every Fabric read the excellence assessment makes, the scope and workspace role it needs, and the controls that depend on it |
 | [finops/cost-evidence.md](finops/cost-evidence.md) | Engineers, platform owners | Optimize > Cost and savings figures: measured, estimated, scenario and unknown, what is counted, units, and the measurement schema |
 | [notebook-resources.md](notebook-resources.md) | Engineers, analysts | Notebook resources: files beside a notebook, read in cells as `builtin/<file>`, and where they go |
 | [notebook-magics.md](notebook-magics.md) | Engineers, analysts | Notebook magics and cell languages: SQL results in `_sqldf`, `%sql` inside Python, what runs on this PC |
@@ -140,6 +141,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [product/enterprise-savings-intelligence-plan.md](product/enterprise-savings-intelligence-plan.md) | Contributors, platform owners, FinOps | The Enterprise Savings Intelligence program (ESI): the shared savings ledger, attribution and sync, phased stories |
 | [product/savings-reporting-schema.md](product/savings-reporting-schema.md) | Contributors, FinOps | The savings reporting layer (ESI-501): the `dim_` and `fact_` names a report or semantic model uses over the shared Optimization Lakehouse |
 | [product/central-control-plane-plan.md](product/central-control-plane-plan.md) | Contributors, platform owners | The KratosForge Environment: one manifest per organization, discovery, provisioning and status ([decisions](product/central-control-plane-decisions.md), [stories](product/central-control-plane-backlog.md)) |
+| [product/mobile-companion-plan.md](product/mobile-companion-plan.md) | Contributors, Chris | Mobile companion evaluation (proposed): pairing a phone by QR to monitor and steer this PC's runs ([decisions](product/mobile-companion-decisions.md), [UX](product/mobile-companion-ux.md), [security](product/mobile-companion-security.md), [stories](product/mobile-companion-backlog.md)) |
 | [product/platform-parity-assessment.md](product/platform-parity-assessment.md) | Contributors, platform owners | The three-platform parity program: assessment, scored backlog and a plan per area ([backlog](product/platform-parity-backlog.md)) |
 | [finops/plan.md](finops/plan.md) | Contributors, platform owners | The administration and FinOps program (FINOPS-001 to 005): audit, overlaps, PRs |
 | [product/enterprise-gap-analysis.md](product/enterprise-gap-analysis.md) | Platform owners, contributors | The enterprise product program: what exists for each capability FD-101 to FD-140, what's missing and who owns it ([backlog](product/enterprise-backlog.md), [decisions](product/implementation-decisions.md)) |
@@ -223,6 +225,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Best practices: checks and templates | Platform > Governance > Templates and Check this project; Data mesh > Products, open a product: its checklist ([governance.md](governance.md#best-practices-checks-and-templates-preview)) |
 | Source control | Source control |
 | Workloads | Monitor > KratosForge > Operations > Workloads, Home (inventory, health, ownership, the workload page, Your workloads) |
+| Incident SLA report | Monitor > KratosForge > Operations > Incidents > Reports: opened, resolved and still open, time to acknowledge and resolve, and SLAs met per priority ([incidents.md](incidents.md#sla-reports-preview)) |
 | Incidents | Monitor > KratosForge > Operations > Incidents (numbers, priorities, SLAs, reported incidents, your service desk, Who's affected; [incidents.md](incidents.md)) |
 | Agents | Monitor > KratosForge > Operations > Agents |
 | Queue | Monitor > KratosForge > Operations > Queue |
@@ -239,6 +242,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Altair charts in notebooks | Notebook > a cell that shows an Altair chart ([notebooks.md](notebooks.md)) |
 | Result downloads | Notebook > a table output > Download ([notebooks.md](notebooks.md)) |
 | Column lineage | Entity page, Lineage card: Columns, and Impact for what a column change breaks ([metadata-guide.md](metadata-guide.md#impact-of-a-column-change-preview)); **Export OpenLineage...** in Impact writes the lineage to Downloads ([metadata-guide.md](metadata-guide.md#export-lineage-as-openlineage-preview)) |
+| Compare data | SQL page on a lakehouse: Explorer › **Compare data**, or a table's menu › **Compare with…** compares the rows of two tables or queries on this PC, read only ([sql-execution.md](sql-execution.md#compare-data-preview)) |
 | Roll back a release | Data mesh > Deploy, Roll back... on a Test or Prod Last release card |
 | Promote | Data mesh > Deploy (always shown) |
 | Delta table features at publish | Data mesh > Deploy > Environments and promote, a choice for each table |

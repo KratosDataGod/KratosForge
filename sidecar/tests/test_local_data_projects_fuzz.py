@@ -7,10 +7,12 @@ file, and one bad project must not take the others off the list. Reading never c
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
 from fabric_desktop.localdata.projects import Project, ProjectStore
+from fabric_desktop.tmdl import _RESERVED as _DEVICE_NAMES
 from tests.settings_fuzz import mutations
 
 CASES = 200
@@ -105,3 +107,39 @@ def test_a_project_left_off_the_list_and_a_dropped_list_entry_are_logged(store, 
     text = caplog.text
     assert f"Local data project {fuzzed.id} isn't listed" in text and "project.json" in text
     assert "'hand-edit': 1.5" in text
+
+
+@pytest.mark.parametrize("name", ["NUL", "con", "Aux", "PRN", "com1", "LPT9", "  nul  ", "Nul!"])
+def test_a_project_named_like_a_windows_device_gets_a_folder_windows_can_open(store, name):
+    # On Windows a folder called nul or com1 opens the device, so the project file could never be written
+    project = store.create(name)
+    folder = Path(project.folder).name
+    assert folder.split(".")[0].upper() not in _DEVICE_NAMES, folder
+    assert folder == f"{name.strip(' !').lower()}-project"
+    assert store.load(project.id).name == name.strip()
+    assert store.create(f"{name.strip()} 2").id != project.id
+
+
+def test_a_name_that_only_starts_like_a_device_keeps_its_folder_name(store):
+    assert Path(store.create("Nullable").folder).name == "nullable"
+    assert Path(store.create("con sales").folder).name == "con-sales"
+
+
+def test_a_device_named_project_and_a_project_already_called_that_get_their_own_folders(store):
+    first = store.create("nul-project")
+    second = store.create("NUL")
+    assert (Path(first.folder).name, Path(second.folder).name) == ("nul-project", "nul-project-2")
+
+
+@pytest.mark.parametrize("part", ["nul", "CON", "com1.data", "lpt9 ", "aux.txt"])
+def test_a_chosen_folder_named_like_a_windows_device_is_refused_by_name(store, tmp_path, part):
+    folder = str(tmp_path / "picked" / part / "sales")
+    with pytest.raises(ValueError, match=f"because Windows reads {part!r} as a device, not a folder"):
+        store.create("Sales", folder=folder)
+    assert store.list() == []
+    assert not (tmp_path / "picked").exists()
+
+
+def test_a_chosen_folder_that_only_starts_like_a_device_is_used(store, tmp_path):
+    project = store.create("Sales", folder=str(tmp_path / "nullable" / "console"))
+    assert Path(project.folder).name == "console"

@@ -153,7 +153,7 @@ def test_top_with_ties_keeps_the_tied_rows(engine):
     "SELECT RADIANS(-45.01)",
     "SELECT DEGREES(CAST(1 AS DECIMAL(5, 2)))",
     "SELECT QUOTENAME('a', '(')",
-    "SELECT STR(1.5, 10, 20)",
+    "SELECT STR(1.5, 10, 8001)",  # WR-720: more than 16 decimals give 16 (str-transact-sql); past 8000 is refused
     "SELECT STR(1.5, boxes) FROM dbo.orders",
     "SELECT FORMAT(1e0, 'N2')",
     "SELECT TIMEFROMPARTS(13, 45, 30, 0, 8)",

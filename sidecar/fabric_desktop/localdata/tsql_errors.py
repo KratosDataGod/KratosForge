@@ -65,6 +65,10 @@ _NUMBERS = [
     (re.compile(r"^The conversion of the n?varchar value '.*' overflowed an int column\.$", re.DOTALL), 248),
     (re.compile(r"^Error converting data type varchar to (?:numeric|float|real)\.$"), 8114),
     (re.compile(r"^Conversion failed when converting date and/or time from character string\.$"), 241),
+    # WR-719: Database Engine events and errors 289 and 517, in their words
+    (re.compile(r"^Cannot construct data type date, some of the arguments have values which are not valid\.$"), 289),
+    (re.compile(r"^Adding a value to a '(?:date|datetime2)' column caused an overflow\.$"), 517),
+    (re.compile(r"^Invalid length parameter passed to the (?:LEFT|RIGHT) function\.$"), 536),
     (re.compile(r"^The conversion of a varchar data type to a (?:small)?datetime data type resulted in an "
                 r"out-of-range value\.$"), 242),
 ]

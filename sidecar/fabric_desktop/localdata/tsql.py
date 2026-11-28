@@ -763,7 +763,37 @@ def _harmless_setting(tree: exp.Expression) -> bool:
     return True
 
 
+def _concat_arguments(tree: exp.Expression) -> None:
+    """WR-721: CONCAT takes "a minimum of two input values; otherwise, CONCAT raises an error"
+    (functions/concat-transact-sql), and CONCAT_WS "a separator argument and a minimum of two other string value
+    arguments" (functions/concat-ws-transact-sql). DuckDB gave CONCAT('a') and CONCAT_WS(',', 'a') as 'a'. CONCAT_WS
+    with a NULL separator isn't described, so it stops by name: a NULL written in the query before anything runs,
+    a separator that is NULL in a row when that row is read."""
+    for call in list(tree.find_all(exp.Concat, exp.ConcatWs)):
+        values = call.expressions[1:] if isinstance(call, exp.ConcatWs) else call.expressions
+        name = "CONCAT_WS" if isinstance(call, exp.ConcatWs) else "CONCAT"
+        if len(values) < 2:
+            need = "a separator and at least two values" if name == "CONCAT_WS" else "at least two values"
+            raise ValueError(f"{name} takes {need} in T-SQL, which stops on fewer, so nothing ran here either. "
+                             "Give it another value, such as ''.")
+        if not isinstance(call, exp.ConcatWs) or not call.expressions:
+            continue
+        separator = call.expressions[0]
+        message = (_NOT_YET + "CONCAT_WS with a NULL separator isn't mapped yet, because T-SQL's reference doesn't "
+                   "say what it gives. {stopped} Use ISNULL(separator, '') for no separator.")
+        if isinstance(separator, exp.Null) or isinstance(separator, exp.Cast) and isinstance(separator.this, exp.Null):
+            raise ValueError(message.format(stopped="Nothing ran."))
+        if isinstance(separator, exp.Literal) or _volatile(separator):
+            continue
+        stop = exp.func("ERROR", exp.Literal.string(message.format(stopped="The statement stopped at that row.")))
+        check = exp.Case(ifs=[exp.If(this=exp.Is(this=separator.copy(), expression=exp.Null()), true=stop)],
+                         default=exp.Null())
+        call.replace(check)
+        check.set("default", call)
+
+
 def _refuse(tree: exp.Expression) -> None:
+    _concat_arguments(tree)
     for kind, what in _REFUSED.items():
         if isinstance(tree, kind):
             raise ValueError(f"The local engine doesn't run T-SQL {what} yet. {_LATER}")
@@ -1032,18 +1062,22 @@ def _table_columns(tree: exp.Expression) -> None:
             kind.set("expressions", [])  # DuckDB's BLOB takes no length: VARBINARY(4) stopped CREATE TABLE
 
 
+_SIZED_TEXT = re.compile(r"VARCHAR\(\d+\)")
+
+
 def _schema(columns: dict[str, dict[str, dict[str, str]]]) -> Any:
     from sqlglot.schema import MappingSchema
-    clean: dict[str, dict[str, dict[str, str]]] = {}
+    clean: dict[str, dict[str, dict[str, object]]] = {}
     for schema, tables in columns.items():
         for table, cols in tables.items():
-            kept = {}
+            kept: dict[str, object] = {}
             for col, kind in cols.items():
                 try:
-                    exp.DataType.build(kind, dialect="duckdb")
+                    built = exp.DataType.build(kind, dialect="duckdb")
                 except SqlglotError:
                     continue  # a nested type sqlglot can't read; that column stays untyped
-                kept[col] = kind
+                # WR-717: sqlglot's DuckDB reading drops VARCHAR(n)'s length; T-SQL's keeps it
+                kept[col] = exp.DataType.build(kind, dialect="tsql") if _SIZED_TEXT.fullmatch(kind) else built
             clean.setdefault(schema, {})[table] = kept
     return MappingSchema(cast(dict[str, object], clean), dialect="duckdb", normalize=True)
 
@@ -1114,7 +1148,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
              exp.Extract, exp.Pow,
              exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
              tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup,
-             exp.Case, exp.If, *_WHOLE_ARGUMENTS, exp.Anonymous, exp.Sign)
+             exp.Case, exp.If, *_WHOLE_ARGUMENTS, exp.Anonymous, exp.Sign, *_TEXT_ARGUMENTS)
     here = _in_order(tree, kinds)
     compared = _in_order(tree, _COMPARISONS)
     sized_ints = _sized_ints(tree)
@@ -1188,6 +1222,8 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
         if id(node) in done:
             continue
         _whole_arguments(node, info)
+        _text_arguments(node, info)
+        _no_bit_arithmetic(node, info)
         if isinstance(node, exp.Sub | exp.Mul):
             pass  # numbers, as DuckDB does them; only decimals need T-SQL's precision and scale
         elif isinstance(node, exp.WithinGroup):
@@ -1251,6 +1287,12 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
                 node.set(key, exp.cast(value, "TIMESTAMP"))
             elif not isinstance(node, exp.Extract) and _is(info.this.type, {exp.DataType.Type.DATE}):
                 _stays_a_date(node)
+                _date_add_in_range(node, "date")
+            elif isinstance(node, exp.DateAdd) and _is(info.this.type, {exp.DataType.Type.TIMESTAMP,
+                                                                         exp.DataType.Type.DATETIME2}):
+                _date_add_in_range(node, "datetime2")
+        elif isinstance(node, exp.DateFromParts):
+            _date_from_parts(node)
         elif isinstance(node, exp.Add):
             a, b = info.this.type, info.expression.type
             if _is(a, _TEXT) and _is(b, _TEXT):
@@ -1265,7 +1307,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             elif (_is(a, _TEXT) or _is(b, _TEXT)) and (_unknown(a) or _unknown(b)):
                 notes.append(f"Couldn't tell the types in {node.sql(dialect='tsql')}: T-SQL adds a number to text "
                              "as numbers and joins two strings, and here it is done as DuckDB does it.")
-        elif isinstance(node, (exp.Anonymous, *_WHOLE_ARGUMENTS)):
+        elif isinstance(node, (exp.Anonymous, *_WHOLE_ARGUMENTS, *_TEXT_ARGUMENTS)):
             pass  # their whole-number arguments, above
         else:
             to = node.args.get("to")
@@ -1278,6 +1320,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             source = _numeric_style(node, info) or written or info.this.type
             if (unchecked := node.meta.pop("tsql_unchecked_style", None)) is not None:
                 notes.append(_unchecked_style(unchecked))
+            _empty_text(node, info.this.type)
             _truncated(node, info.this.type)
             _sized_text(node, source)  # a no-op for the integer casts _truncated may replace
     _set_operation_types(tree, typed)
@@ -1565,14 +1608,7 @@ def _isnull_first_type(node: exp.Coalesce, info: exp.Expression) -> None:
         return
     other, other_type = node.expressions[0], info.expressions[0].type
     if kind.this in _SIZED and kind.expressions:
-        size = kind.expressions[0].this
-        if isinstance(size, exp.Literal) and not size.is_string and _is(other_type, _NUMBERS):
-            # A number too long for the text isn't cut ('12' for 12345): it converts as CAST(12345 AS VARCHAR(2)).
-            sized = exp.Cast(this=other, to=kind.copy())
-            node.set("expressions", [sized])
-            _sized_text(sized, other_type)
-        elif isinstance(size, exp.Literal) and not size.is_string:
-            node.set("expressions", [exp.func("LEFT", exp.cast(other, "VARCHAR"), exp.Literal.number(int(size.name)))])
+        _cut_to_text(node, "expressions", other, other_type, kind)
     elif kind.this in _INTEGERS - {exp.DataType.Type.BIT, exp.DataType.Type.BOOLEAN} and not _is(other_type, _INTEGERS):
         cut = exp.Cast(this=other, to=kind.copy())
         node.set("expressions", [cut])
@@ -1659,12 +1695,32 @@ def _default_takes_value_type(node: exp.Lag | exp.Lead, info: exp.Expression) ->
     a default of 1.5. DuckDB rounded it to 2."""
     default, typed = node.args.get("default"), info.args.get("default")
     kind = info.this.type
+    if default is not None and typed is not None and kind is not None and kind.this in _SIZED and kind.expressions:
+        _cut_to_text(node, "default", default, typed.type, kind)  # WR-717: a VARCHAR(n) value cuts its default
+        return
     if default is None or typed is None or not _is(kind, _INTEGERS - _BITS) or _is(typed.type, _INTEGERS):
         return
     assert kind is not None
     cut = exp.Cast(this=default, to=kind.copy())
     node.set("default", cut)
     _truncated(cut, typed.type)
+
+
+def _cut_to_text(node: exp.Expression, key: str, other: exp.Expression, other_type: exp.DataType | None,
+                 kind: exp.DataType) -> None:
+    """``other`` (node's ``key``) converted to the sized text ``kind``, as ISNULL and LAG convert their second
+    value: text is cut to the length, and a number too long for it isn't cut ('12' for 12345): it converts as
+    CAST(12345 AS VARCHAR(2))."""
+    size = kind.expressions[0].this
+    if not (isinstance(size, exp.Literal) and not size.is_string):
+        return
+    if _is(other_type, _NUMBERS):
+        sized = exp.Cast(this=other, to=kind.copy())
+        node.set(key, [sized] if key == "expressions" else sized)
+        _sized_text(sized, other_type)
+    else:
+        cut = exp.func("LEFT", exp.cast(other, "VARCHAR"), exp.Literal.number(int(size.name)))
+        node.set(key, [cut] if key == "expressions" else cut)
 
 
 # T-SQL converts an integer to a decimal of this precision when it meets one in arithmetic.
@@ -1948,6 +2004,39 @@ def _same_type(node: exp.Expression, arg: exp.DataType | None) -> list[str]:
         return [(f"Couldn't tell the type in {node.sql(dialect='tsql')}: it gives a float, as DuckDB does, and T-SQL "
                 "gives the argument's type (an integer gives an integer).")]
     return []
+
+
+# WR-718: CAST and CONVERT's page says only that '' to a decimal is an error (as it is here, 8114); '' to an int is
+# 0 (WR-247). What '' gives for these types isn't written down, so it's refused by name rather than guessed.
+_EMPTY_UNKNOWN = {exp.DataType.Type.DOUBLE: "float", exp.DataType.Type.FLOAT: "real", exp.DataType.Type.BOOLEAN: "bit",
+                  exp.DataType.Type.BIT: "bit", exp.DataType.Type.DATE: "date", exp.DataType.Type.TIME: "time",
+                  exp.DataType.Type.TIMESTAMP: "datetime2", exp.DataType.Type.DATETIME2: "datetime2",
+                  exp.DataType.Type.DATETIME: "datetime", exp.DataType.Type.SMALLDATETIME: "smalldatetime"}
+
+
+def _empty_text(node: exp.Expression, source: exp.DataType | None) -> None:
+    """``CAST('' AS FLOAT)``, ``TRY_CONVERT(DATE, '')`` and the like stop by name: DuckDB stopped on a cast, gave
+    NULL for a TRY_, or answered 241 or 8114 where T-SQL's reference gives no answer. Text written in the query is
+    refused before anything runs; a text value is checked as each row is read."""
+    to = node.args.get("to")
+    if not isinstance(to, exp.DataType) or to.this not in _EMPTY_UNKNOWN or not _is(source, _TEXT):
+        return
+    name = "TRY_CAST or TRY_CONVERT" if isinstance(node, exp.TryCast) else "CAST or CONVERT"
+    message = (_NOT_YET + f"{name} of empty text ('') to {_EMPTY_UNKNOWN[to.this]} isn't mapped yet, because T-SQL's "
+               "reference doesn't say what it gives. {stopped} Use NULLIF(x, '') to make it NULL first.")
+    value = node.this
+    if isinstance(value, exp.Literal) and value.is_string:
+        if not value.name.strip(" "):
+            raise ValueError(message.format(stopped="Nothing ran."))
+        return
+    message = message.format(stopped="The statement stopped at that value.")
+    if not isinstance(value, exp.Expression) or isinstance(value, exp.Null) or _volatile(value):
+        return
+    empty = exp.EQ(this=exp.func("TRIM", value.copy(), exp.Literal.string(" ")), expression=exp.Literal.string(""))
+    stop = exp.Cast(this=exp.func("ERROR", exp.Literal.string(message)), to=to.copy())
+    holder = exp.Case(ifs=[exp.If(this=empty, true=stop)], default=exp.Null())
+    node.replace(holder)
+    holder.set("default", node)
 
 
 def _truncated(node: exp.Expression, source: exp.DataType | None) -> None:
@@ -3019,7 +3108,8 @@ def _str(args: list[exp.Expression]) -> exp.Expression:
     ``decimals`` places (0, at most 16), rounded; fewer places when they don't fit, and ``length``
     asterisks when the whole number doesn't, as T-SQL does."""
     length = _whole_literal(args[1], "length", 1, 8000) if len(args) > 1 else 10
-    places = min(_whole_literal(args[2], "decimals", 0, 16), 16) if len(args) > 2 else 0
+    # WR-720: "If decimal is more than 16, the result is truncated to 16 places" (functions/str-transact-sql)
+    places = min(_whole_literal(args[2], "decimals", 0, 8000), 16) if len(args) > 2 else 0
     value = exp.Cast(this=args[0].copy(), to=exp.DataType.build("DOUBLE"))
     width = exp.Literal.number(length)
     ifs = []
@@ -3461,7 +3551,7 @@ def _left_right(node: exp.Left | exp.Right) -> None:
             int(value) if math.isfinite(value) else _INFINITE
         whole = _in_range(exact, "bigint")
         if whole < 0:
-            raise ValueError(f"This T-SQL can't be run on the local engine: {message} T-SQL gives the same error.")
+            raise ValueError(message)  # T-SQL's 536, in its words (WR-719)
         if not _whole(length, 0) or whole > _LONGEST:  # 2.0, 1e1, 2.7: DuckDB rounds or won't bind them
             node.set("expression", exp.Literal.number(min(whole, _LONGEST)))
         return
@@ -3861,6 +3951,91 @@ def _datepart(node: exp.Expression, function: str) -> str:
         raise ValueError(f"{function} doesn't take the date part {name.lower()}.")
     node.set("unit", exp.var(_DUCKDB_PART.get(part, part)))
     return part
+
+
+_DATE_ADD_OVERFLOW = "Adding a value to a ''{kind}'' column caused an overflow."
+_DATE_PARTS_INVALID = "Cannot construct data type date, some of the arguments have values which are not valid."
+
+
+def _date_add_in_range(node: exp.Expression, kind: str) -> None:
+    """WR-719: ``DATEADD`` past 9999-12-31 or before 0001-01-01 is error 517 in T-SQL (Database Engine events and
+    errors, 517: "Adding a value to a '%ls' column caused an overflow."). DuckDB's dates go on past 9999, so the
+    value stopped only when it was shown, and a WHERE or an INSERT took year 10000 as it was. The DATEADD inside
+    EOMONTH stops too, in words of its own."""
+    if not isinstance(node, exp.DateAdd):
+        return
+    outer = node.parent
+    while isinstance(outer, exp.Cast):
+        outer = outer.parent
+    to = "DATE" if kind == "date" else "TIMESTAMP"
+    message = _DATE_ADD_OVERFLOW.format(kind=kind)
+    if isinstance(outer, exp.LastDay):  # EOMONTH's page names no error, so it has no number here
+        message = "EOMONTH''s result is past 9999-12-31 or before 0001-01-01."
+    _checked(node, f"CASE WHEN kf_value < CAST('0001-01-01' AS DATE) OR kf_value >= CAST('10000-01-01' AS DATE) "
+                   f"THEN CAST(error('{message}') AS {to}) ELSE kf_value END")
+
+
+def _date_from_parts(node: exp.DateFromParts) -> None:
+    """WR-719: ``DATEFROMPARTS`` of a date that isn't there is error 289 in T-SQL (functions/datefromparts-transact-sql:
+    "For invalid arguments, DATEFROMPARTS will raise an error"; Database Engine events and errors, 289). DuckDB's
+    MAKE_DATE stopped in its own words for 2024-02-30, and made year 10000 or year 0 a date."""
+    parts = [node.args.get(k) for k in ("year", "month", "day")]
+    if any(not isinstance(p, exp.Expression) or _volatile(p) for p in parts):
+        return
+    filled = sqlglot.parse_one(
+        "CASE WHEN __y IS NULL OR __m IS NULL OR __d IS NULL THEN CAST(NULL AS DATE) "
+        "WHEN __y BETWEEN 1 AND 9999 AND __m BETWEEN 1 AND 12 AND __d BETWEEN 1 AND 31 "
+        "AND __d <= DAY(LAST_DAY(MAKE_DATE(CAST(LEAST(GREATEST(__y, 1), 9999) AS BIGINT), "
+        "CAST(LEAST(GREATEST(__m, 1), 12) AS BIGINT), 1))) "
+        "THEN MAKE_DATE(CAST(__y AS BIGINT), CAST(__m AS BIGINT), CAST(__d AS BIGINT)) "
+        f"ELSE CAST(error('{_DATE_PARTS_INVALID}') AS DATE) END", read="duckdb")
+    by_name = dict(zip(("__y", "__m", "__d"), parts, strict=True))
+    for holder in list(filled.find_all(exp.Column)):
+        if holder.name in by_name:
+            part = by_name[holder.name]
+            assert part is not None
+            holder.replace(exp.Paren(this=part.copy()))
+    node.replace(filled)
+
+
+# WR-720: the text argument of these string functions. T-SQL converts a number there to text, as CAST(x AS VARCHAR)
+# writes it (REPLACE(12.5, '.', ',') is '12,5'); DuckDB had no overload for a number and stopped.
+_TEXT_ARGUMENTS: dict[type[exp.Expression], tuple[str, ...]] = {
+    exp.Replace: ("this",), exp.Trim: ("this",), exp.Translate: ("this",), exp.Repeat: ("this",),
+    exp.Upper: ("this",), exp.Lower: ("this",), exp.Stuff: ("this",), exp.Substring: ("this",),
+    exp.StrPosition: ("this",),
+}
+
+
+def _text_arguments(node: exp.Expression, info: exp.Expression) -> None:
+    """A number (or a bit) where one of ``_TEXT_ARGUMENTS`` takes text, written as T-SQL writes it as text."""
+    keys = _TEXT_ARGUMENTS.get(type(node))
+    if keys is None:
+        return
+    for key in keys:
+        arg, typed = node.args.get(key), info.args.get(key)
+        if not isinstance(arg, exp.Expression) or not isinstance(typed, exp.Expression):
+            continue
+        if _is(typed.type, _NUMBERS | _BITS) and not isinstance(arg, exp.Null):
+            text = exp.Cast(this=exp.Null(), to=exp.DataType.build("VARCHAR(8000)", dialect="tsql"))
+            arg.replace(text)
+            text.set("this", arg)
+            _sized_text(text, typed.type)
+
+
+_ARITHMETIC_OPS: dict[type[exp.Expression], str] = {exp.Add: "+", exp.Sub: "-", exp.Mul: "*", exp.Div: "/", exp.Mod: "%"}
+
+
+def _no_bit_arithmetic(node: exp.Expression, info: exp.Expression) -> None:
+    """WR-720: ``+`` takes "any one of the data types in the numeric category except the bit data type"
+    (language-elements/add-transact-sql; - * / % the same), so arithmetic on a bit is refused by name. DuckDB
+    stopped with its own binder error."""
+    op = _ARITHMETIC_OPS.get(type(node))
+    if op is None or not isinstance(node, exp.Binary):
+        return
+    if _is(info.this.type, _BITS) or _is(info.expression.type, _BITS):
+        raise ValueError(_NOT_YET + f"{op} with a bit value isn't mapped yet, because T-SQL's reference leaves bit "
+                         "out of arithmetic. Nothing ran. CAST the bit to INT first.")
 
 
 def _stays_a_date(node: exp.Expression) -> None:

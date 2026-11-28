@@ -157,6 +157,7 @@ CLAIMS: list[Claim] = [
     _ts("SIGN(CAST(5 AS FLOAT)) / 2"),
     _ts("CHOOSE(1.9, 'a', 'b')"),
     _ts("SUBSTRING('abcdef', 2.9, 2)"),
+    _ts("REPLACE(12.5, '.', ',')"),  # WR-720
     _ts("LAG(int_column, 1, 1.5)", query="SELECT LAG(int_column, 1, 1.5) OVER (ORDER BY int_column) "
         "FROM (VALUES (7)) AS t(int_column)"),
     # Local T-SQL JSON

@@ -3584,7 +3584,7 @@ def _char_codes(tree: exp.Expression) -> None:
                 node.set("this", exp.Nullif(this=text.copy(), expression=exp.Literal.string("")))
             continue
         if len(node.expressions) != 1:  # sqlglot keeps the others but writes only the first
-            raise ValueError("The char function requires 1 argument(s). Nothing ran: T-SQL stops on it too.")
+            raise ValueError("The char function requires 1 argument(s). Nothing ran, because T-SQL stops on it too.")
         code = node.expressions[0]
         value = _number(code)
         if value is not None:

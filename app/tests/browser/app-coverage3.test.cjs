@@ -71,7 +71,7 @@ test("with Preview hidden, Runs on lists this PC, Same as Dev and the OneLake wr
   await page().locator("#menu").waitFor();
   const items = (await menuItems()).map((t) => t.trim());
   assert.deepStrictEqual(items, ["This PC (no Fabric job)", "Same as Dev (this PC)", "Write here, then upload in the background",
-    "Straight to OneLake (fast upload line)", "Same as Settings (Write here, then upload)",
+    "Straight to OneLake (fast upload line)", "Same as Settings (Write here, then upload in the background)",
     "Open the folder of local writes", "Restart kernel"], "no Fabric option while Preview is hidden and the notebook isn't set to Fabric");
   assert.match(await page().locator("#menu .info").first().innerText(), /Where Run all runs this notebook\./);
 

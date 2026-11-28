@@ -2529,12 +2529,14 @@ function computeMenu(nb) {
 // kept in the notebook file, or the Settings default.
 function oneLakeWritesMenu(nb) {
   const fallback = state.settings?.onelake_writes?.value || "local_first";
-  const label = (mode) => (ONELAKE_WRITES.find(([v]) => v === mode) || [])[1] || mode;
+  const LOCAL_FIRST = "Write here, then upload in the background";
+  // The fallback quotes the option above word for word.
+  const label = (mode) => mode === "local_first" ? LOCAL_FIRST : (ONELAKE_WRITES.find(([v]) => v === mode) || [])[1] || mode;
   const option = (value, text, iconName) => ({ label: text, icon: (nb.onelake_writes || null) === value ? "ok" : iconName,
     action: () => setNotebookOneLakeWrites(value) });
   return [
     { info: "Table writes to OneLake from this PC." },
-    option("local_first", "Write here, then upload in the background", "save"),
+    option("local_first", LOCAL_FIRST, "save"),
     option("direct", "Straight to OneLake (fast upload line)", "cloud"),
     option(null, `Same as Settings (${label(fallback)})`, "sync"),
     { label: "Open the folder of local writes", icon: "folderOpen", action: () => openLocalWrites() },

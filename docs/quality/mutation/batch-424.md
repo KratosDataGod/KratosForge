@@ -39,3 +39,5 @@ No bugs were found.
 | `academy/sqlprojlab.py` | 206 | `o["kind"] == "schema"` to `!=` in the set of schemas to create | Equivalent in effect. A schema object's own `schema` is its name, so every schema the project needs is still created; the mutant only adds empty schemas named after the project's other objects, which nothing reads. |
 | `academy/sqlprojlab.py` | 208 | `chr(34)` to `chr(35)`, and `chr(34) * 2` to `* 3`, when quoting a schema name | Equivalent: `_segment_ok` refuses a name with a double quote, so the replacement never has anything to replace. |
 | `academy/sqlprojlab.py` | 316 | `fetchmany(MAX_ROWS + 1)` to `+ 0` | Equivalent: only `rows[:MAX_ROWS]` is used, so the extra row is never read. |
+
+Lane A scored the same module at the same time, in batch 429 (#3309). The two runs used different tests and neither saw the other's, so this page and batch 429's page each report their own run. Neither is a re-score of the other.

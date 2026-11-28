@@ -35,3 +35,5 @@ No bugs were found.
 | `academy/workspace.py` | 46 | `st_reparse_tag` default 0 to 1 | Equivalent: Windows stat results have the attribute, and 1 has no bit in common with the name-surrogate bit. |
 | `academy/workspace.py` | 55 | `O_BINARY` default 0 to 1 | Equivalent: the line runs only on Windows, where `os` has `O_BINARY`. |
 | `academy/workspace.py` | 55 | `O_NOINHERIT` default 0 to 1 | Equivalent: the line runs only on Windows, where `os` has `O_NOINHERIT`. |
+
+Lane A scored the same module at the same time, in batch 393 (#3308). The two runs used different tests and neither saw the other's, so this page and batch 393's page each report their own run. Neither is a re-score of the other.

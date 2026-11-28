@@ -37,3 +37,5 @@ No bugs were found.
 | --- | --- | --- | --- |
 | `academy/lab.py` | 324 | `zip(..., strict=False)` to `strict=True` when pairing results with checks | Equivalent: the zip runs only after the lengths compared equal (`and` short-circuits), so strict never raises. |
 | `academy/lab.py` | 441 | `int(st.get("hints_used") or 0)` to `or 1` in hint | Equivalent: the result goes into `max(..., level)`, and level is at least 1. |
+
+Lane A scored the same module at the same time, in batch 432 (#3309). The two runs used different tests and neither saw the other's, so this page and batch 432's page each report their own run. Neither is a re-score of the other.

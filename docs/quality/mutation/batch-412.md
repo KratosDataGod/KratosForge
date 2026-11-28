@@ -33,3 +33,5 @@ No bugs were found.
 | Module | Line | Mutant | Why it is left |
 | --- | --- | --- | --- |
 | `academy/exam.py` | 297 | rank of `right` 2 to 3 | Equivalent: the rank is only used to sort, and 1 < 3 sorts the same as 1 < 2. |
+
+Lane A scored the same module at the same time, in batch 392 (#3308). The two runs used different tests and neither saw the other's, so this page and batch 392's page each report their own run. Neither is a re-score of the other.

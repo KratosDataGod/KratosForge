@@ -32,3 +32,5 @@ No bugs were found.
 | Module | Line | Mutant | Why it is left |
 | --- | --- | --- | --- |
 | `central/requests_service.py` | 423 | `_rank(have) > _rank(role)` to `>=` | Equivalent: two roles of the same rank are the same role, and that case has already returned "same" on line 422. |
+
+Lane A scored the same module at the same time, in batch 381 (#3309). The two runs used different tests and neither saw the other's, so this page and batch 381's page each report their own run. Neither is a re-score of the other.

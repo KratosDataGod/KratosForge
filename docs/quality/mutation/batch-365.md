@@ -29,3 +29,5 @@ No bugs were found.
 | --- | --- | --- | --- |
 | `spark_coverage.py` | 82 | `value > 0` constant changed (0 → 1) | Equivalent: the value is already known to be an infinity, so any finite threshold gives the same sign. |
 | `spark_coverage.py` | 82 | `value > 0` boundary (`>=`) | Equivalent: same reason; zero is not an infinity. |
+
+Lane A scored the same module at the same time, in batch 382 (#3309). The two runs used different tests and neither saw the other's, so this page and batch 382's page each report their own run. Neither is a re-score of the other.

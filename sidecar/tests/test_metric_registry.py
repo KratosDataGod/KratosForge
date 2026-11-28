@@ -95,6 +95,36 @@ def test_names_match_trimmed_and_casefolded() -> None:
     assert [c["sources"] for c in found if c["name"] == "total amount"] == [["a (orders)", "b (orders)"]]
 
 
+def test_identical_text_read_by_l2_on_one_side_only_is_no_conflict() -> None:
+    # [helper] is a measure in a, so L2 reads the reference; b has no such measure, so L2 can't, and b is text only
+    a = _set(_set(_bim(), "helper", "SUM('orders'[amount])"), "m", "[helper]")
+    b = _set(_bim(), "m", "[helper]")
+    rows = mr.metrics({"a": a, "b": b})
+    m = {r["source"]: r for r in rows if r["name"] == "m"}
+    assert (m["a"]["basis"], m["b"]["basis"]) == (mr.L2, mr.TEXT_ONLY) and m["a"]["key"] != m["b"]["key"]
+    assert [c["name"] for c in mr.conflicts(rows)["conflicts"]] == []
+
+
+def test_agreement_is_transitive() -> None:
+    # b = a by text (b has no measure [helper], so L2 can't read it); a = c by L2 (the table written unquoted);
+    # b and c share neither key, yet all three are one group
+    expr = "DIVIDE([helper], SUM('orders'[amount]))"
+    a = _set(_set(_bim(), "helper", "SUM('orders'[amount])"), "m", expr)
+    b = _set(_bim(), "m", expr)
+    c = _set(_set(_bim(), "helper", "SUM('orders'[amount])"), "m", "DIVIDE([helper], SUM(orders[amount]))")
+    d = _set(_bim(), "m", "COUNTROWS('orders')")
+    rows = mr.metrics({"b": b, "c": c, "a": a, "d": d})
+    m = {r["source"]: r for r in rows if r["name"] == "m"}
+    assert m["b"]["key"] != m["c"]["key"] and m["b"]["_text_key"] != m["c"]["_text_key"]
+    (conflict,) = [x for x in mr.conflicts(rows)["conflicts"] if x["name"] == "m"]
+    assert conflict["agree"] == [["b (orders)", "c (orders)", "a (orders)"], ["d (orders)"]]
+    assert [x for x in mr.conflicts(mr.metrics({"b": b, "c": c, "a": a}))["conflicts"] if x["name"] == "m"] == []
+
+
+def test_public_rows_hold_no_internal_keys() -> None:
+    assert all(not k.startswith("_") for r in mr.public(mr.metrics({"a": _bim()})) for k in r)
+
+
 def test_possible_duplicates_are_inferred_and_apart() -> None:
     bim = _set(_bim(), "revenue", "SUM('orders'[amount])")
     report = mr.conflicts(mr.metrics({"a": bim}))

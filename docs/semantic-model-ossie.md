@@ -597,8 +597,10 @@ form, so `SUM('orders'[amount])` in DAX and `SUM(orders.amount)` in SQL share on
 expression, for example one with CALCULATE, the key comes from the text with case and spacing folded, and the
 row's `basis` says **text only**.
 
-`metric_registry.conflicts(rows)` groups the rows by name, trimmed and ignoring case. A name whose keys differ
-across sources is one conflict. It lists the sources and which of them agree, with L2's change lines as evidence,
+`metric_registry.conflicts(rows)` groups the rows by name, trimmed and ignoring case. Two rows agree when their
+keys match or their folded texts match, so the same text is never a conflict just because L2 could read it in one
+model and not the other. Agreement carries over: if A matches B by text and B matches C by L2, all three agree. A
+name with more than one group of agreeing sources is one conflict. It lists the sources and which of them agree, with L2's change lines as evidence,
 or "expressions differ (text only)". The same name with the same key isn't a conflict. Different names with the
 same key are listed apart as possible duplicates, labelled inferred.
 

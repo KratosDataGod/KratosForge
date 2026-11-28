@@ -10,9 +10,11 @@ The key is L2's canonical form (``semantic_parity._side_form``), so ``SUM('order
 filters, iterators...), the key is the text with case and spacing folded, and the row says so: ``basis`` is
 "text only". Either way the key is a keyed fingerprint, never the text.
 
-``conflicts(rows)`` groups the rows by name (trimmed, casefolded) and reports each name whose keys differ across
-sources as one conflict, with which sources agree and the evidence: L2's change lines where both sides have a form,
-else "expressions differ (text only)". Rows with different names and the same key are listed apart as possible
+``conflicts(rows)`` groups the rows by name (trimmed, casefolded). Two rows agree when their keys match or their
+folded texts match (every row with an expression keeps a keyed text key too, so identical text is never a conflict
+just because L2 read it on one side only), and agreement is transitive. A name with more than one group of agreeing
+sources is one conflict, with the groups and the evidence: L2's change lines where both sides have a form, else
+"expressions differ (text only)". Rows with different names and the same key are listed apart as possible
 duplicates, labelled inferred: a shared form is a hint, not a decision.
 
 Governed versus local: a row is governed only when the caller passes its (source, table, name) in ``governed``.
@@ -128,7 +130,8 @@ def _row(label: str, side: sp._Side, entry: dict[str, Any], raw: dict[str, Any],
             "format_string": _format(raw), "has_description": bool(mo._text(raw.get("description")).strip()),
             "dialects": [_cut(d) for d in dialects],
             "governance": GOVERNED if (label, table, name) in governed else LOCAL,
-            "_form": p["form"]}
+            "_form": p["form"],
+            "_text_key": None if text is None else _key(TEXT_ONLY, p["dialect"], _folded(text))}
 
 
 def metrics(definitions: Mapping[str, Any], *, kinds: Mapping[str, str] | None = None,
@@ -175,6 +178,36 @@ def _evidence(a: dict[str, Any], b: dict[str, Any]) -> list[str]:
     return out or [TEXT_DIFFERS]
 
 
+def _agreeing(group: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """The rows of one name in groups that agree (same key, or same text key), transitively: a union-find over the
+    rows, groups in first-seen order."""
+    parent = list(range(len(group)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    seen: dict[tuple[str, str], int] = {}
+    for i, r in enumerate(group):
+        for tag in ("key", "_text_key"):
+            value = r.get(tag)
+            if value is None:
+                continue
+            j = seen.setdefault((tag, value), i)
+            parent[find(i)] = find(j)
+    out: dict[int, list[dict[str, Any]]] = {}
+    for i, r in enumerate(group):
+        out.setdefault(find(i), []).append(r)
+    return list(out.values())
+
+
+def _shown(variant: list[dict[str, Any]]) -> dict[str, Any]:
+    """The row that speaks for a group in evidence: one L2 read, if any did."""
+    return next((r for r in variant if r["_form"] is not None), variant[0])
+
+
 def conflicts(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     """Conflicts (one per name whose keys differ) and possible duplicates (one per key under several names)."""
     rows = list(rows)
@@ -183,19 +216,16 @@ def conflicts(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
         by_name.setdefault(_name(r), []).append(r)
     found: list[dict[str, Any]] = []
     for group in by_name.values():
-        keys: dict[str, list[dict[str, Any]]] = {}
-        for r in group:
-            keys.setdefault(r["key"], []).append(r)
-        if len(keys) < 2:
+        variants = _agreeing(group)
+        if len(variants) < 2:
             continue
-        variants = list(keys.values())
-        first = variants[0][0]
+        first = _shown(variants[0])
         found.append({
             "name": _cut(first["name"]),
             "sources": [_where(r) for r in group],
             "agree": [[_where(r) for r in v] for v in variants],
             "governed": [_where(r) for r in group if r["governance"] == GOVERNED],
-            "evidence": [{"between": [_where(first), _where(v[0])], "changes": _evidence(first, v[0])}
+            "evidence": [{"between": [_where(first), _where(_shown(v))], "changes": _evidence(first, _shown(v))}
                          for v in variants[1:]]})
     by_key: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
@@ -215,5 +245,5 @@ def conflicts(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
 
 
 def public(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Rows without the internal L2 form ``conflicts`` compares, for showing or saving."""
+    """Rows without the internal L2 form and text key ``conflicts`` compares, for showing or saving."""
     return [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows]

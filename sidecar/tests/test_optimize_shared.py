@@ -167,6 +167,25 @@ def test_recommendation_lifecycle_is_events_and_checks_moves(tmp_path, lake):
     assert changes["outcome"].to_list() == ["dismissed", "open"]
 
 
+def test_a_state_a_newer_version_wrote_is_refused_not_a_crash(tmp_path, lake):
+    me = pc(tmp_path, lake=lake)
+    analysis(me, "r1", [finding()], [{"workspace_id": "w1", "item_id": "i1", "rule_id": "small_files",
+                                      "target": "dbo.sales", "kind": "optimize"}], finished_at="2026-10-18T10:01:00Z")
+    rid = me.recommendations()[0]["recommendation_id"]
+    me.set_recommendation_state(rid, "accepted")
+    me.set_recommendation_state(rid, "applied")
+    # A newer build moved it on to a state this one doesn't know.
+    last = lake.rows("fdopt_recommendations").sort("at").row(-1, named=True)
+    later = {**last, "record_id": "from-a-newer-build", "state": "reversed", "at": "2999-01-01T00:00:00+00:00"}
+    me._write("recommendations", [{k: v for k, v in later.items() if k != "installation_id"}])
+    assert me.recommendations() == []  # not offered as something to act on
+    assert me.recommendations(include_closed=True)[0]["state"] == "reversed"
+    for state in ("open", "verified", "superseded"):
+        with pytest.raises(ValueError, match="A newer version of KratosForge marked this recommendation reversed"):
+            me.set_recommendation_state(rid, state)
+    assert len(lake.rows("fdopt_recommendations")) == 4  # nothing written
+
+
 def test_a_reason_is_shared_without_secrets(tmp_path, lake):
     me = pc(tmp_path, lake=lake)
     analysis(me, "r1", [finding()], [{"workspace_id": "w1", "item_id": "i1", "rule_id": "small_files",

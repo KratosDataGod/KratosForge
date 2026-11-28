@@ -250,6 +250,9 @@ class Shared:
                         if r["recommendation_id"] == recommendation_id_), None)
         if current is None:
             raise ValueError("That recommendation isn't in this lakehouse, or is for an item you can't open.")
+        if current["state"] not in TRANSITIONS:  # a state a newer version added, such as "reversed"
+            raise ValueError(f"A newer version of KratosForge marked this recommendation {current['state']}. "
+                             "Update KratosForge to change it here.")
         if state not in TRANSITIONS[current["state"]]:
             raise ValueError(f"A recommendation that is {current['state']} can't be marked {state}.")
         at = _after(current["changed_at"])
@@ -321,7 +324,8 @@ class Shared:
                         include_closed: bool = False) -> list[dict[str, Any]]:
         """Each recommendation at its latest state, with its finding's artifact: ``reason``, ``impact``,
         ``effort`` and ``confidence`` are from when it was opened, ``state_reason`` is what the last
-        change said. Dismissed, verified and superseded ones only with ``include_closed``."""
+        change said. Dismissed, verified and superseded ones, and states a newer version added, only with
+        ``include_closed``."""
         events = self.rows("recommendations")
         if not len(events):
             return []
@@ -341,5 +345,7 @@ class Shared:
         ).join(opened, on="recommendation_id", how="left")
         latest = latest.with_columns(pl.when(pl.col("events") > 1).then(pl.col("state_reason")).alias("state_reason"))
         if not include_closed:
-            latest = latest.filter(~pl.col("state").is_in([DISMISSED, VERIFIED, SUPERSEDED]))
+            # Only the states known to be still open: one a newer version added (such as "retired") isn't
+            # offered as something to act on here.
+            latest = latest.filter(pl.col("state").is_in([OPEN, ACCEPTED, APPLIED]))
         return latest.sort(["changed_at", "recommendation_id"], descending=[True, False]).to_dicts()

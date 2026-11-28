@@ -371,6 +371,27 @@ def test_a_timeout_is_retryable_and_bad_input_isnt():
     assert (error_from(TypeError("t")).code, error_from(TypeError("t")).retryable) == ("invalid_input", False)
 
 
+def test_a_damaged_file_is_failed_not_invalid_input_and_keeps_its_message():
+    # The arguments were right; the file on disk (a notebook, a project.json) is what's wrong.
+    from fabric_desktop.jsonfile import damaged
+    err = error_from(damaged("bad.ipynb is damaged or isn't a notebook any more, so it can't be opened."))
+    assert (err.code, err.retryable) == ("failed", False)
+    assert err.message == "bad.ipynb is damaged or isn't a notebook any more, so it can't be opened."
+    assert error_from(ValueError("v")).code == "invalid_input"  # any other ValueError is still the arguments
+
+
+def test_a_damaged_file_is_a_plain_value_error_that_keeps_its_mark():
+    # The app's RPC replies and logs print the type's name ("ValueError: ..."), which the UI strips.
+    import pickle
+
+    from fabric_desktop.jsonfile import damaged
+    from fabric_desktop.redact import describe
+    exc = damaged("x is damaged")
+    assert type(exc) is ValueError and describe(exc) == "ValueError: x is damaged"
+    again = pickle.loads(pickle.dumps(exc))  # noqa: S301 - bytes this test just made
+    assert str(again) == "x is damaged" and error_from(again).code == "failed"
+
+
 # ---- run_call and the context
 
 def test_run_call_returns_none_for_a_handler_that_returns_nothing_and_passes_errors_redacted():

@@ -211,6 +211,8 @@ def error_from(exc: BaseException) -> IntegrationError:
         return IntegrationError("not_found", message[1:-1] if quoted else message)
     if isinstance(exc, TimeoutError):
         return IntegrationError("timeout", message, retryable=True)
+    if getattr(exc, "damaged_file", False) is True:  # the arguments were right; a file on disk is cut off or isn't what it should be
+        return IntegrationError("failed", message)
     if isinstance(exc, (ValueError, TypeError)):
         return IntegrationError("invalid_input", message)
     if isinstance(exc, RuntimeError):

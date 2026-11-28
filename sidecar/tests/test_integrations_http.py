@@ -302,9 +302,9 @@ def live(store):
     seen = []
     original = reg.invoke
 
-    def recording(service, cap_id, args, ctx):
+    def recording(service, cap_id, args, ctx, finish=None):
         seen.append(ctx)
-        return original(service, cap_id, args, ctx)
+        return original(service, cap_id, args, ctx, finish=finish)
     reg.invoke = recording  # type: ignore[method-assign]
     server = uvicorn.Server(uvicorn.Config(build_app(reg, store, port), log_level="warning"))
     thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)

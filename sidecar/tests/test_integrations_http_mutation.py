@@ -144,9 +144,9 @@ def _app(store, monkeypatch, seconds=0.5, value=None):
     reg.register(Capability("ext_echo", "Echo", "Echoes.", schema(), schema(extra=True), "READ_METADATA",
                             lambda s, c: {}, needs_service=False))
 
-    def invoke(service, cap_id, arguments, ctx):
+    def invoke(service, cap_id, arguments, ctx, finish=None):
         ctx.seconds = seconds
-        return value
+        return finish(value) if finish is not None else value
 
     monkeypatch.setattr(reg, "invoke", invoke)
     _, token = store.add_client("Script", "http", transport="http", grants=["READ_METADATA"])

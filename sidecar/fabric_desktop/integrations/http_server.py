@@ -48,6 +48,12 @@ from .store import IntegrationStore
 
 MAX_BODY_BYTES = 1024 * 1024
 REFUSED_EVERY = 10.0  # seconds between audit lines for the same refused request
+# MCP over HTTP (the 2025-11-25 protocol) keeps a session per tool, at most MCP_SESSIONS at once. One
+# with no request in flight and no open GET stream for MCP_SESSION_IDLE_SECONDS is closed, and the tool
+# starts a new one (its old id answers 404). A tool killed without a DELETE frees its place after that,
+# not after the SDK's 30 minutes, so 20 such tools can't lock the others out for half an hour.
+MCP_SESSIONS = 20
+MCP_SESSION_IDLE_SECONDS = 300.0
 PRUNE_AT = 256        # entries in a per-tool map before what it no longer needs is let go
 MAX_RESULT_BYTES = 1_000_000
 RATE_PER_SECOND = 5.0      # sustained requests per tool
@@ -378,9 +384,16 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
         cap = registry.get(cap_id)
         ctx = CallContext(caller_of(request), timeout=cap.timeout if cap else 60.0)
 
+        def sized(value: Any) -> str:
+            text = json.dumps({"ok": True, "capability": cap_id, "seconds": ctx.seconds, "result": value}, default=str)
+            if len(text.encode()) > MAX_RESULT_BYTES:  # refused before the line is written, so it says so
+                raise IntegrationError("too_large", "The result is bigger than the API returns.",
+                                       hint="Ask for a smaller page (limit).")
+            return text
+
         def run() -> Any:
             service = holder.get() if cap is not None and cap.needs_service else None
-            return registry.invoke(service, cap_id, arguments, ctx)
+            return registry.invoke(service, cap_id, arguments, ctx, finish=sized)
 
         with anyio.move_on_after(QUEUE_WAIT_SECONDS) as waiting:
             await slots.acquire()
@@ -412,12 +425,7 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
             slots.release()
         if "error" in result:
             return error_response(error_from(result["error"]))
-        payload = {"ok": True, "capability": cap_id, "seconds": ctx.seconds, "result": result.get("value")}
-        text = json.dumps(payload, default=str)
-        if len(text.encode()) > MAX_RESULT_BYTES:
-            return error_response(IntegrationError("too_large", "The result is bigger than the API returns.",
-                                                   hint="Ask for a smaller page (limit)."))
-        return Response(text, media_type="application/json")
+        return Response(result["value"], media_type="application/json")
 
     def mcp_caller(ctx: Any) -> Caller:
         client = ctx.request.scope["state"]["fd_client"]
@@ -425,7 +433,8 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
 
     mcp = build_server(registry, service_factory, caller_for=mcp_caller, refresh=refresh)
     manager = StreamableHTTPSessionManager(
-        app=mcp, max_request_body_size=MAX_BODY_BYTES, max_sessions=20,
+        app=mcp, max_request_body_size=MAX_BODY_BYTES, max_sessions=MCP_SESSIONS,
+        session_idle_timeout=MCP_SESSION_IDLE_SECONDS,
         security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=sorted(Guard(None, store, port).hosts),  # type: ignore[arg-type]
                                                     allowed_origins=[]))
 

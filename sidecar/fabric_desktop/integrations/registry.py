@@ -331,16 +331,21 @@ class Registry:
 
     # ---- calling
 
-    def invoke(self, service: Any, cap_id: str, arguments: dict[str, Any] | None, ctx: CallContext) -> Any:
+    def invoke(self, service: Any, cap_id: str, arguments: dict[str, Any] | None, ctx: CallContext,
+               finish: Callable[[Any], Any] | None = None) -> Any:
         """The one way an external caller runs a capability. Raises IntegrationError. Every call,
-        whatever happens to it, gets an audit line when an audit sink is set (PR-AI-010)."""
+        whatever happens to it, gets an audit line when an audit sink is set (PR-AI-010).
+
+        ``finish`` is the transport's last step with the result (encode it, refuse it as too_large);
+        invoke returns what it returns. It runs before the line is written, so a result the transport
+        refuses is recorded as refused, as the caller saw it, on the call's one line."""
         arrived, clock = time.time(), time.monotonic()
         cap = self.get(cap_id)
         error: IntegrationError | None = None
         result: Any = None
         try:
             result = self._invoke(service, cap, cap_id, arguments, ctx)
-            return result
+            return finish(result) if finish is not None else result
         except IntegrationError as exc:
             # Secrets out of every refusal, whoever raised it: a handler's or an authorizer's message
             # may carry the engine's text.

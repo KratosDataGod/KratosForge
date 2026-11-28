@@ -175,12 +175,12 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `compare_link` | `sidecar/fabric_desktop/compare_service.py:136` | Databricks, Snowflake or a Git remote | that service's own rights |
 | `compare_pricing_save` | `sidecar/fabric_desktop/compare_service.py:145` | this PC | the signed-in Windows user's own files |
 | `compare_unlink` | `sidecar/fabric_desktop/compare_service.py:141` | this PC | the signed-in Windows user's own files |
-| `cp_adopt` | `sidecar/fabric_desktop/controlplane_service.py:296` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
-| `cp_connect` | `sidecar/fabric_desktop/controlplane_service.py:346` | Fabric or OneLake | Fabric's own rights; PermissionError; organization policy |
-| `cp_create` | `sidecar/fabric_desktop/controlplane_service.py:276` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
-| `cp_disconnect` | `sidecar/fabric_desktop/controlplane_service.py:367` | this PC | the signed-in Windows user's own files |
-| `cp_switch` | `sidecar/fabric_desktop/controlplane_service.py:360` | this PC | PermissionError; organization policy |
-| `cp_upgrade` | `sidecar/fabric_desktop/controlplane_service.py:320` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
+| `cp_adopt` | `sidecar/fabric_desktop/controlplane_service.py:354` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
+| `cp_connect` | `sidecar/fabric_desktop/controlplane_service.py:402` | Fabric or OneLake | Fabric's own rights; PermissionError; organization policy |
+| `cp_create` | `sidecar/fabric_desktop/controlplane_service.py:334` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
+| `cp_disconnect` | `sidecar/fabric_desktop/controlplane_service.py:423` | this PC | the signed-in Windows user's own files |
+| `cp_switch` | `sidecar/fabric_desktop/controlplane_service.py:416` | this PC | PermissionError; organization policy |
+| `cp_upgrade` | `sidecar/fabric_desktop/controlplane_service.py:376` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
 | `create_lakehouse` | `sidecar/fabric_desktop/service.py:752` | Fabric or OneLake | Fabric's own rights |
 | `create_shortcut` | `sidecar/fabric_desktop/estate_service.py:289` | platform: log_shortcut_change; Fabric or OneLake | platform's check per operation; Fabric's own rights; PermissionError |
 | `databricks_billing` | `sidecar/fabric_desktop/engines_service.py:342` | Databricks, Snowflake or a Git remote | that service's own rights |
@@ -435,7 +435,7 @@ Reached only by the app window, over the engine's own pipe. "What it changes" an
 | `optimize_disconnect` | `sidecar/fabric_desktop/optimize_service.py:170` | this PC | the signed-in Windows user's own files |
 | `optimize_new_installation_id` | `sidecar/fabric_desktop/optimize_service.py:176` | this PC | the signed-in Windows user's own files |
 | `optimize_set_label` | `sidecar/fabric_desktop/optimize_service.py:179` | this PC | the signed-in Windows user's own files |
-| `optimize_set_recommendation` | `sidecar/fabric_desktop/optimize_service.py:530` | Fabric or OneLake | Fabric's own rights; PermissionError; organization policy |
+| `optimize_set_recommendation` | `sidecar/fabric_desktop/optimize_service.py:531` | Fabric or OneLake | Fabric's own rights; PermissionError; organization policy |
 | `optimize_share_local_runs` | `sidecar/fabric_desktop/optimize_service.py:402` | Fabric or OneLake | Fabric's own rights; PermissionError; confirm or approve argument; organization policy |
 | `optimize_switch` | `sidecar/fabric_desktop/optimize_service.py:166` | this PC | the signed-in Windows user's own files |
 | `pbi_embed_token` | `sidecar/fabric_desktop/powerbi_embed_service.py:29` | this PC | the signed-in Windows user's own files |

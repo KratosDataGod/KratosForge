@@ -137,7 +137,7 @@ Each class has five class achievements, shown above its trees. An earned one sho
 evidence first met it, or just "Earned" when that evidence has no date. One you're working toward
 shows how many of the talents it counts are at the level it needs. One that no one can earn yet says
 why: no lesson, exercise or check verifies a skill it needs yet, the exercises that would are still
-drafts, only simulated exercises or reading check it (which reach Apprentice), or only one lesson or
+drafts, only simulated exercises or reading check it (those count only up to Apprentice), or only one lesson or
 exercise checks it (Adept needs two). It opens by itself as that content is published. Like levels, they're worked out from your evidence each time, so one
 is never earned twice and is still there after a restart.
 

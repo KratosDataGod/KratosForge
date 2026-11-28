@@ -172,8 +172,8 @@ def reach(skill: dict[str, Any], sources: dict[str, dict[str, set[str]]] | None 
         # before Apprentice. With no hooks at all, ceiling() already says the skill is planned content.
         if not any(ev.values()):
             return 6, ""
-        return 1, ("Checked work in your own notebooks counts toward this skill, but going past Initiate also "
-                   "needs a lesson or exercise that checks it, and none does yet.")
+        return 1, ("Checked work in your own notebooks counts toward this skill. Going past Initiate also needs "
+                   "a lesson or exercise that checks this skill, and none does yet.")
     if any(h not in sources for h in hooks):
         return 6, ""
     real_kinds = ("practice", "simulated") if skill.get("cloud") else ("practice",)
@@ -183,8 +183,8 @@ def reach(skill: dict[str, Any], sources: dict[str, dict[str, set[str]]] | None 
     if real:
         return 3, "Adept needs two different lessons or exercises that check this skill, and one does so far."
     if any(sources[h].get("simulated") or sources[h].get("knowledge") for h in hooks):
-        return 2, ("So far only simulated exercises or reading check this skill on this PC, and they reach "
-                   "Apprentice. Journeyman needs an exercise that checks the work here.")
+        return 2, ("So far only simulated exercises or reading check this skill on this PC, and those count "
+                   "only up to Apprentice. Journeyman needs an exercise that checks the work here.")
     return 0, "The lessons and exercises that check this skill aren't published yet."
 
 

@@ -3717,7 +3717,7 @@ def _char_codes(tree: exp.Expression) -> None:
 
 _LAST_CODE = 0x10FFFF
 _SURROGATES = (0xD800, 0xDFFF)
-_SURROGATE = ("NCHAR of 55296 to 57343 (0xD800 to 0xDFFF) isn't mapped yet: each is half of a UTF-16 surrogate pair, "
+_SURROGATE = ("NCHAR of 55296 to 57343 (0xD800 to 0xDFFF) isn't mapped yet. Each is half of a UTF-16 surrogate pair, "
               "which the local engine's text can't hold. Give the character's own code, such as NCHAR(143743).")
 
 

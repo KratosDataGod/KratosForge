@@ -99,12 +99,15 @@ def words(line: str) -> list[str]:
     """A magic's arguments, split the way Windows' own command line splits them: spaces separate,
     quotes group a name with spaces, and a backslash is kept as it is (C:\\Users\\me\\req.txt
     arrives whole). Inside double quotes, \\" is a quote, as in "say \\"hi\\"", unless it ends
-    the word ("C:\\My Folder\\" is a folder). Single quotes keep everything inside them."""
+    the word ("C:\\My Folder\\" is a folder) and the rest of the line still reads with every quote
+    closed ("say \\"hi\\" there" is one word). Single quotes keep everything inside them."""
     out: list[str] = []
     word, started, quote, i, n = [], False, "", 0, len(line)
+    closes = _closes(line)
     while i < n:
         c = line[i]
-        if quote == '"' and c == "\\" and line[i + 1:i + 2] == '"' and not _ends_word(line, i + 2):
+        if quote == '"' and c == "\\" and line[i + 1:i + 2] == '"' and (
+                not _ends_word(line, i + 2) or not closes[i + 2]):
             word.append('"')
             i += 2
             continue
@@ -134,6 +137,23 @@ def _ends_word(line: str, i: int) -> bool:
     return i >= len(line) or line[i].isspace()
 
 
+def _closes(line: str) -> list[bool]:
+    """For each position, whether ``words`` reading from there outside quotes gets to the end of the
+    line with every quote closed; read from the end, so each \\" that could end a word is decided once."""
+    n = len(line)
+    out, in_double, in_single = [False] * (n + 2), [False] * (n + 2), [False] * (n + 2)
+    out[n] = True
+    for j in range(n - 1, -1, -1):
+        c = line[j]
+        out[j] = in_double[j + 1] if c == '"' else in_single[j + 1] if c == "'" else out[j + 1]
+        in_single[j] = out[j + 1] if c == "'" else in_single[j + 1]
+        if c == "\\" and line[j + 1:j + 2] == '"':
+            in_double[j] = in_double[j + 2] or (_ends_word(line, j + 2) and out[j + 2])
+        else:
+            in_double[j] = out[j + 1] if c == '"' else in_double[j + 1]
+    return out
+
+
 def find(code: str) -> list[Magic]:
     """The line magics (and ``!`` lines) in a cell's code, in order."""
     return [Magic(i, m[1], m[2], m[3]) for i, (_, m) in enumerate(_lines(code), 1) if m]
@@ -153,13 +173,14 @@ def rewrite(code: str) -> str:
 
 def blank(code: str) -> str:
     """The cell's code as reading tools see it: magic lines blanked, keeping line numbers, and
-    ``x = %magic ...`` kept as ``x = None`` so ``x`` is still defined there."""
+    ``x = %magic ...`` kept as ``x = None`` so ``x`` is still defined there. An indented magic
+    becomes ``pass``, since it may be all an ``if`` or ``for`` block holds."""
     out = []
     for text, m in _lines(code):
         if m is None:
             out.append(text)
         else:
-            out.append(f"{m[0]}{m[3]} = None" if m[3] else "")
+            out.append(f"{m[0]}{m[3]} = None" if m[3] else f"{m[0]}pass" if m[0] else "")
     return "\n".join(out)
 
 
@@ -292,10 +313,10 @@ def fabric_cell(c: dict) -> dict:
     if not parsed.header or parsed.header.startswith("%%") and parsed.language != "markdown":
         return c
     if parsed.language == "markdown":
-        return {**c, "type": "markdown", "source": parsed.body.strip("\n").removeprefix(" ")}
+        return {**c, "type": "markdown", "source": parsed.body.strip("\r\n").removeprefix(" ")}
     if parsed.language == "python":
         return {**c, "source": parsed.body.lstrip("\n")}
-    body = parsed.body.lstrip(" \t")
+    body = parsed.body.lstrip(" \t\r")  # %sql\r\n (a cell saved on Windows) gets no extra blank line
     return {**c, "source": _TO_FABRIC[parsed.language] + ("" if body.startswith("\n") else "\n") + body}
 
 

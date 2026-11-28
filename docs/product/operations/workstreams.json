@@ -1127,6 +1127,17 @@
         "Each key does one thing while presenting, debugging or editing Markdown"
       ],
       "agent": "Notebook parity"
+    },
+    "WR-139": {
+      "title": "Cell and line magics read the same after blank lines, CRLF, indents, quotes and longer names",
+      "priority": "P3",
+      "problem": "magics.py and the exports read magics with hand-picked tests; odd but valid cells were read wrong.",
+      "acceptance": [
+        "A seeded fuzz builds cells whose magic lines are known and checks find, rewrite, blank, cell, fabric_cell and words against them",
+        "A block that holds only a magic still reads as Python, a CRLF cell exports as its LF twin, and %%sql2 isn't %%sql",
+        "Each bug found has a regression test that fails before its fix"
+      ],
+      "agent": "Notebook parity"
     }
   },
   "side_programs": [

@@ -145,7 +145,7 @@ def test_top_with_ties_keeps_the_tied_rows(engine):
     "SELECT TOP 1 WITH TIES DISTINCT boxes FROM dbo.orders ORDER BY boxes",
     "SELECT value FROM STRING_SPLIT('a,b', ',', 1)",
     "SELECT ROUND(1.5, 0, boxes) FROM dbo.orders",
-    "SELECT DATALENGTH(5)",
+    "SELECT DATALENGTH(1.5)",  # a decimal(2,1); DATALENGTH(5) is 4 (WR-280)
     "SELECT POWER(2.0, 0.5)",
     "SELECT POWER(-2.5, 2)",
     "SELECT POWER(CAST(2 AS DECIMAL(5, 2)), 2)",
@@ -276,6 +276,8 @@ REFUSED_IN_THE_DOCS = {
     "OBJECT_ID": "SELECT OBJECT_ID('dbo.orders')",
     "SCHEMA_NAME": "SELECT SCHEMA_NAME(1)",
     "REGEXP_SUBSTR": "SELECT REGEXP_SUBSTR('abc', 'b')",
+    "JARO_WINKLER_SIMILARITY": "SELECT JARO_WINKLER_SIMILARITY('Colour', 'Color')",
+    "BIT_COUNT": "SELECT BIT_COUNT(1.5)",
     "GET_BIT": "SELECT GET_BIT(3, 0)",
     "SET_BIT": "SELECT SET_BIT(0, 1)",
     "STRING_AGG": "SELECT STRING_AGG(CAST(id AS VARCHAR(5)), CAST(boxes AS VARCHAR(5))) FROM dbo.orders",  # WR-270

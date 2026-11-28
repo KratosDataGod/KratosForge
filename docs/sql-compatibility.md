@@ -925,7 +925,16 @@ Arguments of another type are converted on the way in, as T-SQL converts them:
 
 `ROUND` of a decimal to `-(1)` works as `ROUND(x, -1)` does. A decimal rounded to a length worked out as the query runs, such as `-ABS(1)`, is refused by name. A `STRING_AGG` separator that isn't text written in the query (`CAST(NEWID() AS VARCHAR(40))`, a window, a subquery) is refused by name, as before.
 
-What can still differ: the types of arguments to `REGEXP_*`, `JSON_OBJECT`, `JSON_QUERY`, `ISJSON`, `QUOTENAME`, `PATINDEX`, `STRING_AGG`, `DATALENGTH`, `BIT_COUNT`, `JARO_WINKLER_SIMILARITY`, `VAR`, `VARP` and `STDEVP` aren't converted yet. A number or a date there, where T-SQL takes text, keeps the local engine's error.
+More functions convert their arguments the same way (WR-280):
+
+- A number, a `bit` or a `date` where `REGEXP_LIKE`, `REGEXP_REPLACE`, `REGEXP_COUNT`, `REGEXP_INSTR`, `JSON_VALUE`, `JSON_QUERY`, `ISJSON`, `QUOTENAME`, `PATINDEX` or a `JSON_OBJECT` key takes text is written as text first, as above: `REGEXP_REPLACE(12, '1', 'z')` is `z2`, and `QUOTENAME(12)` is `[12]`. Text for `REGEXP_*`'s start, occurrence, return option or group is made an `int`. Flags that aren't text, such as `REGEXP_LIKE(s, 'a', 1)`, are refused by name.
+- `DATALENGTH` of a number, a `bit` or a `date` is its type's size in bytes: `DATALENGTH(12)` is `4`. A `bigint` is 8, a `smallint` 2, a `tinyint` and a `bit` 1, a `float` 8, a `real` 4 and a `date` 3. A decimal column, or a `CAST` to a decimal with its precision, takes 5, 9, 13 or 17 bytes by precision. Other values are refused by name: a decimal worked out in the query, a number too big for an `int` written in the query, or a time type, because their T-SQL type isn't kept here.
+- `BIT_COUNT` takes an integer or binary value, as Microsoft Learn lists. A decimal, a float, a `bit`, text or a date there is refused by name.
+- `VAR`, `VARP` and `STDEVP` of text, a `bit` or a date are refused by name, as are `SUM`, `AVG` and `STDEV` of a `bit`. T-SQL stops on these too ("Operand data type bit is invalid for sum operator"). `SUM` of a `bit` used to give an answer here.
+- A `STRING_AGG` separator written as a number, or as a `CAST` to a type that isn't text, is refused by name. Microsoft Learn says the separator is `nvarchar` or `varchar`.
+- `JARO_WINKLER_SIMILARITY` is refused by name. T-SQL gives an `int` from 0 to 100 (`97` for `'Colour'` and `'Color'`) and doesn't document how it gets the score. The local engine's function of that name gave a fraction (`0.9667`).
+
+JSON text that isn't valid, such as `JSON_VALUE('a', '$')`, still stops with the local engine's words (`Malformed JSON at byte 0 of input`). SQL Server stops on it too.
 
 ## Local T-SQL wide tables and long values
 

@@ -148,6 +148,9 @@ CLAIMS: list[Claim] = [
     _ts("ROUND(748.58, -1)"),
     _ts("LOWER(1)"),  # WR-278
     _ts("ABS('-1.5')"),
+    _ts("REGEXP_REPLACE(12, '1', 'z')"),  # WR-280
+    _ts("QUOTENAME(12)"),
+    _ts("DATALENGTH(12)"),
     # Local T-SQL JSON
     _ts("ISJSON('1')"),
     _ts("ISJSON('\"text\"', SCALAR)"),

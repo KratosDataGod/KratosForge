@@ -1116,7 +1116,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
              exp.Ceil, exp.Floor, exp.Degrees, exp.Radians,
              tsql_format.TsqlFormat, exp.Concat, exp.ConcatWs, exp.Mod, exp.Round, exp.Coalesce, exp.WithinGroup,
              exp.Case, exp.If, *_ARGUMENT_KINDS)
-    here = _in_order(tree, kinds)
+    here = _typed_calls(_in_order(tree, kinds))
     compared = _in_order(tree, _COMPARISONS)
     sized_ints = _sized_ints(tree)
     grouped = any(True for _ in tree.find_all(exp.Group, exp.Distinct, exp.SetOperation, *_COLLATED))
@@ -1152,7 +1152,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
     # it: it is made again from the rewritten value once they have run.
     later: list[Callable[[], None]] = []
     notes += _collated(collated, _in_order(typed, _COLLATED), later)
-    there = _in_order(typed, kinds)
+    there = _typed_calls(_in_order(typed, kinds))
     if len(there) != len(here):
         for cast_node in sized:
             _sized_text(cast_node, None)
@@ -1253,7 +1253,7 @@ def _typed(tree: exp.Expression, schema: Any) -> list[str]:
             elif (_is(a, _TEXT) or _is(b, _TEXT)) and (_unknown(a) or _unknown(b)):
                 notes.append(f"Couldn't tell the types in {node.sql(dialect='tsql')}: T-SQL adds a number to text "
                              "as numbers and joins two strings, and here it is done as DuckDB does it.")
-        else:
+        elif isinstance(node, (exp.Cast, exp.TryCast)):  # the rest are _argument_types' (WR-280)
             to = node.args.get("to")
             if isinstance(to, exp.DataType) and to.this in _INTEGERS - {exp.DataType.Type.BIT} \
                     and _unknown(info.this.type) and not isinstance(node.this, exp.Null) \
@@ -1279,25 +1279,48 @@ _TEXT_ARGS: dict[type, tuple[str, ...]] = {
     exp.Replace: ("this", "expression", "replacement"), exp.Left: ("this",), exp.Right: ("this",),
     exp.Substring: ("this",), exp.StrPosition: ("this", "substr"), exp.Repeat: ("this",),
     exp.Stuff: ("this", "expression"), exp.Translate: ("this", "from_", "to"), exp.Unicode: ("this",),
-    exp.Ascii: ("this",)}
+    exp.Ascii: ("this",),
+    # WR-280: functions/regexp-like-transact-sql (and -replace, -count, -instr) take char, nchar, varchar or nvarchar,
+    # json-value / json-query the JSON text, json-object "a character expression" as a key
+    exp.RegexpLike: ("this", "expression"), exp.RegexpReplace: ("this", "expression", "replacement"),
+    exp.RegexpCount: ("this", "expression"), exp.RegexpInstr: ("this", "expression"),
+    exp.JSONExtract: ("this",), exp.JSONExtractScalar: ("this",), exp.JSONKeyValue: ("this",)}
+# WR-280: the same for calls sqlglot keeps by name: which arguments, from 0, are text (isjson-, quotename-, patindex-)
+_ANONYMOUS_TEXT = {"ISJSON": (0,), "QUOTENAME": (0,), "PATINDEX": (1,)}
+_SPREAD_NAMES = ("VAR", "VARP", "STDEVP")  # functions/var-transact-sql: numbers "except for the bit data type"
+_TYPED_CALLS = {*_ANONYMOUS_TEXT, *_SPREAD_NAMES, "DATALENGTH", "BIT_COUNT"}
 _INT_ARGS: dict[type, tuple[str, ...]] = {
     exp.Left: ("expression",), exp.Right: ("expression",), exp.Substring: ("start", "length"),
-    exp.StrPosition: ("position",), exp.Stuff: ("start", "length")}  # REPLICATE's count is _repeat's
+    exp.StrPosition: ("position",), exp.Stuff: ("start", "length"),  # REPLICATE's count is _repeat's
+    # WR-280: functions/regexp-instr-transact-sql: start, occurrence, return_option and group are int
+    exp.RegexpReplace: ("position", "occurrence"), exp.RegexpCount: ("position",),
+    exp.RegexpInstr: ("position", "occurrence", "option", "group")}
+_REGEXP_FLAGS: dict[type, str] = {exp.RegexpLike: "flag", exp.RegexpReplace: "modifiers",
+                                  exp.RegexpCount: "parameters", exp.RegexpInstr: "parameters"}
 _GIVES_TEXT = (exp.Lower, exp.Upper, exp.Reverse, exp.Trim, exp.Replace, exp.Left, exp.Right, exp.Substring,
-               exp.Stuff, exp.Translate)
+               exp.Stuff, exp.Translate, exp.RegexpReplace)
 _FLOAT_ARGS = (exp.Abs, exp.Ceil, exp.Floor, exp.Sign, exp.Round)  # text converts to a float
 _NUMBER_ONLY = (exp.Abs, exp.Ceil, exp.Floor, exp.Sign, exp.Round, exp.Sqrt, exp.Exp, exp.Ln, exp.Log, exp.Atan2,
                 exp.Pow, exp.Sin, exp.Cos, exp.Tan, exp.Cot, exp.Acos, exp.Asin, exp.Atan, exp.Degrees, exp.Radians,
                 exp.Sum, exp.Avg, exp.Stddev)
 _AGGREGATES = (exp.Sum, exp.Avg, exp.Stddev)
-_ARGUMENT_KINDS = tuple(dict.fromkeys([*_TEXT_ARGS, *_INT_ARGS, *_NUMBER_ONLY, exp.ConcatWs]))
+_ARGUMENT_KINDS = tuple(dict.fromkeys([*_TEXT_ARGS, *_INT_ARGS, *_NUMBER_ONLY, exp.ConcatWs, exp.Anonymous]))
 _TSQL_NAMES: dict[type, str] = {exp.StrPosition: "CHARINDEX", exp.Repeat: "REPLICATE", exp.Ceil: "CEILING", exp.Ln: "LOG",
-               exp.Atan2: "ATN2", exp.Pow: "POWER", exp.Stddev: "STDEV"}
+               exp.Atan2: "ATN2", exp.Pow: "POWER", exp.Stddev: "STDEV", exp.RegexpLike: "REGEXP_LIKE",
+               exp.RegexpReplace: "REGEXP_REPLACE", exp.RegexpCount: "REGEXP_COUNT", exp.RegexpInstr: "REGEXP_INSTR",
+               exp.JSONExtract: "JSON_QUERY", exp.JSONExtractScalar: "JSON_VALUE", exp.JSONKeyValue: "JSON_OBJECT"}
 _DATES_AND_TIMES = {exp.DataType.Type.DATE, *exp.DataType.TEMPORAL_TYPES}
 _AS_TEXT_SAME = (_INTEGERS - {exp.DataType.Type.BIT, exp.DataType.Type.BOOLEAN}) | {exp.DataType.Type.DECIMAL, exp.DataType.Type.DATE}
 
 
+def _typed_calls(nodes: list[exp.Expression]) -> list[exp.Expression]:
+    """``nodes`` without the calls kept by name that ``_argument_types`` doesn't read, so NEWID() alone isn't typed."""
+    return [n for n in nodes if not isinstance(n, exp.Anonymous) or n.name.upper() in _TYPED_CALLS]
+
+
 def _tsql_name(node: exp.Expression) -> str:
+    if isinstance(node, exp.Anonymous):
+        return node.name.upper()
     if isinstance(node, exp.Trim):
         return {"LEADING": "LTRIM", "TRAILING": "RTRIM"}.get(str(node.args.get("position") or "").upper(), "TRIM")
     return _TSQL_NAMES.get(type(node), type(node).__name__.upper())
@@ -1315,21 +1338,13 @@ def _argument_types(node: exp.Expression, info: exp.Expression) -> None:
             if _is(typed.type, _AS_TEXT_SAME) and not _written_decimal(arg):
                 arg.replace(exp.Cast(this=arg.copy(), to=exp.DataType.build("VARCHAR")))
         return
+    if isinstance(node, exp.Anonymous):
+        _named_call(node, info, name)
+        return
     for key in _TEXT_ARGS.get(type(node), ()):
         value, kind = node.args.get(key), info.args[key].type if info.args.get(key) is not None else None
-        if not isinstance(value, exp.Expression) or isinstance(value, exp.Null) or _is(kind, _TEXT) or _unknown(kind):
-            continue
-        if _is(kind, _AS_TEXT_SAME) or _written_decimal(value):  # 1.50 is a decimal: '1.50'
-            node.set(key, exp.Cast(this=value, to=exp.DataType.build("VARCHAR")))
-        elif _is(kind, _FLOATS):
-            node.set(key, _float_text(value))
-        elif _is(kind, _BITS):
-            node.set(key, _bit_text(value))
-        else:
-            assert kind is not None
-            raise ValueError(_NOT_YET + f"{name} takes text, and T-SQL writes a {kind.sql('tsql').lower()} as text in "
-                             "a form the local engine doesn't copy here. Nothing ran. CONVERT the value to VARCHAR "
-                             "first, such as CONVERT(VARCHAR(30), x, 126).")
+        if isinstance(value, exp.Expression):
+            node.set(key, _as_text(value, kind, name))
     for key in _INT_ARGS.get(type(node), ()):
         value, kind = node.args.get(key), info.args[key].type if info.args.get(key) is not None else None
         if isinstance(value, exp.Expression) and _is(kind, _TEXT):  # '' is 0 and '2.5' T-SQL's error, as _int_of has it
@@ -1338,6 +1353,12 @@ def _argument_types(node: exp.Expression, info: exp.Expression) -> None:
             assert kind is not None
             raise ValueError(_NOT_YET + f"{name} takes a whole number there, and this is a {kind.sql('tsql').lower()} "
                              "(T-SQL stops on it too, with \"Operand type clash\"). Nothing ran.")
+    flags = _REGEXP_FLAGS.get(type(node))
+    if flags and info.args.get(flags) is not None and not isinstance(node.args.get(flags), exp.Null):
+        kind = info.args[flags].type
+        if not (_is(kind, _TEXT) or _unknown(kind)):
+            raise ValueError(_NOT_YET + f"{name}'s flags are text, such as 'i' or 'ms' (functions/regexp-like-"
+                             "transact-sql), and these aren't. Nothing ran. Write the flags as text.")
     if isinstance(node, _NUMBER_ONLY):
         for key in ("this", "expression"):
             value, kind = node.args.get(key), info.args[key].type if info.args.get(key) is not None else None
@@ -1347,12 +1368,110 @@ def _argument_types(node: exp.Expression, info: exp.Expression) -> None:
                 assert kind is not None
                 raise ValueError(_NOT_YET + f"{name} takes a number, and this is a {kind.sql('tsql').lower()} (T-SQL "
                                  "stops on it too, with \"Operand type clash\"). Nothing ran.")
-            if _is(kind, _TEXT) and isinstance(node, _AGGREGATES):
-                raise ValueError(_NOT_YET + f"{name} takes numbers, and this is text (T-SQL stops on it too: \"Operand "
-                                 f"data type varchar is invalid for {name.lower()} operator.\"). Nothing ran. CAST the "
-                                 "value to a number type.")
+            if isinstance(node, _AGGREGATES):
+                _aggregated(name, kind)
             if _is(kind, _TEXT) and isinstance(node, _FLOAT_ARGS) and key == "this":
                 node.set(key, exp.Cast(this=value, to=exp.DataType.build("DOUBLE")))
+
+
+def _as_text(value: exp.Expression, kind: exp.DataType | None, name: str) -> exp.Expr:
+    """``value`` as T-SQL writes it as text where ``name`` takes text: a number or a date in its own form, a float
+    with at most 6 significant digits, a bit as 1 or 0; text, NULL, JSON and an unknown type as they are."""
+    if isinstance(value, exp.Null) or _is(kind, _TEXT | {exp.DataType.Type.JSON}) or _unknown(kind):
+        return value
+    if _is(kind, _AS_TEXT_SAME) or _written_decimal(value):  # 1.50 is a decimal: '1.50'
+        return exp.Cast(this=value, to=exp.DataType.build("VARCHAR"))
+    if _is(kind, _FLOATS):
+        return _float_text(value)
+    if _is(kind, _BITS):
+        return _bit_text(value)
+    assert kind is not None
+    raise ValueError(_NOT_YET + f"{name} takes text, and T-SQL writes a {kind.sql('tsql').lower()} as text in "
+                     "a form the local engine doesn't copy here. Nothing ran. CONVERT the value to VARCHAR "
+                     "first, such as CONVERT(VARCHAR(30), x, 126).")
+
+
+def _aggregated(name: str, kind: exp.DataType | None) -> None:
+    """SUM, AVG, STDEV, VAR, VARP and STDEVP take "the exact numeric or approximate numeric data type category, except
+    for the bit data type" (functions/sum-transact-sql, var-transact-sql): text, a bit or a date is refused by name."""
+    if _is(kind, _DATES_AND_TIMES):
+        assert kind is not None
+        raise ValueError(_NOT_YET + f"{name} takes a number, and this is a {kind.sql('tsql').lower()} (T-SQL stops "
+                         "on it too, with \"Operand type clash\"). Nothing ran.")
+    for group, written in ((_TEXT, "varchar"), (_BITS, "bit")):
+        if _is(kind, group):
+            what = "text" if written == "varchar" else "a bit"
+            raise ValueError(_NOT_YET + f"{name} takes numbers, and this is {what} (T-SQL stops on it too: \"Operand "
+                             f"data type {written} is invalid for {name.lower()} operator.\"). Nothing ran. CAST the "
+                             "value to a number type.")
+
+
+# WR-280: DATALENGTH of a number or date is its type's size (data-types/int-bigint-smallint-and-tinyint-transact-sql,
+# float-and-real-transact-sql, decimal-and-numeric-transact-sql, bit-transact-sql, date-transact-sql)
+_SIZES = {exp.DataType.Type.TINYINT: 1, exp.DataType.Type.UTINYINT: 1, exp.DataType.Type.SMALLINT: 2,
+          exp.DataType.Type.INT: 4, exp.DataType.Type.BIGINT: 8, exp.DataType.Type.FLOAT: 4,
+          exp.DataType.Type.DOUBLE: 8, exp.DataType.Type.BIT: 1, exp.DataType.Type.BOOLEAN: 1,
+          exp.DataType.Type.DATE: 3}
+_INT_RANGE = range(-2 ** 31, 2 ** 31)
+
+
+def _named_call(node: exp.Anonymous, info: exp.Expression, name: str) -> None:
+    """``_argument_types`` for ISJSON, QUOTENAME, PATINDEX, DATALENGTH, BIT_COUNT, VAR, VARP and STDEVP."""
+    args, typed = list(node.expressions), list(info.expressions)
+    if len(args) != len(typed) or not args:
+        return
+    if name == "QUOTENAME":
+        info.type = exp.DataType.build("VARCHAR")  # nvarchar(258), so QUOTENAME(x) + '|' joins text
+    texts = _ANONYMOUS_TEXT.get(name, ())
+    if texts:
+        node.set("expressions", [_as_text(a, t.type, name) if at in texts else a
+                                 for at, (a, t) in enumerate(zip(args, typed, strict=True))])
+    if name in _SPREAD_NAMES:
+        _aggregated(name, typed[0].type)
+    elif name == "BIT_COUNT":
+        kind = typed[0].type
+        if not (_unknown(kind) or _is(kind, (_INTEGERS - _BITS) | {exp.DataType.Type.VARBINARY, exp.DataType.Type.BINARY,
+                                                                     exp.DataType.Type.BLOB})):
+            assert kind is not None
+            raise ValueError(_NOT_YET + "BIT_COUNT takes an integer or binary value (functions/bit-count-transact-sql: "
+                             f"tinyint, smallint, int, bigint, binary or varbinary), and this is a "
+                             f"{kind.sql('tsql').lower()}. Nothing ran. CAST the value to an integer type.")
+    elif name == "DATALENGTH" and len(args) == 1:
+        size = _datalength_of(args[0], typed[0].type)
+        if size is not None:
+            value = args[0]
+            node.replace(exp.Literal.number(size) if isinstance(value.unnest(), (exp.Literal, exp.Neg)) else exp.Case(
+                ifs=[exp.If(this=exp.Is(this=value, expression=exp.Null()), true=exp.cast(exp.Null(), "INT"))],
+                default=exp.Literal.number(size)))
+
+
+def _datalength_of(value: exp.Expression, kind: exp.DataType | None) -> int | None:
+    """The bytes T-SQL keeps for a value that isn't text, or None for text, an unknown type and a literal other than
+    a whole number in int's range (``1.5`` is a decimal(2,1), which _datalength refuses). A decimal's size comes from
+    a column's precision; a type the local engine doesn't keep as T-SQL does is refused by name."""
+    if _is(kind, _TEXT) or _unknown(kind) or isinstance(value, exp.Null):
+        return None
+    assert kind is not None
+    written = value.to if isinstance(value, (exp.Cast, exp.TryCast)) else None
+    numbers = [n for n in value.walk() if isinstance(n, exp.Literal) and not n.is_string] if written is None else []
+    if any(not n.is_int or n.to_py() not in _INT_RANGE for n in numbers):  # 3000000000 is a decimal in T-SQL
+        return None if isinstance(value.unnest(), (exp.Literal, exp.Neg)) else _refuse_size(kind)
+    plain = isinstance(value, (exp.Column, exp.Cast, exp.TryCast)) or isinstance(value.unnest(), (exp.Literal, exp.Neg))
+    if kind.this == exp.DataType.Type.DECIMAL and kind.expressions and (
+            isinstance(value, exp.Column) or written is not None and written.is_type(exp.DataType.Type.DECIMAL)
+            and written.expressions):  # a column's precision, or one written in the CAST
+        digits = kind.expressions[0].this.to_py()
+        return 5 if digits <= 9 else 9 if digits <= 19 else 13 if digits <= 28 else 17
+    if kind.this in _SIZES and (plain or kind.this in (exp.DataType.Type.INT, exp.DataType.Type.BIGINT,
+                                                       exp.DataType.Type.DOUBLE, exp.DataType.Type.DATE)):
+        return _SIZES[kind.this]
+    return _refuse_size(kind)
+
+
+def _refuse_size(kind: exp.DataType) -> int:
+    raise ValueError(_NOT_YET + f"DATALENGTH of this {kind.sql('tsql').lower()} isn't worked out here: its size "
+                     "depends on the T-SQL type, which the local engine doesn't keep for it. Nothing ran. DATALENGTH "
+                     "of a column of a number type, or of a CAST to int, bigint, smallint, float or date, runs.")
 
 
 def _branch_values(node: exp.Expression) -> list[exp.Expression]:
@@ -3141,6 +3260,14 @@ def _json(tree: exp.Expression) -> list[str]:
     return notes
 
 
+def _not_text_separator(separator: exp.Expression) -> bool:
+    """A number written as STRING_AGG's separator, or a CAST of it to a type that isn't text (WR-280)."""
+    bare = separator.unnest()
+    if isinstance(bare, (exp.Cast, exp.TryCast)):
+        return not bare.to.is_type(*_TEXT)
+    return isinstance(bare, (exp.Neg, exp.Literal)) and not bare.is_string
+
+
 def _refused_by_name(tree: exp.Expression) -> None:
     """Functions DuckDB has under the same name with another meaning (WR-203): each gave a different
     answer (HASHBYTES' hex text, the engine's user name) or DuckDB's own error. Refused by T-SQL's name."""
@@ -3169,10 +3296,18 @@ def _refused_by_name(tree: exp.Expression) -> None:
     # WR-270: functions/string-agg-transact-sql takes a separator that is "literal or variable"; DuckDB stopped with
     # its own binder error for a column.
     # WR-278: and DuckDB takes only a constant, which an overflow check worked out as the query runs isn't
+    # WR-280: and a separator "of nvarchar or varchar type": a number written there (STRING_AGG(v, 12)) isn't one
     if any(_per_row(agg.args["separator"]) or any(True for _ in agg.args["separator"].find_all(exp.Lambda))
+           or _not_text_separator(agg.args["separator"])
            for agg in tree.find_all(exp.GroupConcat) if agg.args.get("separator") is not None):
         raise ValueError(_NOT_YET + "STRING_AGG's separator has to be text written in the query, such as ', ', as "
                          "T-SQL takes it. Nothing ran. Write the separator as text.")
+    if any(f.name.upper() == "JARO_WINKLER_SIMILARITY" for f in tree.find_all(exp.Anonymous)):
+        # WR-280: functions/jaro-winkler-similarity-transact-sql returns an int (JARO_WINKLER_SIMILARITY('Colour',
+        # 'Color') is 97) and doesn't say how it works out its score; DuckDB's function of that name gave 0.9667.
+        raise ValueError(_NOT_YET + "JARO_WINKLER_SIMILARITY isn't mapped yet: T-SQL gives a score from 0 to 100 "
+                         "and doesn't document how it works it out, and the local engine's function of that name "
+                         "gives a fraction. Nothing ran. Run it in a Fabric Warehouse.")
     for grouping in tree.find_all(exp.Grouping, exp.GroupingId):
         # functions/grouping-transact-sql: "can be used only in SELECT <select> list, HAVING, and ORDER BY clauses when
         # GROUP BY is specified". DuckDB stopped with its binder error (WR-278).

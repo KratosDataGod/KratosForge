@@ -267,7 +267,7 @@ def cases(prefix: str) -> list[tuple[str, str, object]]:
         out.append(("UNION_TEXT", f"(SELECT MAX(a) FROM (SELECT {n} AS a UNION ALL SELECT {q(t)}) AS u)", max(n, whole)))
         out.append(("EXCEPT_TEXT", f"(SELECT COUNT(*) FROM (SELECT {whole} AS a EXCEPT SELECT {q(t)}) AS u)", 0))
     return (out + _regex_cases(random.Random(SEED + 3), q) + _null_cases(random.Random(SEED + 5), q)
-            + _argument_cases(random.Random(SEED + 6), q))
+            + _argument_cases(random.Random(SEED + 6), q) + _text_argument_cases(random.Random(SEED + 7), q))
 
 
 # WR-278: (name, fewest, most) from each function's syntax on Microsoft Learn (functions/<name>-transact-sql)
@@ -300,6 +300,31 @@ def _argument_cases(r: random.Random, q) -> list[tuple[str, str, object]]:
         c = r.choice(["", " 2 ", "3", "0", "1"])
         w = "abcdef"
         out.append(("TEXT_AS_INT", f"LEFT({q(w)}, {q(c)}) + '|'", w[:int(c) if c.strip() else 0] + "|"))
+    return out
+
+
+# WR-280: data-types/int-bigint-smallint-and-tinyint-transact-sql, float-and-real-transact-sql, bit-transact-sql
+_BYTES = {"INT": 4, "BIGINT": 8, "SMALLINT": 2, "TINYINT": 1, "FLOAT": 8, "REAL": 4, "BIT": 1}
+
+
+def _text_argument_cases(r: random.Random, q) -> list[tuple[str, str, object]]:
+    out: list[tuple[str, str, object]] = []
+    for _ in range(40):
+        # data-type-conversion-database-engine: an int where regexp-replace-, regexp-count-, quotename- and
+        # patindex-transact-sql take text is written as its digits
+        v, digit = r.randint(-999, 99999), str(r.randint(0, 9))
+        t = str(v)
+        out.append(("NUMBER_AS_TEXT_2", f"REGEXP_REPLACE({v}, {q(digit)}, {q('x')}) + '|'", t.replace(digit, "x") + "|"))
+        out.append(("NUMBER_AS_TEXT_2", f"REGEXP_COUNT({v}, {digit})", t.count(digit)))
+        out.append(("NUMBER_AS_TEXT_2", f"QUOTENAME({v})", f"[{t}]"))
+        out.append(("NUMBER_AS_TEXT_2", f"PATINDEX({q('%' + digit + '%')}, {v})", t.find(digit) + 1))
+        # datalength-transact-sql: "An expression of any data type", so a number's size in bytes; decimal-and-
+        # numeric-transact-sql: precision 1-9 is 5 bytes, 10-19 9, 20-28 13 and 29-38 17
+        kind = r.choice(sorted(_BYTES))
+        out.append(("DATALENGTH_NUMBER", f"DATALENGTH(CAST({r.randint(0, 1)} AS {kind}))", _BYTES[kind]))
+        p = r.randint(1, 38)
+        out.append(("DATALENGTH_NUMBER", f"DATALENGTH(CAST(0 AS DECIMAL({p}, 0)))",
+                    5 if p <= 9 else 9 if p <= 19 else 13 if p <= 28 else 17))
     return out
 
 

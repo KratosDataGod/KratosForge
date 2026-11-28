@@ -990,6 +990,8 @@ function editorFor(cell) {
         dbgEditorMarks(cell),  // debugging.js: breakpoints and the paused line
         cell.type === "markdown" ? mdKeys(cell) : [],  // nbmarkdown.js: Ctrl+B, Ctrl+I and Ctrl+K
         CM.highlightSpecialChars(), CM.history(), CM.drawSelection(), CM.dropCursor(), CM.indentOnInput(),
+        // More than one cursor, as the SQL editor (sqleditor.js): Ctrl+click adds one, Alt+drag a rectangle, Ctrl+D the next match.
+        CM.EditorState.allowMultipleSelections.of(true), CM.rectangularSelection(), CM.crosshairCursor(),
         CM.bracketMatching(), CM.closeBrackets(), CM.highlightActiveLine(), CM.highlightSelectionMatches(),
         CM.syntaxHighlighting(editorHighlight),
         // Before langComp: its completion keymap, also at highest precedence, would otherwise take Esc
@@ -1052,9 +1054,14 @@ function cellKeymap(cell) {
     { id: "run_cell", key: "Mod-Enter", run: run(false, false) },
     { id: "run_cell_insert", key: "Alt-Enter", run: run(false, true) },
     // A suggestion list on screen takes Esc first (it closes), and so does Vim out of its normal mode;
-    // otherwise Esc leaves for command mode.
+    // With more than one cursor, Esc first keeps only the main one; otherwise Esc leaves for command mode.
     { key: "Escape", run: (view) => {
       if (view.dom.querySelector(".cm-tooltip-autocomplete") || editorVimTakesEscape(view)) return false;
+      if (view.state.selection.ranges.length > 1) {
+        const { anchor, head } = view.state.selection.main;
+        view.dispatch({ selection: { anchor, head }, scrollIntoView: true });
+        return true;
+      }
       view.contentDOM.blur();
       if (cell.type === "markdown" && mdRichOn()) { mdFinish(cell); return true; }  // nbmarkdown.js: Esc finishes editing
       enterCommandMode(cell);

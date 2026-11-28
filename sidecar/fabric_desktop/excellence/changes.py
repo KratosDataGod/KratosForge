@@ -16,8 +16,9 @@ Change kinds:
   A principal's display name alone changing is ``evidence_changed``.
 - ``capacity_changed``: the workspace's capacity id in ``workspace.info`` differs (reassignment), or a
   capacity's ``capacity.state`` (state, SKU, region) differs.
-- ``git_state_changed``: evidence of a kind that starts with ``git.`` or ``workspace.git`` differs. No
-  evidence records Git state yet, so this is listed under ``not_tracked`` until one does.
+- ``git_state_changed``: evidence of a kind that starts with ``git.`` or ``workspace.git`` differs.
+  The workspace's Git connection and status are ``workspace.git`` evidence (FEA-DEVOPS-003 to 005); when
+  neither read has that record (the connection couldn't be read), this is listed under ``not_tracked``.
 - ``evidence_changed``: anything else a control reads that differs (a description, the naming heuristic,
   lakehouse properties, imported capacity usage), so no change a control depends on is dropped.
 
@@ -339,7 +340,8 @@ def changes(previous: dict[str, Any] | list[dict[str, Any]], current: dict[str, 
                           + [{"type": "capacity", "id": i} for i in set(cap_a) ^ set(cap_b)],
                           key=lambda s: (s["type"], s["id"]))
     not_tracked = [] if any(k.startswith(_GIT) for k in every) else [
-        {"kind": "git_state_changed", "reason": "No evidence records Git state yet, so a Git change can't be seen."}]
+        {"kind": "git_state_changed",
+         "reason": "Neither read has the workspace's Git connection (workspace.git), so a Git change can't be seen."}]
     return {"schema": SCHEMA, "method": METHOD, "note": NOTE,
             "from": previous.get("assessed_at") if isinstance(previous, dict) else None,
             "to": current.get("assessed_at") if isinstance(current, dict) else None,

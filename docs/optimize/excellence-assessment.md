@@ -167,7 +167,7 @@ made and undone between the two reads is never seen. Nothing schedules it, store
 | `definition_changed` | Evidence derived from an item's definition (`getDefinition`) differs |
 | `role_assignment_changed` | The set of principal, type, role and guest in the role assignments differs |
 | `capacity_changed` | The workspace's capacity id differs (reassignment), or a capacity's state, SKU or region |
-| `git_state_changed` | Git evidence differs. No evidence records Git state yet, so this is listed as not tracked |
+| `git_state_changed` | Git evidence (the workspace's Git connection and status) differs. When neither read has the Git connection, this is listed as not tracked |
 | `evidence_changed` | Anything else a control reads differs, such as a description or a display name |
 
 - No definition hash is kept and no definition text enters evidence, so `definition_changed` compares

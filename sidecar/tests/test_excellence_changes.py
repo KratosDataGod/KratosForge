@@ -171,7 +171,9 @@ def test_capacity_state_change():
 
 
 def test_git_state_changed_when_evidence_exists_and_not_tracked_otherwise():
-    assert run(reads(), reads(at=AT2))["not_tracked"][0]["kind"] == "git_state_changed"
+    assert run(reads(), reads(at=AT2))["not_tracked"] == [
+        {"kind": "git_state_changed",
+         "reason": "Neither read has the workspace's Git connection (workspace.git), so a Git change can't be seen."}]
     subj = ev.subject("workspace", WSID, "Sales Prod")
 
     def git(branch: str, at: str) -> dict:

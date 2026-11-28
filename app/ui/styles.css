@@ -591,6 +591,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .dialog .text { font-size: 13px; color: var(--muted); }
 .dialog .scroll { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; min-height: 60px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dialog-actions .tool.primary:disabled { background: var(--border); color: var(--muted); }  /* Compare while it runs */
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .field input, .field select { min-height: 32px; padding: 0 8px; border: 1px solid var(--border-input); border-radius: var(--r-sm); background: var(--surface); }
 .choice {

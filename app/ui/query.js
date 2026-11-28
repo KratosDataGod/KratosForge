@@ -942,7 +942,7 @@ function renderQuery() {
   // Diagram has read the keys; otherwise it starts empty.
   function openWarehouseCompare(a) {
     const cat = p.catalog?.key === sqlRefKey(ref) && p.catalog.state === "done" ? p.catalog : null;
-    if (!cat) { toast("List the warehouse's objects first: Explorer › List objects."); return; }
+    if (!cat) { toast("List the warehouse's objects first, with List objects in the Explorer."); return; }
     const list = new Map(sqlCompareWarehouseTables(cat, whName).map((t) => [t.name, t]));
     const whRef = { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind };
     sqlCompareDialog({ ref, dialect: "tsql", tables: [...list.keys()], a, where: "in Fabric",

@@ -6897,8 +6897,8 @@ test("every Fabric write in the UI carries a Preview tag or has a recorded live 
 
 test("Compare data (S34) says its verdict, tiles and the rows listed as the mockup does", () => {
   const ctx = {};
-  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlcompare.js"), "utf8")}; Object.assign(this, { sqlCompareSideQuery, sqlCompareTiles, sqlCompareVerdict, sqlCompareShowing, sqlCompareTable, sqlCompareCell });`, ctx);
-  const { sqlCompareSideQuery, sqlCompareTiles, sqlCompareVerdict, sqlCompareShowing, sqlCompareTable, sqlCompareCell } = ctx;
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlcompare.js"), "utf8")}; Object.assign(this, { sqlCompareSideQuery, sqlCompareTiles, sqlCompareVerdict, sqlCompareShowing, sqlCompareTable, sqlCompareCell, sqlCompareIsId });`, ctx);
+  const { sqlCompareSideQuery, sqlCompareTiles, sqlCompareVerdict, sqlCompareShowing, sqlCompareTable, sqlCompareCell, sqlCompareIsId } = ctx;
   assert.strictEqual(sqlCompareSideQuery({ kind: "table", name: "silver.orders" }), "SELECT * FROM silver.orders");
   assert.strictEqual(sqlCompareSideQuery({ kind: "query", sql: "  SELECT 1;  \n" }), "SELECT 1");
   assert.strictEqual(sqlCompareSideQuery({ kind: "table", name: "" }), "");
@@ -6907,9 +6907,10 @@ test("Compare data (S34) says its verdict, tiles and the rows listed as the mock
     common: [{ name: "order_id" }, { name: "amount" }, { name: "status" }],
     examples: [{ status: "changed", key: { order_id: 1 }, columns: { amount: { a: 1, b: 2 } }, same: { status: { a: "x", b: "x" } } },
       { status: "only_b", key: { order_id: 2 } }] };
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(sqlCompareVerdict(keyed))), { word: "Differs", text: "48,210 rows in A, 48,207 in B. Compared on this PC in 3.4 s. Read only: nothing was changed." });
-  assert.strictEqual(sqlCompareVerdict({ ...keyed, result: "same", rows: { a: 1, b: 1 }, seconds: 12.6 }).text, "1 row in A, 1 in B. Compared on this PC in 13 s. Read only: nothing was changed.");
-  assert.match(sqlCompareVerdict({ ...keyed, level: "fingerprint" }).text, /only checksums were compared/);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sqlCompareVerdict(keyed))), { word: "Differs", text: "48,210 rows in A, 48,207 in B. Compared on this PC in 3.4 s. Both only read, so nothing was changed." });
+  assert.strictEqual(sqlCompareVerdict({ ...keyed, result: "same", rows: { a: 1, b: 1 }, seconds: 12.6 }).text, "1 row in A, 1 in B. Compared on this PC in 13 s. Both only read, so nothing was changed.");
+  assert.match(sqlCompareVerdict({ ...keyed, level: "fingerprint" }).text, / A or B has more than 5,000,000 rows, so only checksums were compared\. /,
+    "the checksum-only verdict names the limit");
   assert.deepStrictEqual(JSON.parse(JSON.stringify(sqlCompareTiles(keyed))).map((t) => [t.label, t.count]), [["Same", 48190], ["Only in A", 5], ["Only in B", 2], ["Changed", 15]]);
   assert.deepStrictEqual([...sqlCompareTiles({ counts: { same: 1, only_a: 1, only_b: 0, changed: null } }).map((t) => t.label)], ["Same", "Only in A", "Only in B"]);
   assert.strictEqual(sqlCompareTiles({ counts: null }).length, 0, "a checksum-only compare has no tiles");
@@ -6924,8 +6925,21 @@ test("Compare data (S34) says its verdict, tiles and the rows listed as the mock
   assert.deepStrictEqual([...sqlCompareTable(keyed, true).cols], ["amount", "status"]);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(sqlCompareTable(keyed, true).rows[0].cells[1])), { a: "x", b: "x", changed: false });
   const whole = sqlCompareTable({ method: "whole rows", common: [{ name: "a" }], examples: [{ status: "only_a", row: { a: 5 }, times: 2 }] });
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(whole)), { keyed: false, names: ["a"], rows: [{ status: "only_a", times: 2, values: [5] }] });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(whole)), { keyed: false, names: ["a"], rows: [{ status: "only_a", times: 2, values: [5] }],
+    how: [{ number: false, scale: 0 }] });
   assert.deepStrictEqual([sqlCompareCell(null), sqlCompareCell(undefined), sqlCompareCell(1240.5), sqlCompareCell("x")], ["NULL", "", "1,240.5", "x"]);
+  // Keys and integer ids as written; numbers at their column's scale; a decimal's text keeps its digits (#3304 review).
+  const ids = sqlCompareTable({ ...keyed, common: [{ name: "order_id", kind: "integer" }, { name: "amount", kind: "number", number: true },
+    { name: "customer_id", kind: "integer", number: true }, { name: "qty", kind: "integer", number: true }, { name: "price", kind: "number", number: true }],
+  examples: [{ status: "changed", key: { order_id: 100482 }, columns: { amount: { a: 1204.5, b: 310.25 }, customer_id: { a: 12345, b: 12346 },
+    qty: { a: 1000, b: 2000 }, price: { a: "1204.50", b: "-88.00" } } }] }, false);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(ids.colHow)), [{ number: true, scale: 2 }, { raw: true }, { number: true, scale: 0 }, { number: true, scale: 2 }]);
+  const cells = ids.rows[0].cells.map((c, i) => [sqlCompareCell(c.a, ids.colHow[i]), sqlCompareCell(c.b, ids.colHow[i])]);
+  assert.deepStrictEqual(cells, [["1,204.50", "310.25"], ["12345", "12346"], ["1,000", "2,000"], ["1,204.50", "-88.00"]]);
+  assert.strictEqual(sqlCompareCell(100482, { raw: true }), "100482");
+  assert.strictEqual(sqlCompareCell("1234567.5", { number: false }), "1234567.5", "text that isn't a number column stays as it is");
+  assert.deepStrictEqual(["id", "ID", "order_id", "CustomerID", "customerId", "paid", "grid", "Width"].map(sqlCompareIsId),
+    [true, true, true, true, true, false, false, false]);
   // A warehouse: its tables and views as [schema].[name], with the primary key the catalog knows, never a guessed one.
   const wh = {};
   vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlcompare.js"), "utf8")}; Object.assign(this, { sqlCompareWarehouseTables, sqlCompareFabricConfirm });`, wh);

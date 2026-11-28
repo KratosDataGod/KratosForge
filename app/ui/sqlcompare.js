@@ -42,6 +42,9 @@ function sqlCompareTiles(out) {
     .map(([k, label]) => ({ key: k, label, count: out.counts[k] }));
 }
 
+// Above this many rows on either side only checksums are compared (verify.py's limit_rows).
+const SQL_COMPARE_LIMIT_ROWS = 5000000;
+
 const sqlCompareRows = (n) => `${Number(n).toLocaleString("en-US")} row${n === 1 ? "" : "s"}`;
 
 // The verdict line: Same or Differs, the rows on each side, and that nothing changed.
@@ -49,8 +52,9 @@ function sqlCompareVerdict(out) {
   const word = out.result === "same" ? "Same" : "Differs";
   const secs = typeof out.seconds === "number" ? ` in ${out.seconds < 10 ? out.seconds.toFixed(1) : Math.round(out.seconds)} s` : "";
   const rows = `${sqlCompareRows(out.rows.a)} in A, ${Number(out.rows.b).toLocaleString("en-US")} in B.`;
-  const how = out.level === "fingerprint" ? " Too many rows to list which differ, so only checksums were compared." : "";
-  return { word, text: `${rows} Compared on this PC${secs}.${how} Read only: nothing was changed.` };
+  const how = out.level === "fingerprint"
+    ? ` A or B has more than ${SQL_COMPARE_LIMIT_ROWS.toLocaleString("en-US")} rows, so only checksums were compared.` : "";
+  return { word, text: `${rows} Compared on this PC${secs}.${how} Both only read, so nothing was changed.` };
 }
 
 const SQL_COMPARE_KIND = { only_a: "only in A", only_b: "only in B", changed: "changed" };
@@ -71,11 +75,21 @@ function sqlCompareShowing(out) {
 
 // The table of differing rows as a model: the key columns, then A's and B's values of the columns shown.
 // Only the columns that differ on this page are shown, unless showAll; a whole-row compare shows the row.
+// Each column also says how its cells read (sqlCompareCell): raw for a key or a column of integer ids, else at
+// the scale of its numbers on this page.
 function sqlCompareTable(out, showAll) {
   const ex = out.examples || [];
+  const common = new Map((out.common || []).map((c) => [c.name.toLowerCase(), c]));
+  const isKey = (n) => (out.keys || []).some((k) => k.toLowerCase() === n.toLowerCase());
+  const how = (n, values) => {
+    const c = common.get(n.toLowerCase());
+    if (isKey(n) || (c?.kind === "integer" && sqlCompareIsId(n))) return { raw: true };
+    return { number: !!c?.number, scale: Math.max(0, ...values.map(sqlCompareScale)) };
+  };
   if (out.method !== "keyed") {
     const names = (out.common || []).map((c) => c.name);
-    return { keyed: false, names, rows: ex.map((e) => ({ status: e.status, times: e.times || 1, values: names.map((n) => e.row?.[n]) })) };
+    const rows = ex.map((e) => ({ status: e.status, times: e.times || 1, values: names.map((n) => e.row?.[n]) }));
+    return { keyed: false, names, rows, how: names.map((n, i) => how(n, rows.map((r) => r.values[i]))) };
   }
   const keys = out.keys || [];
   const differ = new Set(ex.flatMap((e) => Object.keys(e.columns || {})));
@@ -89,10 +103,31 @@ function sqlCompareTable(out, showAll) {
       return d ? { a: d.a, b: d.b, changed: true } : s ? { a: s.a, b: s.b, changed: false } : { a: undefined, b: undefined, changed: false };
     }),
   }));
-  return { keyed: true, keys, cols, rows, hidden: all.length - cols.length };
+  return { keyed: true, keys, cols, rows, hidden: all.length - cols.length,
+    colHow: cols.map((n, i) => how(n, rows.flatMap((r) => [r.cells[i].a, r.cells[i].b]))) };
 }
 
-const sqlCompareCell = (v) => v === null ? "NULL" : v === undefined ? "" : typeof v === "number" ? v.toLocaleString("en-US", { maximumFractionDigits: 20 }) : String(v);
+// order_id, id, CustomerID, customerId: a column of ids, whose numbers read best as written (100482).
+const sqlCompareIsId = (name) => /^id$|[_\s]id$/i.test(name) || /[a-z0-9](Id|ID)$/.test(name);
+
+// The digits after the point a number shows: a decimal comes as text with its own scale ("1204.50").
+function sqlCompareScale(v) {
+  const text = typeof v === "number" ? v.toLocaleString("en-US", { maximumFractionDigits: 20, useGrouping: false })
+    : typeof v === "string" && /^-?\d+\.\d+$/.test(v) ? v : "";
+  return text.includes(".") ? Math.min(20, text.split(".")[1].length) : 0;
+}
+
+// A cell as shown: NULL, a key or id as written, a number with thousands separators at its column's scale
+// (1,204.50 beside 310.25), a decimal's text grouped the same way, keeping its digits.
+function sqlCompareCell(v, how = {}) {
+  if (v === null) return "NULL";
+  if (v === undefined) return "";
+  if (how.raw) return String(v);
+  if (typeof v === "number") return v.toLocaleString("en-US", { minimumFractionDigits: how.scale || 0, maximumFractionDigits: 20 });
+  const d = how.number && typeof v === "string" ? /^(-?)(\d+)(\.\d+)?$/.exec(v) : null;
+  if (d) return `${d[1]}${d[2].replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${d[3] || ""}`;
+  return String(v);
+}
 
 function sqlCompareDialog(ctx) {
   // ctx: { ref, dialect, tables: [names], a: preset table name, columns(name) -> Promise<[{name, type}]> }.
@@ -105,7 +140,7 @@ function sqlCompareDialog(ctx) {
     a: { kind: "table", name: ctx.a || first, sql: "" },
     b: { kind: ctx.tables.length > 1 || !ctx.a ? "table" : "query", name: ctx.tables.find((t) => t !== (ctx.a || first)) || "", sql: "" },
     keys: [], tol: {}, ran: null, runs: null, out: null, status: null, offset: 0, showAll: false, busy: "", job: null, error: "",
-    columns: [],
+    columns: [], read: {},
   };
   s.keys = knownKey(s.a);
   let closed = false;
@@ -132,7 +167,8 @@ function sqlCompareDialog(ctx) {
       : h("textarea", { id, rows: 3, spellcheck: "false", class: "sql-compare-query", "aria-label": `${letter}: query`,
         placeholder: "SELECT * FROM …", oninput: (e) => { side.sql = e.target.value; } }, side.sql);
     return h("div", { class: "sql-compare-pick" }, h("span", { class: "sql-compare-label" }, letter), kind, value,
-      h("span", { class: "muted-text small" }, side.kind === "table" ? "Every row of the table" : "One query that only reads"));
+      h("span", { class: "muted-text small" }, side.kind !== "table" ? "One query that only reads"
+        : s.ran === sig() && Number.isInteger(s.read?.[letter]) ? `Table, version ${s.read[letter]}` : "Every row of the table"));
   }
 
   function keyPicker() {
@@ -173,9 +209,9 @@ function sqlCompareDialog(ctx) {
     if (out.stopped) return h("p", { class: "sql-compare-stopped", role: "alert" }, out.stopped);
     const v = sqlCompareVerdict(out);
     const t = sqlCompareTable(out, s.showAll);
-    const notes = [...(out.columns?.only_a?.length ? [`Only in A: ${out.columns.only_a.join(", ")}.`] : []),
-      ...(out.columns?.only_b?.length ? [`Only in B: ${out.columns.only_b.join(", ")}.`] : []),
-      ...(out.columns?.types?.length ? [`Different types: ${out.columns.types.join(", ")}.`] : []),
+    const notes = [...(out.columns?.only_a?.length ? [`Only in A: ${andList(out.columns.only_a)}.`] : []),
+      ...(out.columns?.only_b?.length ? [`Only in B: ${andList(out.columns.only_b)}.`] : []),
+      ...(out.columns?.types?.length ? [`Different types: ${andList(out.columns.types)}.`] : []),
       ...(out.note ? [out.note] : []), ...(out.limitations || [])];
     const page = (d) => { s.offset = Math.max(0, s.offset + d * 50); again(); };
     return h("div", { class: "sql-compare-results" },
@@ -185,19 +221,28 @@ function sqlCompareDialog(ctx) {
         const on = s.status === tile.key;
         const can = tile.key !== "same";
         return h("button", { type: "button", class: `sql-compare-tile${on ? " on" : ""}`, disabled: !can, "aria-pressed": can ? String(on) : null,
-          title: can ? (on ? "Show every row that differs" : `Show only the rows ${tile.label.toLowerCase()}`) : "Rows that are the same aren't listed",
+          title: can ? (on ? "Show every row that differs" : `Show only the ${SQL_COMPARE_NOUN[tile.key][1]}`) : "Rows that are the same aren't listed",
           onclick: () => { s.status = on ? null : tile.key; s.offset = 0; again(); } },
         h("b", {}, tile.count.toLocaleString("en-US")), h("span", {}, tile.label));
       })),
       t.rows.length ? h("div", { class: "sql-compare-table-wrap" }, diffTable(t)) : null,
-      h("div", { class: "sql-compare-foot" },
-        h("span", { class: "muted-text small" }, sqlCompareShowing(out),
-          t.keyed && t.hidden && !s.showAll ? " Only the columns that differ are shown." : ""),
-        t.keyed && (t.hidden || s.showAll) ? btn(s.showAll ? "Show only differing columns" : "Show all columns", null, () => { s.showAll = !s.showAll; draw(); }, "tool outline small") : null,
-        s.offset > 0 ? btn("Previous", null, () => page(-1), "tool outline small") : null,
-        (s.offset + (out.examples?.length || 0)) < (out.listed || 0) ? btn("Next", null, () => page(1), "tool outline small") : null,
-        out.result === "differs" && out.counts ? btn("Export", "arrowDownload", exportRows, "tool outline small",
-          { title: "Save every row that differs to a CSV file in Downloads" }) : null));
+      foot(out, t, page));
+  }
+
+  // Under the rows: what is listed, Show all columns, the pages and Export. Nothing when no rows are listed
+  // and there's nothing to say (a Same result, or a checksum-only one).
+  function foot(out, t, page) {
+    const listed = t.rows.length > 0;
+    const columns = listed && t.keyed && (t.hidden || s.showAll);
+    const canExport = out.result === "differs" && !!out.counts;
+    const text = [sqlCompareShowing(out), columns && !s.showAll ? "Show all columns adds the rest." : "",
+      canExport ? "Export saves every differing row to a file." : ""].filter(Boolean).join(" ");
+    const buttons = [columns ? btn(s.showAll ? "Show only differing columns" : "Show all columns", null, () => { s.showAll = !s.showAll; draw(); }, "tool outline small") : null,
+      s.offset > 0 ? btn("Previous", null, () => page(-1), "tool outline small") : null,
+      (s.offset + (out.examples?.length || 0)) < (out.listed || 0) ? btn("Next", null, () => page(1), "tool outline small") : null,
+      canExport ? btn("Export", "arrowDownload", exportRows, "tool outline small", { title: "Save every row that differs to a CSV file in Downloads" }) : null].filter(Boolean);
+    if (!listed && !buttons.length && !sqlCompareShowing(out)) return null;
+    return h("div", { class: "sql-compare-foot" }, h("span", { class: "muted-text small" }, text), buttons);
   }
 
   function diffTable(t) {
@@ -205,7 +250,7 @@ function sqlCompareDialog(ctx) {
       return h("table", { class: "sql-compare-table", "aria-label": "Rows that differ" },
         h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "Where"), t.names.map((n) => h("th", { scope: "col" }, n)))),
         h("tbody", {}, t.rows.map((r) => h("tr", {}, h("td", {}, `${SQL_COMPARE_KIND[r.status]}${r.times > 1 ? ` ×${r.times}` : ""}`),
-          r.values.map((v) => h("td", {}, sqlCompareCell(v)))))));
+          r.values.map((v, i) => h("td", {}, sqlCompareCell(v, t.how[i])))))));
     }
     const la = sqlCompareSideLabel(s.a, "A");
     const lb = sqlCompareSideLabel(s.b, "B");
@@ -216,10 +261,11 @@ function sqlCompareDialog(ctx) {
         h("tr", {}, t.keys.map((k) => h("th", { scope: "col" }, k)), h("th", { scope: "col" }, "Where"),
           t.cols.map((n, i) => h("th", { scope: "col", class: i === 0 ? "grp" : "" }, n)), t.cols.map((n, i) => h("th", { scope: "col", class: i === 0 ? "grp" : "" }, n)))),
       h("tbody", {}, t.rows.map((r) => h("tr", {},
-        r.key.map((v) => h("td", {}, sqlCompareCell(v))), h("td", {}, SQL_COMPARE_KIND[r.status]),
+        r.key.map((v) => h("td", {}, sqlCompareCell(v, { raw: true }))), h("td", {}, SQL_COMPARE_KIND[r.status]),
+        // Only B's changed cell is marked, as in the mockup: A is what B is checked against.
         r.status === "changed" ? [
-          r.cells.map((c, i) => h("td", { class: `${i === 0 ? "grp" : ""}${c.changed ? " chg" : ""}` }, sqlCompareCell(c.a))),
-          r.cells.map((c, i) => h("td", { class: `${i === 0 ? "grp" : ""}${c.changed ? " chg" : ""}` }, sqlCompareCell(c.b)))]
+          r.cells.map((c, i) => h("td", { class: i === 0 ? "grp" : "" }, sqlCompareCell(c.a, t.colHow[i]))),
+          r.cells.map((c, i) => h("td", { class: `${i === 0 ? "grp" : ""}${c.changed ? " chg" : ""}` }, sqlCompareCell(c.b, t.colHow[i])))]
           : t.cols.length ? h("td", { colspan: t.cols.length * 2, class: "muted-text grp" }, r.status === "only_a" ? "No row in B with this key" : "No row in A with this key") : null))));
   }
 
@@ -237,7 +283,13 @@ function sqlCompareDialog(ctx) {
     }
     if (job.stopped || closed) return null;
     if (st.refused) throw new Error(`${letter} changes something, and Compare data only reads. Pick a table or a query that only reads.`);
-    if (st.state !== "completed") throw new Error(`${letter}: ${st.error || `the query ${String(st.state).replace("_", " ")}.`}`);
+    if (st.state !== "completed") {
+      const err = st.error || `The query ${String(st.state).replace("_", " ")}.`;
+      throw new Error(`${letter} didn't finish. ${err} Fix ${letter}, then press Compare.`);
+    }
+    // The Delta version a lakehouse table side was read at (sql_status's versions), for "Table, version 212".
+    const versions = Object.values(st.versions || {});
+    s.read[letter] = versions.length === 1 ? versions[0] : null;
     return st.id;
   }
 
@@ -257,7 +309,7 @@ function sqlCompareDialog(ctx) {
         if (!ok) return;
       }
       s.job = { id: null, stopped: false };
-      s.out = null; s.runs = null; s.status = null; s.offset = 0;
+      s.out = null; s.runs = null; s.status = null; s.offset = 0; s.read = {};
       try {
         s.busy = `Running A ${where}…`; draw();
         const a = await runSide(qa, "A");
@@ -312,7 +364,7 @@ function sqlCompareDialog(ctx) {
     if (closed) return;
     const focused = box.contains(document.activeElement) ? document.activeElement.getAttribute("aria-label") || document.activeElement.textContent : null;
     box.replaceChildren(
-      h("p", { class: "muted-text small" }, `${ctx.ref.name}. `, previewTag()),
+      h("p", { class: "muted-text small" }, `${ctx.ref.name} `, previewTag()),
       h("div", { class: "sql-compare-bar" }, sidePicker("A", s.a), sidePicker("B", s.b), keyPicker(), tolerancePicker()),
       results());
     go.disabled = !!s.busy;

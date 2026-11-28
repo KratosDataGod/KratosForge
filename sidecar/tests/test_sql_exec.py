@@ -179,6 +179,12 @@ def test_lakehouse_tables_page_with_nulls_types_and_repeated_names(runs, lake):
     assert not page["has_next"] and not page["has_previous"]
 
 
+def test_status_says_the_delta_version_each_table_was_read_at(runs, lake):
+    # Compare data shows it for a table side ("Table, version 0"); a run that reads no table lists none.
+    assert wait(runs, runs.start("SELECT * FROM sales", lake)["id"])["versions"] == {"sales": 0}
+    assert "versions" not in wait(runs, runs.start("SELECT 1 AS n", lake)["id"])
+
+
 def test_table_gives_the_whole_result_with_unique_names_for_compare(runs, lake):
     status = wait(runs, runs.start("SELECT id, country, amount, id FROM sales ORDER BY id", lake)["id"])
     st, table = runs.table(status["id"])

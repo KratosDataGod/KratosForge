@@ -19,14 +19,23 @@ let exported = null;
 let exportFails = null;  // an Error sql_compare_export throws, or null
 let startAs = null;  // (params, status) -> the status sql_start answers instead, or null
 const held = new Set();  // runs whose sql_status says running until sql_cancel ends them
+let keyRows = { columns: ["kind", "table_schema", "table_name", "column_name"].map((name) => ({ name, type: "string" })), rows: [] };
+// The Delta version each lakehouse table side reads, as sql_start's status says it (versions).
+const VERSIONS = { orders: 212, orders_rebuilt: 37 };
 
 before(async () => {
   if (skip) return;
-  const runs = sqlRunMocks(() => ({ columns: [{ name: "order_id", type: "int64" }], rows: [[1]] }));
+  // The warehouse's keys query (the Diagram's) answers keyRows; every other run answers one row.
+  const runs = sqlRunMocks((p) => (/sys\.key_constraints/.test(p.query) ? keyRows
+    : { columns: [{ name: "order_id", type: "int64" }], rows: [[1]] }));
   app = await openApp({
     engine: ["sql_format", "sql_analyze", "sql_queries_list"],
     mocks: { ...runs,
-      sql_start: (p) => { const st = runs.sql_start(p); return startAs ? startAs(p, st) : st; },
+      sql_start: (p) => {
+        const read = /^SELECT \* FROM (\w+)$/.exec(p.query || "");
+        const st = { ...runs.sql_start(p), ...(p.lakehouse_ref && read && VERSIONS[read[1]] !== undefined ? { versions: { [read[1]]: VERSIONS[read[1]] } } : {}) };
+        return startAs ? startAs(p, st) : st;
+      },
       sql_status: (p) => (held.has(p.execution) ? { id: p.execution, state: "running", rows: 0, seconds: 0.5 } : runs.sql_status(p)),
       sql_cancel: ({ execution }) => { held.delete(execution); return { id: execution, state: "cancelling" }; },
       list_tables: () => ({ dbo: ["orders", "orders_rebuilt"] }),
@@ -59,6 +68,8 @@ async function openPage() {
 }
 const dialog = () => page().getByRole("dialog", { name: "Compare data" });
 const starts = () => app.calls.filter((c) => c.method === "sql_start").map((c) => c.params);
+// The line under a side's picker: "Every row of the table", "Table, version 212" or "One query that only reads".
+const sideNote = (letter) => dialog().locator(".sql-compare-pick").filter({ has: page().getByLabel(`${letter} is a`) }).locator(".muted-text");
 const compares = () => app.calls.filter((c) => c.method === "sql_compare").map((c) => c.params);
 
 test("Compare data runs A and B once as reads, then a key, tile and tolerance compare the same results again", { skip }, async () => {
@@ -76,9 +87,12 @@ test("Compare data runs A and B once as reads, then a key, tile and tolerance co
   const ran = starts().slice(before);
   assert.deepStrictEqual(ran.map((p) => [p.query, p.dialect, p.allow]), [["SELECT * FROM orders", "spark", undefined],
     ["SELECT * FROM orders_rebuilt", "spark", undefined]], "both sides run as reads, with no allow");
-  assert.match(await d.locator(".sql-compare-verdict").innerText(), /5 rows in A, 5 in B\. Compared on this PC in 0\.4 s\. Read only: nothing was changed\./);
+  assert.match(await d.locator(".sql-compare-verdict").innerText(), /5 rows in A, 5 in B\. Compared on this PC in 0\.4 s\. Both only read, so nothing was changed\./);
   assert.deepStrictEqual(await d.locator(".sql-compare-tile span").allInnerTexts(), ["Same", "Only in A", "Only in B"], "no key: no Changed tile");
-  await d.getByText("Showing 1–1 of 8 rows that differ.").waitFor();
+  await d.getByText("Showing 1–1 of 8 rows that differ. Export saves every differing row to a file.").waitFor();
+  // #3304 review, item 3: a table side says the Delta version it read.
+  assert.deepStrictEqual(await sideNote("A").innerText(), "Table, version 212");
+  assert.deepStrictEqual(await sideNote("B").innerText(), "Table, version 37");
 
   answer = keyed;
   await d.getByLabel("Add a key column").selectOption("order_id");
@@ -89,7 +103,12 @@ test("Compare data runs A and B once as reads, then a key, tile and tolerance co
   const table = d.getByRole("table", { name: "Rows that differ, A beside B" });
   assert.deepStrictEqual(await table.locator("thead tr").nth(1).locator("th").allInnerTexts(), ["order_id", "Where", "amount", "amount"],
     "only the columns that differ");
-  assert.deepStrictEqual(await table.locator("td.chg").allInnerTexts(), ["1,204.5", "1,240.5", "310.25", "NULL"]);
+  // #3304 review: only B's changed cell is marked; a key reads as written (100482); a number keeps its column's scale.
+  assert.deepStrictEqual(await table.locator("td.chg").allInnerTexts(), ["1,240.50", "NULL"]);
+  assert.deepStrictEqual(await table.locator("tbody tr").first().locator("td").allInnerTexts(), ["100482", "changed", "1,204.50", "1,240.50"]);
+  await d.getByText("Showing 1–3 of 22 rows that differ. Show all columns adds the rest. Export saves every differing row to a file.").waitFor();
+  assert.strictEqual(await d.getByRole("button", { name: /5\s*Only in A/ }).getAttribute("title"), "Show only the rows only in A");
+  assert.strictEqual(await d.getByRole("button", { name: /15\s*Changed/ }).getAttribute("title"), "Show only the changed rows");
   await d.getByRole("button", { name: "Show all columns" }).click();
   assert.deepStrictEqual(await table.locator("thead tr").nth(1).locator("th").allInnerTexts(), ["order_id", "Where", "amount", "status", "amount", "status"]);
 
@@ -132,7 +151,7 @@ test("a table's menu has Compare with, and a repeated key stops the compare and 
   assert.strictEqual(await d.getByLabel("A: table").inputValue(), "orders_rebuilt");
   assert.strictEqual(await d.getByLabel("B: table").inputValue(), "orders");
 
-  answer = (p) => ({ stopped: "The key (order_id) is repeated in A, so there's no single row to compare: 1 repeated in A, 0 in B. Add a column to the key, or compare without a key.",
+  answer = (p) => ({ stopped: "The key (order_id) is repeated in A, so there's no single row to compare. 1 is repeated in A and 0 in B. Add a column to the key, or compare without a key.",
     rows: { a: 6, b: 5 }, common: COMMON });
   await d.getByLabel("Add a key column").selectOption("order_id");  // from the table's columns, before any run
   await page().locator(".dialog-actions").getByRole("button", { name: "Compare" }).click();
@@ -237,6 +256,55 @@ test("on a warehouse, a table's menu has Compare with, and a table with no known
   await dialog().waitFor({ state: "detached" });
 });
 
+test("on a warehouse, the Diagram keeps the primary keys it read, and Compare then starts with that key", { skip }, async () => {
+  await openWarehouse();
+  await page().evaluate(() => { delete sqlPage.catalog.pks; });
+  await page().locator(".wh-explorer").getByRole("button", { name: "Compare data" }).click();
+  assert.strictEqual(await dialog().getByRole("button", { name: /^Stop matching on/ }).count(), 0, "no key before the Diagram read them");
+  await page().keyboard.press("Escape");
+  await dialog().waitFor({ state: "detached" });
+
+  const was = keyRows;
+  keyRows = { ...was, rows: [["P", "dbo", "orders", "order_id"]] };
+  try {
+    await page().locator(".wh-explorer").getByRole("button", { name: "Diagram" }).click();
+    const diagram = page().getByRole("dialog", { name: "Diagram: WH_Gold" });
+    await diagram.getByText("from keys", { exact: false }).waitFor();
+    assert.deepStrictEqual(await page().evaluate(() => sqlPage.catalog.pks), { "dbo.orders": ["order_id"] }, "kept with the catalog");
+    await page().keyboard.press("Escape");
+    await diagram.waitFor({ state: "detached" });
+  } finally {
+    keyRows = was;
+  }
+  await page().locator(".wh-explorer").getByRole("button", { name: "Compare data" }).click();
+  const d = dialog();
+  assert.strictEqual(await d.getByLabel("A: table").inputValue(), "[dbo].[orders]");
+  await d.getByRole("button", { name: "Stop matching on order_id" }).waitFor();
+  await page().keyboard.press("Escape");
+  await dialog().waitFor({ state: "detached" });
+});
+
+test("on a warehouse, Swap A and B starts Match rows on from the new A's known key", { skip }, async () => {
+  await openWarehouse();
+  await page().evaluate(() => { sqlPage.catalog.pks = { "dbo.orders": ["order_id"], "dbo.orders_rebuilt": ["order_id", "status"] }; });
+  await page().locator(".wh-explorer").getByRole("button", { name: "Compare data" }).click();
+  const d = dialog();
+  const chips = () => d.getByRole("group", { name: "Match rows on" }).getByRole("button").allInnerTexts();
+  await d.getByRole("button", { name: "Stop matching on order_id" }).waitFor();
+  assert.deepStrictEqual((await chips()).map((t) => t.replace(/\s*✕$/, "")), ["order_id"]);
+  await page().locator(".dialog-actions").getByRole("button", { name: "Swap A and B" }).click();
+  assert.strictEqual(await d.getByLabel("A: table").inputValue(), "[dbo].[orders_rebuilt]");
+  await d.getByRole("button", { name: "Stop matching on status" }).waitFor();
+  assert.deepStrictEqual((await chips()).map((t) => t.replace(/\s*✕$/, "")), ["order_id", "status"], "the new A's primary key");
+  // A view has no known key, so Swap onto one starts with none.
+  await d.getByLabel("B: table").selectOption("[dbo].[vOrders]");
+  await page().locator(".dialog-actions").getByRole("button", { name: "Swap A and B" }).click();
+  assert.strictEqual(await d.getByLabel("A: table").inputValue(), "[dbo].[vOrders]");
+  assert.strictEqual(await d.getByRole("button", { name: /^Stop matching on/ }).count(), 0);
+  await page().keyboard.press("Escape");
+  await dialog().waitFor({ state: "detached" });
+});
+
 // When a run fails or is stopped, Export fails, a result was cleaned up, the window is narrow, or only
 // checksums could be compared (the UX Preview-exit sweep). Lakehouse mocks.
 const go = () => page().locator(".dialog-actions").getByRole("button", { name: "Compare" });
@@ -262,7 +330,7 @@ test("a failed run says which side and why, and Stop ends B while it runs", { sk
   const n = compares().length;
   startAs = (p, st) => (p.query === "SELECT * FROM orders" ? { ...st, state: "failed", error: "Table orders is locked by another job." } : st);
   await go().click();
-  await d.getByRole("alert").getByText("A: Table orders is locked by another job.").waitFor();
+  await d.getByRole("alert").getByText("A didn't finish. Table orders is locked by another job. Fix A, then press Compare.").waitFor();
   assert.strictEqual(compares().length, n, "nothing is compared when A fails");
 
   let bId = null;
@@ -276,6 +344,19 @@ test("a failed run says which side and why, and Stop ends B while it runs", { sk
     await go().click();
     await d.getByText("Running B on this PC…").waitFor();
     assert.ok(await go().isDisabled(), "Compare waits while a side runs");
+    // #3304 review: a disabled primary button in a dialog looks disabled (the border and muted tokens).
+    await page().mouse.move(0, 0);  // off the button, so its hover color isn't what is measured
+    const look = () => page().evaluate(() => {
+      const b = [...document.querySelectorAll(".dialog-actions .tool.primary")].find((x) => x.textContent === "Compare");
+      const probe = document.createElement("span");
+      probe.style.background = "var(--border)"; probe.style.color = "var(--muted)";
+      document.body.append(probe);
+      const want = getComputedStyle(probe);
+      const same = getComputedStyle(b).backgroundColor === want.backgroundColor && getComputedStyle(b).color === want.color;
+      probe.remove();
+      return same;
+    });
+    await until(look, "Compare drawn disabled (var(--border) behind var(--muted))");
     await stopButton().click();
     await until(() => calls("sql_cancel").some((p) => p.execution === bId), "sql_cancel on B");
     await until(async () => !(await go().isDisabled()), "Compare enabled again");
@@ -360,5 +441,31 @@ test("when only checksums can be compared, the verdict says so, with no tiles an
   assert.strictEqual(await d.locator(".sql-compare-tile").count(), 0, "no tiles");
   assert.strictEqual(await d.getByRole("button", { name: "Export" }).count(), 0, "no Export");
   await d.locator(".sql-compare-notes li").getByText(limit).waitFor();
+  assert.match(await verdict.innerText(), /A or B has more than 5,000,000 rows, so only checksums were compared\./, "the verdict names the limit");
+  // #3304 review, item 2: no rows are listed, so there's no footer (no Show all columns over no table).
+  assert.strictEqual(await d.locator(".sql-compare-foot").count(), 0, "no footer");
+  assert.strictEqual(await d.getByRole("button", { name: "Show all columns" }).count(), 0);
+  await closeButton().click();
+});
+
+test("a Same result has no footer, and a table side says the version it read", { skip }, async () => {
+  const d = await openDialog();
+  answer = (p) => ({ result: "same", level: "complete", method: "keyed", keys: ["order_id"], seconds: 0.3, rows: { a: 3, b: 3 },
+    common: COMMON, columns: { only_a: [], only_b: [], types: [] }, limitations: [], status: p.status, offset: p.offset,
+    counts: { same: 3, only_a: 0, only_b: 0, changed: 0 }, listed: 0, examples: [] });
+  assert.strictEqual(await sideNote("A").innerText(), "Every row of the table", "no version before it is read");
+  await go().click();
+  await d.locator(".sql-compare-verdict").getByText("Same").waitFor();
+  assert.strictEqual(await d.locator(".sql-compare-foot").count(), 0, "no footer on Same");
+  assert.strictEqual(await d.getByRole("button", { name: "Show all columns" }).count(), 0);
+  assert.strictEqual(await sideNote("A").innerText(), "Table, version 212");
+  // Another A forgets the version until A is read.
+  await d.getByLabel("A: table").selectOption("orders_rebuilt");
+  assert.strictEqual(await sideNote("A").innerText(), "Every row of the table");
+  await go().click();
+  await until(async () => (await sideNote("A").innerText()) === "Table, version 37", "A's version");
+  // A query side says what it is, never a version.
+  await d.getByLabel("B is a").selectOption("query");
+  assert.strictEqual(await sideNote("B").innerText(), "One query that only reads");
   await closeButton().click();
 });

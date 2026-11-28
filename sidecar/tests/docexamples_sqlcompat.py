@@ -125,7 +125,13 @@ CLAIMS: list[Claim] = [
     _ts("CONCAT('a', 1.50)"),
     _ts("N'a' + N'b'"),
     _ts("DATALENGTH(N'ab')"),
-    _ts("DATALENGTH(N'a' + N'b')"),
+    # WR-723, WR-724: char(n) padding, nvarchar's UTF-16 bytes, ASCII's first UTF-8 byte
+    _ts("DATALENGTH(N'é😀')"),
+    _ts("DATALENGTH(CAST('ab' AS NVARCHAR(4)))"),
+    _ts("DATALENGTH(CAST('ab' AS NCHAR(4)))"),
+    _ts("DATALENGTH(CAST('é' AS CHAR(3)))"),
+    _ts("ASCII('æ')"),
+    _ts("UNICODE('æ')"),
     # Local T-SQL tables: CREATE TABLE AS SELECT / SELECT INTO keep the select's types
     _ts("1", **_column_type("SELECT 1 AS v", "t_int")),
     # Local T-SQL decimals

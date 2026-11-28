@@ -360,10 +360,14 @@ def _fail(message: str) -> exp.Expression:
 # ---------- Delta timestamps read as datetime2
 
 _AWARE = "TIMESTAMP WITH TIME ZONE"
+# WR-723: a CHAR(n) column, as the engine names one from its length check; it is read padded to n bytes
+_CHAR = re.compile(r"CHAR\((\d+)\)")
 
 
 def delta_times(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str]]] | None) -> None:
-    """A table's UTC timestamp columns read as ``datetime2``: the UTC clock time without a zone, as a warehouse's
+    """WR-723: a CHAR(n) column is read padded with spaces to n bytes, as a warehouse stores it.
+
+    A table's UTC timestamp columns read as ``datetime2``: the UTC clock time without a zone, as a warehouse's
     SQL analytics endpoint reads a Delta TIMESTAMP. Only where a query reads a table (FROM and JOIN), so a
     statement's target is left as it is."""
     if not columns or isinstance(tree, (exp.Update, exp.Delete, exp.Merge)):
@@ -377,11 +381,15 @@ def delta_times(tree: exp.Expression, columns: dict[str, dict[str, dict[str, str
         name, schema = table.name.lower(), (table.db or "dbo").lower()
         if table.catalog or name.startswith("#") or (not table.db and name in ctes) or (schema, name) in qualified:
             continue
-        aware = [c for c, kind in known.get(schema, {}).get(name, {}).items() if kind.upper() == _AWARE]
-        if not aware:
+        kinds = known.get(schema, {}).get(name, {})
+        aware = [c for c, kind in kinds.items() if kind.upper() == _AWARE]
+        chars = [(c, int(found[1])) for c, kind in kinds.items() if (found := _CHAR.fullmatch(kind.upper()))]
+        if not aware and not chars:
             continue
+        from fabric_desktop.localdata.tsql import padded  # tsql imports this module
         star = exp.Star(replace=[exp.alias_(exp.cast(exp.column(c, quoted=True), "TIMESTAMP"), c, quoted=True)
-                                 for c in aware])
+                                 for c in aware] + [exp.alias_(padded(exp.column(c, quoted=True), n), c, quoted=True)
+                                                    for c, n in chars])
         alias = table.args.get("alias")
         inner = table.copy()
         inner.set("alias", None)

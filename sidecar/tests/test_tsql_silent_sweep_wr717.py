@@ -49,7 +49,8 @@ def one(engine, sql):
 def test_isnull_of_a_sized_column_cuts_its_replacement(engine):
     got = rows(engine, "SELECT ISNULL(s, 'abcdefgh'), ISNULL(c, 'vwxyz'), COALESCE(s, 'abcdefgh') FROM dbo.t "
                        "ORDER BY id")
-    assert got == [["ab", "x", "ab"], ["abcde", "vwxy", "abcdefgh"]]  # COALESCE takes the longer type
+    # COALESCE takes the longer type. c is char(4), so its 'x' is 'x   ' (WR-723)
+    assert got == [["ab", "x   ", "ab"], ["abcde", "vwxy", "abcdefgh"]]
 
 
 def test_lag_and_lead_of_a_sized_column_cut_their_default(engine):

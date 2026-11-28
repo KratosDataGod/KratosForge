@@ -239,6 +239,7 @@ def _one(batch: str, tree: exp.Expression, columns: dict[str, dict[str, dict[str
     tsql_merge.check(tree, columns)  # WR-244: MERGE's clauses as a warehouse takes them
     notes += _collations(tree)
     _replicate_inputs(tree)  # WR-235: before N'' text and CONVERT's (MAX) are rewritten
+    _national_lengths(tree)  # WR-724: before N'' text becomes plain text and an NVARCHAR cast a sized one
     _national_text(tree)
     notes += tsql_ctes.check(tree)  # WR-230: no recursive CTE, no change through a CTE
     notes += tsql_hints.check(tree)  # WR-231: labels and hints that change no rows, with a note
@@ -1056,13 +1057,17 @@ def _table_columns(tree: exp.Expression) -> None:
         too_long = exp.GT(this=exp.func(_SIZED_COLUMNS[kind.this], value), expression=exp.Literal.number(size))
         message = exp.Literal.string(f"String or binary data would be truncated in table '{table}', column "
                                      f"'{column.name}'.")
-        check = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=exp.true())
+        # A CHAR(n) column's check ends in 'char' IS NOT NULL (true, as the plain check's TRUE), so the engine can
+        # tell it from a VARCHAR(n) one and read it padded to n (WR-723).
+        passed: exp.Expr = exp.Not(this=exp.Is(this=exp.Literal.string("char"), expression=exp.Null())) \
+            if kind.this == exp.DataType.Type.CHAR else exp.true()
+        check = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=passed)
         column.append("constraints", exp.ColumnConstraint(kind=exp.CheckColumnConstraint(this=check)))
         if kind.this in (exp.DataType.Type.VARBINARY, exp.DataType.Type.BINARY):
             kind.set("expressions", [])  # DuckDB's BLOB takes no length: VARBINARY(4) stopped CREATE TABLE
 
 
-_SIZED_TEXT = re.compile(r"VARCHAR\(\d+\)")
+_SIZED_TEXT = re.compile(r"(?:VAR)?CHAR\(\d+\)")
 
 
 def _schema(columns: dict[str, dict[str, dict[str, str]]]) -> Any:
@@ -1719,7 +1724,7 @@ def _cut_to_text(node: exp.Expression, key: str, other: exp.Expression, other_ty
         node.set(key, [sized] if key == "expressions" else sized)
         _sized_text(sized, other_type)
     else:
-        cut = exp.func("LEFT", exp.cast(other, "VARCHAR"), exp.Literal.number(int(size.name)))
+        cut = byte_cut(exp.cast(other, "VARCHAR"), int(size.name), kind.this in _PADDED)
         node.set(key, [cut] if key == "expressions" else cut)
 
 
@@ -1813,6 +1818,76 @@ def _decimal_operands(info: exp.Expression) -> tuple[tuple[int, int], tuple[int,
     if a is None or b is None or not (a[2] or b[2]):
         return None
     return a[:2], b[:2]
+
+
+_CUT_NOT_ASCII = ("This T-SQL can't be run on the local engine: cutting text with characters past ASCII to {n} bytes isn't mapped yet. A warehouse's "
+                  "varchar(n) and char(n) hold n bytes of UTF-8, and T-SQL's reference doesn't say how a character "
+                  "that would be split is cut. The statement stopped at that value. Make the length long enough for "
+                  "the text, or cut it with LEFT first.")
+
+
+_NOT_ASCII = "[^\\x00-\\x7F]"
+_SUPPLEMENTARY = "[\\x{10000}-\\x{10FFFF}]"
+
+
+def byte_cut(text: exp.Expression, n: int, pad: bool) -> exp.Expression:
+    """WR-724: ``text`` cut to n bytes, as a warehouse's UTF-8 varchar(n) holds n bytes (data-types/char-and-varchar:
+    "n defines the string length in bytes"), and padded with spaces to n bytes when ``pad``. Text that is all ASCII
+    is cut by characters, which are bytes there; text past ASCII that doesn't fit stops by name, because how a
+    split character is cut isn't documented. Written text is checked here, before anything runs, and cut with
+    LEFT alone, which DuckDB folds to a constant where one is needed (STRING_AGG's separator). A written NULL
+    stays as it is."""
+    if _written_null(text):
+        return text.copy()
+    if (written := _written_text(text)) is not None:
+        if len(written.encode("utf-8")) > n and not written.isascii():
+            raise ValueError(_CUT_NOT_ASCII.format(n=n).replace("The statement stopped at that value.", "Nothing ran."))
+        cut: exp.Expression = exp.Left(this=text.copy(), expression=exp.Literal.number(n))
+        return padded(cut, n) if pad else cut
+
+    def build(t: exp.Expression) -> exp.Expression:
+        too_long = exp.and_(exp.GT(this=exp.func("STRLEN", t.copy()), expression=exp.Literal.number(n)),
+                            exp.func("REGEXP_MATCHES", t.copy(), exp.Literal.string(_NOT_ASCII)))
+        stop = exp.func("ERROR", exp.Literal.string(_CUT_NOT_ASCII.format(n=n)))
+        cut: exp.Expression = exp.Case(ifs=[exp.If(this=too_long, true=stop)],
+                                       default=exp.func("LEFT", t.copy(), exp.Literal.number(n)))
+        return padded(cut, n) if pad else cut
+    return _once([text], build)
+
+
+def _written_text(text: exp.Expr) -> str | None:
+    """The string of a text literal, or of a CAST of one to VARCHAR; None for anything else."""
+    text = _uncast_text(text)
+    return text.name if isinstance(text, exp.Literal) and text.is_string else None
+
+
+def _written_null(text: exp.Expr) -> bool:
+    """Whether ``text`` is NULL written out, or a CAST of it to VARCHAR."""
+    return isinstance(_uncast_text(text).unnest(), exp.Null)
+
+
+def _uncast_text(text: exp.Expr) -> exp.Expr:
+    """``text`` without the CASTs to an unsized VARCHAR around it."""
+    while isinstance(text, exp.Cast) and not isinstance(text, exp.TryCast) and text.to.this in {
+            exp.DataType.Type.VARCHAR, exp.DataType.Type.TEXT} and not text.to.expressions:
+        text = text.this
+    return text
+
+
+def padded(text: exp.Expression, n: int) -> exp.Expression:
+    """WR-723: ``text`` padded with spaces to n bytes, as a char(n) value is (statements/set-ansi-padding-transact-sql:
+    "Pad original value (with trailing blanks for char columns) ... to the length of the column"), after dropping
+    trailing spaces past it. NULL stays NULL."""
+    if _written_null(text):
+        return text.copy()
+
+    def build(t: exp.Expression) -> exp.Expression:
+        bare = exp.func("RTRIM", t.copy(), exp.Literal.string(" "))
+        spaces = exp.func("REPEAT", exp.Literal.string(" "), exp.func(
+            "GREATEST", exp.Sub(this=exp.Literal.number(n), expression=exp.func("STRLEN", bare.copy())),
+            exp.Literal.number(0)))
+        return exp.DPipe(this=bare, expression=spaces, safe=True)
+    return _once([text], build)
 
 
 def _volatile(node: exp.Expression) -> bool:
@@ -2189,6 +2264,8 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
     if not (isinstance(size, exp.Literal) and not size.is_string):
         to.set("expressions", [])  # VARCHAR(MAX): DuckDB's VARCHAR has no limit and takes no MAX
         return
+    if _written_null(node.this):
+        return  # NULL cut or padded is NULL, and the cast keeps its size for ISNULL's type (WR-724)
     n = int(size.name)
     text: exp.Expr = exp.Cast(this=node.this, to=exp.DataType.build("VARCHAR"), safe=isinstance(node, exp.TryCast))
     if isinstance(node, exp.TryCast):
@@ -2214,9 +2291,11 @@ def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
             cut = exp.Bracket(this=exp.func("LIST_TRANSFORM", exp.Array(expressions=[shown]), exp.Lambda(
                 this=cut, expressions=[exp.to_identifier("kf_shown")])), expressions=[exp.Literal.number(1)], offset=1)
     else:
-        cut = exp.func("LEFT", text, exp.Literal.number(n))
+        assert isinstance(text, exp.Expression)
+        cut = byte_cut(text, n, False)
     if to.this in _PADDED:
-        cut = exp.func("RPAD", cut, exp.Literal.number(n), exp.Literal.string(" "))
+        assert isinstance(cut, exp.Expression)
+        cut = padded(cut, n)
     node.replace(cut)
 
 
@@ -3328,6 +3407,58 @@ def _unknown_functions(tree: exp.Expression, known: Container[str]) -> None:
                          "SYSUTCDATETIME() gives the same time without the offset.")
 
 
+_NATIONAL_TYPES = {exp.DataType.Type.NVARCHAR: False, exp.DataType.Type.NCHAR: True}
+
+
+def _utf16_units(value: exp.Expression) -> exp.Expression:
+    """The UTF-16 code units of ``value``: one a character, two for one past U+FFFF."""
+    extra = exp.Length(this=exp.RegexpReplace(this=value.copy(), expression=exp.Literal.string(
+        f"[^{_SUPPLEMENTARY[1:-1]}]"), replacement=exp.Literal.string(""), modifiers=exp.Literal.string("g")))
+    return exp.Add(this=exp.Anonymous(this="LENGTH", expressions=[value.copy()]), expression=extra)
+
+
+def _national_lengths(tree: exp.Expression) -> None:
+    """WR-724: DATALENGTH of nvarchar or nchar is two bytes a UTF-16 code unit (data-types/nchar-and-nvarchar: "n
+    defines the string size in byte-pairs"), so a character past U+FFFF is four. An N'...' literal, and a CAST or
+    CONVERT to NVARCHAR(n) or NCHAR(n), are counted so; nchar(n) is padded to n. Any other expression with N'...'
+    or nvarchar in it is refused by name: the local engine keeps text as UTF-8 and can't tell when T-SQL's
+    result would be nvarchar (DATALENGTH(N'a' + N'b') was 2 here, where T-SQL gives 4)."""
+    for call in list(tree.find_all(exp.Anonymous)):
+        if call.name.upper() != "DATALENGTH" or len(call.expressions) != 1:
+            continue
+        value = call.expressions[0]
+        if isinstance(value, exp.National):
+            call.replace(exp.Literal.number(len(value.name.encode("utf-16-le"))))
+            continue
+        to = value.args.get("to") if isinstance(value, (exp.Cast, exp.TryCast)) else None
+        if isinstance(value, exp.Convert) and value.args.get("style") is None:  # CONVERT(NVARCHAR(n), text)
+            to, value = value.this, exp.Cast(this=value.expression, to=value.this)
+        if isinstance(to, exp.DataType) and to.this in _NATIONAL_TYPES:
+            size = to.expressions[0].this if to.expressions else exp.Literal.number(30)
+            if not (isinstance(size, exp.Literal) and size.is_int) or any(
+                    True for n in value.this.walk() if isinstance(n, exp.National) or isinstance(n, exp.DataType)
+                    and n.this in _NATIONAL_TYPES):
+                raise ValueError(_NOT_YET + "DATALENGTH of this nvarchar value isn't mapped yet. It runs on an N'...' "
+                                 "literal and on CAST(text AS NVARCHAR(n)) or NCHAR(n).")
+            n = int(size.name)
+            text = exp.cast(value.this.copy(), "VARCHAR")
+            units: exp.Expr = exp.Literal.number(n) if _NATIONAL_TYPES[to.this] else exp.func(
+                "LEAST", _utf16_units(text), exp.Literal.number(n))
+            split = exp.and_(exp.GT(this=_utf16_units(text), expression=exp.Literal.number(n)),
+                             exp.func("REGEXP_MATCHES", text.copy(), exp.Literal.string(_SUPPLEMENTARY)))
+            stop = exp.func("ERROR", exp.Literal.string(_NOT_YET + f"cutting text with a character past U+FFFF to "
+                            f"{n} UTF-16 code units isn't mapped yet. The statement stopped at that value."))
+            call.replace(exp.Case(ifs=[exp.If(this=exp.Is(this=text.copy(), expression=exp.Null()), true=exp.Null()),
+                                       exp.If(this=split, true=stop)],
+                                  default=exp.Mul(this=exp.Literal.number(2), expression=units)))
+            continue
+        if any(True for n in value.walk() if isinstance(n, exp.National) or isinstance(n, exp.DataType)
+               and n.this in _NATIONAL_TYPES):
+            raise ValueError(_NOT_YET + "DATALENGTH of an expression with nvarchar in it isn't mapped yet, because the "
+                             "local engine keeps text as UTF-8 and can't tell when T-SQL's result is nvarchar. Nothing "
+                             "ran. DATALENGTH runs on an N'...' literal and on CAST(text AS NVARCHAR(n)) or NCHAR(n).")
+
+
 def _national_text(tree: exp.Expression) -> None:
     """An N'...' literal is nvarchar text. sqlglot reads it as exp.National, which the passes that type text
     (comparisons with ANSI padding, LIKE's [a-c] ranges, + joining two strings) didn't take for text. So
@@ -3802,12 +3933,22 @@ def _char_codes(tree: exp.Expression) -> None:
     - ``ASCII('')`` and ``UNICODE('')`` are NULL (DuckDB gave 0 and -1).
     - ``CHAR(n)`` is NULL outside 0 to 255 ("CHAR returns a NULL value for integer expressions outside this
       input range", functions/char-transact-sql), and a count with a fraction is made an int first, toward
-      zero (DuckDB gave the code point, stopped below 0, and didn't bind a decimal)."""
+      zero (DuckDB gave the code point, stopped below 0, and didn't bind a decimal).
+    - WR-724: ``ASCII`` is the first byte of the character's UTF-8 form, as a warehouse keeps varchar: Learn's
+      example gives ASCII('æ') = 195 and UNICODE('æ') = 230 (functions/ascii-transact-sql, example B). DuckDB gave
+      the code point for both.
+    - WR-724: ``CHAR(n)`` for n from 128 to 255 is refused by name. Under a UTF-8 collation one byte past 127 isn't
+      a whole character, and the reference doesn't say what CHAR gives for it (DuckDB gave U+0080 to U+00FF)."""
     for node in reversed(list(tree.find_all(exp.Ascii, exp.Unicode, exp.Chr))):  # deepest first: see _once
         if isinstance(node, (exp.Ascii, exp.Unicode)):
             text = node.this
+            if isinstance(node, exp.Ascii) and isinstance(text, exp.Literal) and text.is_string and text.name:
+                node.replace(exp.Literal.number(text.name.encode("utf-8")[0]))
+                continue
             if not (isinstance(text, exp.Literal) and text.is_string and text.name):
                 node.set("this", exp.Nullif(this=text.copy(), expression=exp.Literal.string("")))
+            if isinstance(node, exp.Ascii):
+                node.replace(_once([node.copy()], _lead_byte))
             continue
         if len(node.expressions) != 1:
             continue
@@ -3815,7 +3956,9 @@ def _char_codes(tree: exp.Expression) -> None:
         value = _number(code)
         if value is not None:
             whole = _in_range(int(value) if math.isfinite(value) else _INFINITE, "int")
-            node.replace(exp.Chr(expressions=[exp.Literal.number(whole)]) if 0 <= whole <= 255
+            if 128 <= whole <= 255:
+                raise ValueError(_CHAR_PAST_ASCII.format(n=whole))
+            node.replace(exp.Chr(expressions=[exp.Literal.number(whole)]) if 0 <= whole <= 127
                          else exp.cast(exp.null(), "TEXT"))
             continue
         # The code is read once, and then its int once, so CHAR(RAND() * 300) draws one number, checks and
@@ -3825,8 +3968,29 @@ def _char_codes(tree: exp.Expression) -> None:
 
 def _char_of(v: exp.Expression) -> exp.Expression:
     """``CHAR`` of the int ``v``: T-SQL's overflow error past an int, NULL outside 0 to 255."""
-    inside = exp.Between(this=v.copy(), low=exp.Literal.number(0), high=exp.Literal.number(255))
-    return exp.Case(ifs=[_past(v, "int"), exp.If(this=inside, true=exp.Chr(expressions=[exp.cast(v.copy(), "INT")]))])
+    inside = exp.Between(this=v.copy(), low=exp.Literal.number(0), high=exp.Literal.number(127))
+    upper = exp.Between(this=v.copy(), low=exp.Literal.number(128), high=exp.Literal.number(255))
+    stop = exp.func("ERROR", exp.Literal.string(_CHAR_PAST_ASCII.format(n="a code from 128 to 255")))
+    return exp.Case(ifs=[_past(v, "int"), exp.If(this=inside, true=exp.Chr(expressions=[exp.cast(v.copy(), "INT")])),
+                         exp.If(this=upper, true=stop)])
+
+
+_CHAR_PAST_ASCII = ("This T-SQL can't be run on the local engine: CHAR of {n} isn't mapped yet. A warehouse keeps "
+                    "varchar as UTF-8, where one byte past 127 isn't a whole character, and T-SQL's reference doesn't "
+                    "say what CHAR gives for it. CHAR runs for 0 to 127. Write a character past ASCII in the text "
+                    "itself.")
+
+
+def _lead_byte(code: exp.Expression) -> exp.Expression:
+    """The first UTF-8 byte of the character whose code point is ``code`` (WR-724)."""
+    def lead(limit: int, mark: int, shift: int) -> exp.If:
+        byte = exp.Add(this=exp.Literal.number(mark), expression=exp.BitwiseRightShift(
+            this=code.copy(), expression=exp.Literal.number(shift)))
+        return exp.If(this=exp.LT(this=code.copy(), expression=exp.Literal.number(limit)), true=byte)
+    return exp.Case(ifs=[exp.If(this=exp.LT(this=code.copy(), expression=exp.Literal.number(128)), true=code.copy()),
+                         lead(0x800, 0xC0, 6), lead(0x10000, 0xE0, 12)],
+                    default=exp.Add(this=exp.Literal.number(0xF0), expression=exp.BitwiseRightShift(
+                        this=code.copy(), expression=exp.Literal.number(18))))
 
 
 def _key_columns(tree: exp.Expression) -> None:

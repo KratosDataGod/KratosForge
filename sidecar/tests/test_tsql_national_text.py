@@ -39,7 +39,6 @@ def test_a_filter_on_n_text_ignores_trailing_spaces(engine) -> None:
     ("N'it''s'", "it's"),
     ("DATALENGTH(N'ab')", 4),
     ("DATALENGTH('ab')", 2),
-    ("DATALENGTH(N'a' + N'b')", 2),  # T-SQL gives 4 (nvarchar); docs/sql-compatibility.md says so
     ("UNICODE(N'é')", 233),
 ])
 def test_n_text_answers_as_plain_text(engine, expression: str, want) -> None:

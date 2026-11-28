@@ -108,7 +108,7 @@ def test_sql_progress_counts_statements_finished(svc: FakeService) -> None:
 
 def test_messages_lose_credentials_and_control_characters(svc: FakeService) -> None:
     svc.sql.runs = [{"id": "e1", "state": "failed", "created": NOW,
-                     "error": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl\x07 refused"}]
+                     "error": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl\x07 refused"}]  # pragma: allowlist secret (a made-up token, test value)
     message = make(svc).list()["runs"][0]["message"]
     assert "eyJ0eXAi" not in message and "\x07" not in message and "refused" in message
 

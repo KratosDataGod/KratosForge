@@ -57,7 +57,7 @@ _FROM_DATABRICKS = {"sql": "%%sql", "scala": "%%spark", "r": "%%sparkr", "sh": "
 _FABRIC_LANGUAGE = {"sql": "sparksql", "spark": "scala", "sparkr": "r", "html": "python"}
 _FABRIC_MAGIC = {"sparksql": "%%sql", "scala": "%%spark", "r": "%%sparkr"}
 
-_CELL_MAGIC = re.compile(r"^%%([A-Za-z_]+)[^\n]*(?:\n|$)")
+_CELL_MAGIC = re.compile(r"^%%([A-Za-z_]+)(?=\s|$)[^\n]*(?:\n|$)")  # %%sql2 is not %%sql
 
 
 def _magic(source: str) -> str | None:

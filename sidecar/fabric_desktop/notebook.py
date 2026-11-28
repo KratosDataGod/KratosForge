@@ -1319,7 +1319,7 @@ class Kernel:
             self._emit(run, {"type": "html", "html": cell.body})
             return "ok"
         if cell.language == "markdown":
-            self._emit(run, {"type": "markdown", "text": cell.body.strip("\n").removeprefix(" ")})
+            self._emit(run, {"type": "markdown", "text": cell.body.strip("\r\n").removeprefix(" ")})
             return "ok"
         if cell.language == "shell":
             return self._run_script(cell, run)
@@ -1616,8 +1616,9 @@ class Kernel:
                              "own environment.")
         if name == "time":
             started = time.monotonic()
+            line = line.strip()  # "%time  f()": the spaces before the code aren't an indent
             try:
-                value = eval(compile(line, _CELL_FILE, "eval"), self.namespace) if line.strip() else None  # noqa: S307 - the person's %time line
+                value = eval(compile(line, _CELL_FILE, "eval"), self.namespace) if line else None  # noqa: S307 - the person's %time line
             except SyntaxError:  # a statement, such as x = f()
                 exec(compile(line, _CELL_FILE, "exec"), self.namespace)  # noqa: S102 - the person's %time line
                 value = None
@@ -2334,15 +2335,19 @@ _CONFIGURE_KEYS = {
 def configure_report(body: str) -> str:
     """A %%configure cell on this PC: its JSON is checked as Fabric would, and the report says what
     each setting does in Fabric and why nothing changes here. Nothing on this PC is changed."""
-    text = body.strip()
-    flags = re.match(r"^(-f|--force)?\s*", text)
-    text = text[flags.end():] if flags else text
+    flags = re.match(r"^\s*(-f|--force)?\s*", body)
+    start = flags.end() if flags else 0
+    text = body[start:].rstrip()
     if not text:
         raise ValueError("%%configure needs a JSON object, like: %%configure\n{\"driverMemory\": \"28g\"}")
     try:
         settings = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"%%configure isn't valid JSON (line {exc.lineno}, column {exc.colno}: {exc.msg}). "
+        # Where the cell shows it: the body's first line is the %%configure line's own.
+        line = body.count("\n", 0, start) + exc.lineno
+        column = exc.colno + (start - body.rfind("\n", 0, start) - 1 + (len("%%configure") if line == 1 else 0)
+                              if exc.lineno == 1 else 0)
+        raise ValueError(f"%%configure isn't valid JSON (line {line}, column {column}: {exc.msg}). "
                          "Fabric would stop the session start on it too.") from exc
     if not isinstance(settings, dict):
         raise ValueError("%%configure takes a JSON object of settings.")

@@ -180,9 +180,6 @@ def test_local_data_delta_table_statements_run_one_at_a_time(local):
     assert sorted(r[0] for r in engine.execute("SELECT id FROM sales")["rows"]) == [2, 3, 3]
 
 
-@pytest.mark.xfail(strict=True, reason="a script that creates a Delta table and then INSERT OVERWRITEs it stops with "
-                                       "DuckDB's parser error: each statement is read before the one that makes the "
-                                       "table has run (localdata/engine.py _statements)")
 def test_local_data_delta_table_statements_run_as_one_script(local):
     block = _block("local-data.md", "-- Create one (fails if it exists; IF NOT EXISTS skips it, OR REPLACE gives it a new schema)")
     engine = local()

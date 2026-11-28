@@ -388,3 +388,59 @@ def test_upgrade_never_overwrites_a_manifest_another_pc_changed(svc, monkeypatch
     done = svc.cp_upgrade(again["token"], confirmed=True)
     assert done["ok"] and [s["step"] for s in done["steps"]] == ["Manifest"]
     assert "Nothing to upgrade" in svc.cp_upgrade_plan()["blocked"][0]
+
+
+PLATFORM_WS = "66666666-6666-4666-8666-666666666666"
+FUNCTIONS = "77777777-7777-4777-8777-777777777777"
+SQL_DB = "88888888-8888-4888-8888-888888888888"
+KEYS_WS = "99999999-9999-4999-8999-999999999999"
+
+
+def _platform(monkeypatch, prod, keys=None):
+    monkeypatch.setattr(Service, "_platform_config", lambda self: {"dev": {}, "test": {}, "prod": dict(prod)})
+    monkeypatch.setattr(Service, "_keys_config", lambda self: dict(keys or {}))
+
+
+def test_adopt_links_the_prod_platform_database_as_the_operational_store(svc, monkeypatch):
+    # CP-ADR-005 (decided 2026-11-20): one KratosForge workspace; an existing Prod Platform's database is linked, by ids only.
+    _central(svc)
+    _platform(monkeypatch, {"workspace_id": PLATFORM_WS, "functions_id": FUNCTIONS, "sql_id": SQL_DB, "display_name": "x"},
+              {"workspace_id": KEYS_WS, "functions_id": FUNCTIONS, "shared": True})
+    preview = svc.cp_adopt_preview("Ours")
+    op = preview["manifest"]["operational_store"]
+    assert op["workspace_id"] == PLATFORM_WS and op["functions_id"] == FUNCTIONS and op["database_id"] == SQL_DB
+    assert preview["manifest"]["deployments"] == {"prod": {"platform_workspace_id": PLATFORM_WS}, "keys": {"workspace_id": KEYS_WS}}
+    assert preview["environment"]["has_operational_store"] and preview["operational_prod"] is True
+    out = svc.cp_adopt(preview["token"], confirmed=True)
+    assert out["manifest"]["operational_store"]["functions_id"] == FUNCTIONS
+    assert st.local_store(svc.lakes / WS / CENTRAL).read().manifest == out["manifest"]
+
+
+def test_adopt_without_a_fabric_platform_stays_lakehouse_only(svc, monkeypatch):
+    _central(svc)
+    _platform(monkeypatch, {"workspace_id": PLATFORM_WS}, {"workspace_id": KEYS_WS, "functions_id": FUNCTIONS})  # no functions; keys not shared
+    preview = svc.cp_adopt_preview("Ours")
+    assert preview["manifest"]["operational_store"] is None and preview["manifest"]["deployments"] == {}
+    assert preview["operational_prod"] is False
+
+
+def test_adopt_refuses_when_the_keys_link_changed_since_the_preview(svc, monkeypatch):
+    _central(svc)
+    prod = {"workspace_id": PLATFORM_WS, "functions_id": FUNCTIONS}
+    _platform(monkeypatch, prod, {"workspace_id": KEYS_WS, "functions_id": FUNCTIONS, "shared": True})
+    preview = svc.cp_adopt_preview("Ours")
+    assert preview["manifest"]["deployments"]["keys"] == {"workspace_id": KEYS_WS}
+    _platform(monkeypatch, prod, {"workspace_id": PLATFORM_WS, "functions_id": FUNCTIONS, "shared": True})  # Keys repointed meanwhile
+    with pytest.raises(PermissionError, match="changed since"):
+        svc.cp_adopt(preview["token"], confirmed=True)
+    assert st.local_store(svc.lakes / WS / CENTRAL).read() is None
+
+
+def test_adopt_refuses_when_the_platform_changed_since_the_preview(svc, monkeypatch):
+    _central(svc)
+    _platform(monkeypatch, {"workspace_id": PLATFORM_WS, "functions_id": FUNCTIONS})
+    preview = svc.cp_adopt_preview("Ours")
+    _platform(monkeypatch, {"workspace_id": PLATFORM_WS, "functions_id": SQL_DB})  # repointed meanwhile
+    with pytest.raises(PermissionError, match="changed since"):
+        svc.cp_adopt(preview["token"], confirmed=True)
+    assert st.local_store(svc.lakes / WS / CENTRAL).read() is None

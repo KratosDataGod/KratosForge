@@ -111,11 +111,13 @@ def read_all(reader: Callable[[], Raw] | None = None) -> tuple[dict[str, Any], l
     out: dict[str, Any] = {}
     problems: list[str] = []
     unknown: set[str] = set()
+    restricted: set[str] = set()  # set to their most restrictive value; a readable subkey can't undo that
 
     def bad(name: str, why: str) -> None:
         """A value Group Policy sets but that can't be read. A restriction then takes its most restrictive
         value, as a policy file's would: IT meant to set it, and the safe side is the restriction."""
         if name in strict:
+            restricted.add(name)
             out[name] = strict[name]
             problems.append(f"Group Policy value {name} {why}, so its most restrictive value applies. "
                             f"Ask IT to fix {name} in Group Policy.")
@@ -168,6 +170,8 @@ def read_all(reader: Callable[[], Raw] | None = None) -> tuple[dict[str, Any], l
         if st is None or st.kind != "list" or isinstance(items, OSError):
             problems.append(f"Group Policy key {name[:80]!r} isn't a list setting KratosForge reads, so it's ignored. "
                             "Ask IT to remove it from Group Policy.")
+            continue
+        if name in restricted:  # a bad value under the same name already gave it its most restrictive value
             continue
         kept = [item for item in items if isinstance(item, str)]
         if len(kept) < len(items):  # IT meant to set the items it can't read: the file's rules for a bad list

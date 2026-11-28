@@ -466,6 +466,49 @@ def _lift_dataset_metrics(doc: dict[str, Any], report: list[dict[str, str]]) -> 
     return doc
 
 
+VIEW_COLUMN = ("declared from the relationship as a lakehouse source column with no data type, because the "
+               "dataset lists no fields (a Semantic View has none); its data type wasn't known")
+
+
+def view_columns(doc: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """The relationship end columns a dataset that lists no fields (as a Fabric Semantic View's don't) never
+    declares: (dataset, column, relationship), each column once. Only a one-column-to-one-column relationship
+    between datasets of the file counts, and never a column the dataset's POWER_BI section already keeps."""
+    datasets = {d["name"]: d for d in _named_items(doc.get("datasets"))}
+    out: list[tuple[str, str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for r in _dicts(doc.get("relationships")):
+        froms, tos = r.get("from_columns"), r.get("to_columns")
+        if not (isinstance(froms, list) and isinstance(tos, list) and len(froms) == len(tos) == 1):
+            continue
+        for table, column in ((r.get("from"), froms[0]), (r.get("to"), tos[0])):
+            if not isinstance(table, str) or not isinstance(column, str) or not column or (table, column) in seen:
+                continue
+            d = datasets.get(table)
+            if d is None or d.get("fields") or column in _names(_stash_data(d).get("excludedColumns")):
+                continue
+            seen.add((table, column))
+            out.append((table, column, str(r.get("name") or "<unnamed>")))
+    return out
+
+
+def _declare_view_columns(doc: dict[str, Any], report: list[dict[str, str]]) -> dict[str, Any]:
+    """``doc`` with each column ``view_columns`` names declared as a field of its dataset with no data type, so
+    the converter keeps the relationship (it skips one whose columns aren't in the model). The column reads its
+    lakehouse column of the same name; its data type is left unspecified, never guessed, and a report row says so."""
+    found = view_columns(doc)
+    if not found:
+        return doc
+    doc = copy.deepcopy(doc)
+    datasets = {d["name"]: d for d in _named_items(doc.get("datasets"))}
+    for table, column, rel in found:
+        datasets[table]["fields"] = [*(datasets[table].get("fields") or []), {"name": column}]
+        report.append({"object": f"relationship {_q(rel)}", "kind": "kept",
+                       "message": f"column {_q(table)}[{_short(column)}] {VIEW_COLUMN}. Set it to match the "
+                                  "lakehouse table before deploying"})
+    return doc
+
+
 def _refuse_root(doc: Any) -> None:
     """Refuse (ValueError) a document that isn't one object: a list, text, a number, or nothing (an empty file)."""
     if not isinstance(doc, dict):
@@ -502,7 +545,8 @@ def to_tmsl(text: str | dict[str, Any], source: dict[str, str] | None = None) ->
     _refuse_shape(parsed, _OSSIE_SHAPE, "ossie")
     refuse_depth(parsed)  # after the shape check, which names a wrong type by path however deep it nests
     try:
-        doc = _lift_dataset_metrics(parsed, lifted)  # works on a copy: the caller's document is unchanged
+        doc = _declare_view_columns(_lift_dataset_metrics(parsed, lifted), lifted)  # on copies: the caller's
+        # document is unchanged
         text = dump_yaml(doc, (yaml.SafeDumper, _C.safe_dumper if _C is not None else None), sort_keys=False)
         # The vendored converter reads the text with PyYAML's pure SafeLoader; it takes what that gives, read here.
         given = load_own(text) if convert_ossie_to_semantic_model is _VENDORED["to_model"] else text
@@ -1492,6 +1536,10 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
     # The extension's set-aside relationships come back verbatim; matched first, so one never also counts as
     # a converted relationship.
     set_aside = [(r, claim(by_canon.get(_canon(r))) is not None) for r in _dicts(stash.get("excludedRelationships"))]
+    declared: dict[str, list[str]] = {}  # relationship name -> the end columns _declare_view_columns added for it
+    for table, column, rel in view_columns(doc):
+        if member(table, "columns", column) is not None:
+            declared.setdefault(rel, []).append(f"its end column {_q(table)}[{_short(column)}] was {VIEW_COLUMN}")
     for r in _dicts(doc.get("relationships")):
         data, label = _stash_data(r), r.get("name") or "<unnamed>"
         ends = (r.get("from"), (r.get("from_columns") or [None])[0], r.get("to"), (r.get("to_columns") or [None])[0])
@@ -1504,7 +1552,7 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
             for pair in (ends, (ends[2], ends[3], ends[0], ends[1])):
                 hit = hit or claim(by_ends.get(_canon(pair)))
         objs.add("relationship", f"relationship {_q(label)}", "fully_preserved" if hit else "unsupported",
-                 _ossie_drops(r) if hit else [],
+                 _ossie_drops(r) if hit else [], declared.pop(str(label), []) if hit else [],
                  key=("relationship", ends_key(r.get("from"), r.get("from_columns"), r.get("to"), r.get("to_columns"))))
     for key, kind in _STASHED_OBJECTS:
         have: dict[str, dict[str, Any]] = {}
@@ -1512,14 +1560,18 @@ def _ossie_to_tmsl(doc: dict[str, Any], bim: dict[str, Any], objs: _Objects) -> 
             have.setdefault(i["name"], i)
         for item in _named_items(stash.get(key)):
             restored_item = have.get(item["name"])
-            objs.add(kind, f"{kind} {_q(item['name'])}", "fully_preserved" if restored_item is not None else "unsupported",
+            # A role the file keeps only in its POWER_BI section reached the model, but only Power BI could read it
+            # there: Preserved through extensions, as Export classes the same role, with its security warning.
+            restored_class = "preserved_through_extensions" if kind == "role" else "fully_preserved"
+            objs.add(kind, f"{kind} {_q(item['name'])}", restored_class if restored_item is not None else "unsupported",
                      _role_changes(item, restored_item) if restored_item is not None and kind == "role" else [],
                      notes=[RESTORED], aliases=(f"{kind} {_short(item['name'])!r}",), key=(kind, item["name"]))
     for t in _named_items(stash.get("excludedTables")):
         tid = f"table {_q(t['name'])}"
         out_table = tables.get(t["name"])
         group = bool(t.get("calculationGroup"))
-        objs.add("calculation_group" if group else "table", tid, "fully_preserved" if out_table else "unsupported",
+        restored_class = "preserved_through_extensions" if group else "fully_preserved"  # only Power BI reads it there
+        objs.add("calculation_group" if group else "table", tid, restored_class if out_table else "unsupported",
                  _calc_changes(t, out_table) if out_table is not None and group else [],
                  notes=[RESTORED], key=("table", t["name"]))
         for key, kind in (("columns", "column"), ("measures", "measure"), ("hierarchies", "hierarchy")):
@@ -1571,6 +1623,13 @@ def _dialect_entries(m: dict[str, Any]) -> list[dict[str, Any]]:
 def _remediation(obj: dict[str, Any], to_ossie: bool) -> str:
     """What to do about an object that didn't come through fully preserved, in one line."""
     cls, kind = obj["class"], obj["kind"]
+    if cls == "preserved_through_extensions" and not to_ossie:  # Import: it reached the model from the extension
+        if kind == "role":
+            return ("In the Ossie file this role is kept for Power BI only, in the POWER_BI extension: it reached the "
+                    "model, but a tool that reads the file won't apply this row-level security. Define the same "
+                    "security in that tool before sharing data through it.")
+        return ("In the Ossie file this is kept for Power BI only, in the POWER_BI extension: it reached the model, "
+                f"but another tool that reads the file won't see this {kind.replace('_', ' ')}.")
     if cls == "preserved_through_extensions":
         if kind == "role":
             return ("Kept for Power BI only, in the POWER_BI extension: a tool that reads this file won't apply this "

@@ -1,4 +1,4 @@
-{"meta": {"rule_version": "2026.10.3", "about": "SQL-002 compatibility fixtures. Each line: sql, target, the expected outcome (classification), the exact set of rules expected, and where the first finding is. kind says what the case tests; false_positive cases guard against findings that would be wrong."}}
+{"meta": {"rule_version": "2026.11.1", "about": "SQL-002 compatibility fixtures. Each line: sql, target, the expected outcome (classification), the exact set of rules expected, and where the first finding is. kind says what the case tests; false_positive cases guard against findings that would be wrong."}}
 {"id": "sp-select-basic", "target": "spark", "kind": "supported", "sql": "SELECT Country, SUM(Amount) AS total FROM sales GROUP BY Country ORDER BY total DESC LIMIT 10", "expect": "no_known_problems", "rules": []}
 {"id": "sp-cte", "target": "spark", "kind": "supported", "sql": "WITH s AS (SELECT * FROM sales WHERE Year = 2024)\nSELECT Country, COUNT(*) FROM s GROUP BY Country", "expect": "no_known_problems", "rules": []}
 {"id": "sp-window", "target": "spark", "kind": "supported", "sql": "SELECT id, ROW_NUMBER() OVER (PARTITION BY Country ORDER BY Amount DESC) AS rn FROM sales", "expect": "no_known_problems", "rules": []}
@@ -58,7 +58,7 @@
 {"id": "wh-builtin-not-modelled", "target": "warehouse", "kind": "false_positive", "sql": "SELECT ISJSON(a), CHOOSE(1, a, b), QUOTENAME(a) FROM dbo.t", "expect": "no_known_problems", "rules": []}
 {"id": "wh-not-enforced-inline", "target": "warehouse", "kind": "supported", "sql": "CREATE TABLE dbo.d (id int NOT NULL PRIMARY KEY NONCLUSTERED NOT ENFORCED, name varchar(20))", "expect": "no_known_problems", "rules": []}
 {"id": "wh-unique-constraint", "target": "warehouse", "kind": "unsupported", "sql": "CREATE TABLE dbo.d (code varchar(10) UNIQUE)", "expect": "known_problems", "rules": ["DDL-004"], "at": {"rule": "DDL-004", "line": 1, "col": 38}}
-{"id": "wh-default", "target": "warehouse", "kind": "unverified", "sql": "CREATE TABLE dbo.d (a int DEFAULT 0)", "expect": "unverified", "rules": ["DDL-012"], "at": {"rule": "DDL-012", "line": 1, "col": 27}}
+{"id": "wh-default", "target": "warehouse", "kind": "unsupported", "sql": "CREATE TABLE dbo.d (a int DEFAULT 0)", "expect": "known_problems", "rules": ["DDL-012"], "at": {"rule": "DDL-012", "line": 1, "col": 27}}
 {"id": "wh-tinyint-in-variable", "target": "warehouse", "kind": "false_positive", "sql": "DECLARE @x tinyint = 1;\nSELECT @x AS x", "expect": "no_known_problems", "rules": []}
 {"id": "db-proc-update-where", "target": "sqldb", "kind": "false_positive", "sql": "CREATE PROCEDURE dbo.p AS\nBEGIN\n  UPDATE dbo.t SET a = NULL WHERE id = 1;\nEND", "expect": "no_known_problems", "rules": []}
 {"id": "wh-select", "target": "warehouse", "kind": "supported", "sql": "SELECT TOP (10) Country, SUM(Amount) AS total FROM dbo.sales GROUP BY Country ORDER BY total DESC", "expect": "no_known_problems", "rules": []}
@@ -89,7 +89,7 @@
 {"id": "wh-mat-view", "target": "warehouse", "kind": "unsupported", "sql": "CREATE MATERIALIZED VIEW mv AS SELECT a, COUNT(*) AS c FROM t GROUP BY a", "expect": "known_problems", "rules": ["DDL-001"], "at": {"rule": "DDL-001", "line": 1, "col": 1}}
 {"id": "wh-computed", "target": "warehouse", "kind": "unsupported", "sql": "CREATE TABLE dbo.t (a int, b int, c AS (a + b))", "expect": "known_problems", "rules": ["DDL-002"], "at": {"rule": "DDL-002", "line": 1, "col": 35}}
 {"id": "wh-unique-index", "target": "warehouse", "kind": "unsupported", "sql": "CREATE UNIQUE INDEX ix ON dbo.t (a)", "expect": "known_problems", "rules": ["DDL-003"], "at": {"rule": "DDL-003", "line": 1, "col": 1}}
-{"id": "wh-index", "target": "warehouse", "kind": "unverified", "sql": "CREATE NONCLUSTERED INDEX ix ON dbo.t (a)", "expect": "unverified", "rules": ["DDL-012"], "at": {"rule": "DDL-012", "line": 1, "col": 1}}
+{"id": "wh-index", "target": "warehouse", "kind": "unverified", "sql": "CREATE NONCLUSTERED INDEX ix ON dbo.t (a)", "expect": "unverified", "rules": ["DDL-016"], "at": {"rule": "DDL-016", "line": 1, "col": 1}}
 {"id": "wh-pk-enforced", "target": "warehouse", "kind": "unsupported", "sql": "CREATE TABLE dbo.t (id int NOT NULL, CONSTRAINT pk PRIMARY KEY (id))", "expect": "known_problems", "rules": ["DDL-004"], "at": {"rule": "DDL-004", "line": 1, "col": 52}}
 {"id": "wh-pk-ok", "target": "warehouse", "kind": "supported", "sql": "CREATE TABLE dbo.t (id int NOT NULL, CONSTRAINT pk PRIMARY KEY NONCLUSTERED (id) NOT ENFORCED)", "expect": "no_known_problems", "rules": []}
 {"id": "wh-fk-enforced", "target": "warehouse", "kind": "unsupported", "sql": "ALTER TABLE dbo.f ADD CONSTRAINT fk FOREIGN KEY (cid) REFERENCES dbo.c (id)", "expect": "known_problems", "rules": ["DDL-004"], "at": {"rule": "DDL-004", "line": 1, "col": 37}}
@@ -204,3 +204,10 @@
 {"id": "wh-dcolon-after-user", "target": "warehouse", "kind": "unsupported", "sql": "SELECT user::varchar FROM t", "expect": "known_problems", "rules": ["SYN-009"]}
 {"id": "wh-dcolon-after-object", "target": "warehouse", "kind": "unsupported", "sql": "SELECT object::int FROM t", "expect": "known_problems", "rules": ["SYN-009"]}
 {"id": "wh-dcolon-after-schema", "target": "warehouse", "kind": "unsupported", "sql": "SELECT schema::int FROM t", "expect": "known_problems", "rules": ["SYN-009"]}
+{"id": "wh-default-named", "target": "warehouse", "kind": "unsupported", "sql": "CREATE TABLE dbo.d (a int NOT NULL CONSTRAINT df_a DEFAULT 0)", "expect": "known_problems", "rules": ["DDL-012"], "at": {"rule": "DDL-012", "line": 1, "col": 36}}
+{"id": "wh-alter-add-default", "target": "warehouse", "kind": "unsupported", "sql": "ALTER TABLE dbo.d ADD CONSTRAINT df_b DEFAULT 1 FOR b", "expect": "known_problems", "rules": ["DDL-012"], "at": {"rule": "DDL-012", "line": 1, "col": 23}}
+{"id": "wh-insert-default-values", "target": "warehouse", "kind": "unsupported", "sql": "INSERT INTO dbo.d DEFAULT VALUES", "expect": "known_problems", "rules": ["DDL-012"], "at": {"rule": "DDL-012", "line": 1, "col": 19}}
+{"id": "wh-update-set-default", "target": "warehouse", "kind": "unsupported", "sql": "UPDATE dbo.d SET a = DEFAULT WHERE b = 1", "expect": "known_problems", "rules": ["DDL-012"], "at": {"rule": "DDL-012", "line": 1, "col": 22}}
+{"id": "ep-default", "target": "endpoint", "kind": "unsupported", "sql": "CREATE TABLE dbo.d (a int DEFAULT 0)", "expect": "known_problems", "rules": ["DDL-012", "EP-001"], "at": {"rule": "EP-001", "line": 1, "col": 1}}
+{"id": "wh-exec-default-arg", "target": "warehouse", "kind": "false_positive", "sql": "EXEC dbo.p @a = DEFAULT", "expect": "no_known_problems", "rules": []}
+{"id": "db-default", "target": "sqldb", "kind": "false_positive", "sql": "CREATE TABLE dbo.d (a int CONSTRAINT df_a DEFAULT 0)", "expect": "no_known_problems", "rules": []}

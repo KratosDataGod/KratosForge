@@ -132,13 +132,12 @@ CASES = [
     ('spark', 'CREATE VIEW v AS SELECT 1', [('LOC-001', 'CREATE')]),
     ('spark', "SELECT strlen(a) FROM t WHERE b RLIKE 'x'", [('FN-001', 'strlen'), ('LOC-002', 'RLIKE')]),
     # CREATE (UNIQUE) INDEX marked as written; datetime2(7) as the last word; REFERENCES a table named foreign
-    ('warehouse', 'CREATE INDEX i ON t (a)', [('DDL-012', 'CREATE INDEX')]),
+    ('warehouse', 'CREATE INDEX i ON t (a)', [('DDL-016', 'CREATE INDEX')]),
     ('warehouse', 'CREATE UNIQUE INDEX i ON t (a)', [('DDL-003', 'CREATE UNIQUE')]),
     ('warehouse', 'ALTER TABLE t ADD a datetime2(7)', [('TYP-003', 'datetime2(7)')]),
     ('warehouse', 'CREATE TABLE t (a int REFERENCES foreign (a))', [('DDL-004', 'REFERENCES')]),
     # ADD CONSTRAINT c DEFAULT at the end; FOR JSON in a subquery; TABLE x.y.z inside parentheses
-    ('warehouse', 'ALTER TABLE t ADD CONSTRAINT c DEFAULT',
-     [('DDL-007', 'ADD CONSTRAINT c DEFAULT'), ('DDL-012', 'DEFAULT')]),
+    ('warehouse', 'ALTER TABLE t ADD CONSTRAINT c DEFAULT', [('DDL-012', 'CONSTRAINT c DEFAULT')]),
     ('warehouse', 'SELECT (SELECT a FROM t FOR JSON PATH) AS j', [('DML-001', 'FOR JSON')]),
     ('warehouse', 'SELECT * FROM t WHERE a IN (TABLE x.y.z)', [('DML-007', 'x.y.z'), ('SYN-007', 'x')]),
     # [7] isn't a number; a [ at the very end; t.rlike is a column

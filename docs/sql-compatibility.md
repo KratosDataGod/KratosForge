@@ -693,7 +693,7 @@ These cases can still differ. LOC-002 warns wherever a pattern is used:
 
 ## Rules
 
-Rule set **2026.10.3**, from Microsoft Learn and the Apache Spark 3.5 reference as they read on 2026-10-17. Each Microsoft page's "last updated" date is kept in `sidecar/fabric_desktop/sqlcompat/profiles.py`. DDL-007 (ALTER TABLE) is an error except ALTER COLUMN, which is a warning because it is in preview. 2026.10.3 stops reading T-SQL's `GRANT`, `DENY` or `REVOKE ... ON SCHEMA::name` (and the other securable classes after `ON`) as a Spark `::` cast, and `UPDATE STATISTICS` (with no `SET`) as an UPDATE without WHERE.
+Rule set **2026.11.1**, from Microsoft Learn and the Apache Spark 3.5 reference as they read on 2026-10-17 (the table constraints page on 2026-11-23). Each Microsoft page's "last updated" date is kept in `sidecar/fabric_desktop/sqlcompat/profiles.py`. DDL-007 (ALTER TABLE) is an error except ALTER COLUMN, which is a warning because it is in preview. 2026.10.3 stops reading T-SQL's `GRANT`, `DENY` or `REVOKE ... ON SCHEMA::name` (and the other securable classes after `ON`) as a Spark `::` cast, and `UPDATE STATISTICS` (with no `SET`) as an UPDATE without WHERE. 2026.11.1 makes DDL-012 an error on Warehouse and the SQL analytics endpoint, because Microsoft Learn says they don't support default constraints: it marks DEFAULT in CREATE TABLE and ALTER TABLE ... ADD (inline or as `CONSTRAINT name DEFAULT`), `INSERT ... DEFAULT VALUES`, DEFAULT in an `INSERT ... VALUES` row, and `UPDATE ... SET col = DEFAULT` (MERGE's INSERT and UPDATE too). DEFAULT for a procedure argument (`EXEC p @a = DEFAULT`) is left alone. CREATE INDEX, which DDL-012 used to mark as not checked, is now DDL-016.
 
 | Rule | Finding | Severity | Engines | Confidence | Source |
 | --- | --- | --- | --- | --- | --- |
@@ -729,10 +729,11 @@ Rule set **2026.10.3**, from Microsoft Learn and the Apache Spark 3.5 reference 
 | DDL-009 | More than 1,024 columns | error | Warehouse | high | [source](https://learn.microsoft.com/fabric/data-warehouse/tables) |
 | DDL-010 | Multi-column statistics aren't supported | error | Warehouse, Endpoint | high | [source](https://learn.microsoft.com/fabric/data-warehouse/tsql-surface-area) |
 | DDL-011 | CREATE USER isn't supported | error | Warehouse, Endpoint | high | [source](https://learn.microsoft.com/fabric/data-warehouse/tsql-surface-area) |
-| DDL-012 | Not checked: *name* | unverified | Warehouse | low | [source](https://learn.microsoft.com/fabric/data-warehouse/tables) |
+| DDL-012 | DEFAULT isn't supported | error | Warehouse, Endpoint | high | [source](https://learn.microsoft.com/fabric/data-warehouse/table-constraints) |
 | DDL-013 | External tables aren't supported | error | Warehouse, Endpoint | high | [source](https://learn.microsoft.com/fabric/data-warehouse/tsql-surface-area) |
 | DDL-014 | Column name '*name*' isn't allowed | error | SQL database | high | [source](https://learn.microsoft.com/fabric/database/sql/limitations) |
 | DDL-015 | Logins aren't supported | error | Warehouse, Endpoint, SQL database | high | [source](https://learn.microsoft.com/fabric/database/sql/limitations) |
+| DDL-016 | Not checked: *name* | unverified | Warehouse | low | [source](https://learn.microsoft.com/fabric/data-warehouse/tables) |
 | EP-001 | The SQL analytics endpoint can't change tables | error | Endpoint | high | [source](https://learn.microsoft.com/fabric/data-warehouse/tsql-surface-area) |
 | DB-001 | *name* isn't supported | error | SQL database | high | [source](https://learn.microsoft.com/fabric/database/sql/limitations) |
 | DML-001 | *name* isn't supported | error | Warehouse, Endpoint | high | [source](https://learn.microsoft.com/fabric/data-warehouse/tsql-surface-area) |

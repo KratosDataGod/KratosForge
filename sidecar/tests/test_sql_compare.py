@@ -135,7 +135,7 @@ def test_bad_choices_are_refused_with_what_to_do(runs, lake, kw, message):
 def test_only_a_query_that_reads_and_has_one_result_can_be_compared(runs, lake):
     a = run(runs, lake, "SELECT * FROM orders")
     script = run(runs, lake, "", statements=["SELECT 1 AS x", "SELECT 2 AS x"])
-    with pytest.raises(ValueError, match="B isn't one"):
+    with pytest.raises(ValueError, match="B isn't one. Pick a table, or a query that only reads, for B.$"):
         sql_compare.compare(runs, a, script)
     with pytest.raises(ValueError, match="Run A before comparing"):
         sql_compare.compare(runs, "", a)

@@ -26,6 +26,8 @@ Delta tables have no row order, so order is never compared.
 from __future__ import annotations
 
 import math
+from decimal import Decimal
+from fractions import Fraction
 from typing import Any
 
 import pyarrow as pa
@@ -147,6 +149,32 @@ def _tolerance(r: dict[str, Any], column: str) -> tuple[float, float]:
     return float(over.get("abs", r["abs"])), float(over.get("rel", r["rel"]))
 
 
+# The largest whole-number difference two 64-bit integers can have is below 2^65; a tolerance above that holds
+# for every pair, and keeps the HUGEINT literal (and d * q below) far from HUGEINT's 2^127.
+_INT_SPAN = 2 ** 66
+
+
+def _int_within(x: str, y: str, r: dict[str, Any], column: str) -> str:
+    """SQL: the HUGEINTs x and y are within ``column``'s own abs or rel tolerance, exactly. abs is a whole
+    number bound (d <= floor(abs)); rel is p/q from its decimal text, so d * q <= p * greatest(|x|, |y|)."""
+    over = {k.lower(): v for k, v in (r["columns"] or {}).items()}.get(column.lower()) or {}
+    ab, rl = float(over.get("abs", 0)), float(over.get("rel", 0))
+    d = f"abs({x} - {y})"
+    parts = []
+    if ab > 0:
+        parts.append("true" if ab >= _INT_SPAN else f"{d} <= {math.floor(ab)}")
+    if rl > 0:
+        if rl >= 2:  # |x - y| <= 2 * greatest(|x|, |y|) always
+            parts.append("true")
+        else:
+            ratio = Fraction(Decimal(repr(rl)))
+            if ratio.denominator > 10 ** 15:  # a relative tolerance below 1e-15: to 15 decimal places
+                ratio = ratio.limit_denominator(10 ** 15)
+            if ratio.numerator:
+                parts.append(f"{d} * {ratio.denominator} <= {ratio.numerator} * greatest(abs({x}), abs({y}))")
+    return f"({' OR '.join(parts)})" if parts else "false"
+
+
 def _count(con: Any, sql: str) -> int:
     return int(one_row(con.execute(sql))[0] or 0)
 
@@ -209,14 +237,15 @@ def compare(pc: Any, fabric: Any, given_rules: dict[str, Any] | None = None, off
             lower = {c[0].lower(): c for c in cols["common"]}
             missing = [k for k in keys if k.lower() not in lower]
             if missing:
-                raise ValueError(f"Key column {', '.join(missing)} isn't in both outputs (or is ignored).")
+                raise ValueError(f"Key column {', '.join(missing)} isn't in both outputs (or is ignored). "
+                                 "Pick a key column that's in both.")
             kq = [(_q(lower[k.lower()][0]), _q(lower[k.lower()][1])) for k in keys]
             dup_a = _count(con, f"SELECT count(*) FROM (SELECT {', '.join(x for x, _ in kq)} FROM a GROUP BY ALL HAVING count(*) > 1)")
             dup_b = _count(con, f"SELECT count(*) FROM (SELECT {', '.join(y for _, y in kq)} FROM b GROUP BY ALL HAVING count(*) > 1)")
             if (dup_a or dup_b) and repeated_keys == "stop":
                 where = "both sides" if dup_a and dup_b else "A" if dup_a else "B"
                 raise RepeatedKey(f"The key ({', '.join(keys)}) is repeated in {where}, so there's no single row to "
-                                  f"compare: {dup_a:,} repeated in A, {dup_b:,} in B. Add a column to the key, or "
+                                  f"compare. {dup_a:,} {'is' if dup_a == 1 else 'are'} repeated in A and {dup_b:,} in B. Add a column to the key, or "
                                   "compare without a key.")
             if dup_a or dup_b:
                 out["duplicates"] = {"pc": dup_a, "fabric": dup_b}
@@ -246,11 +275,20 @@ def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[st
     on = " AND ".join(f"{x} IS NOT DISTINCT FROM {y}" for x, y in keys)
     checks = []
     metrics: list[tuple[Any, str | None, str | None]] = []  # None: the column has no number difference
+    # Whole numbers compare exactly unless a tolerance is given for that column (Compare data offers one for any
+    # number column); with no tolerance of its own, the default relative tolerance never applies to them.
+    tolerated = {c.lower() for c in r["columns"] or {}}
     for name_a, name_b, ka, kb in cols["common"]:
         qa, qb = _q(name_a), _q(name_b)
         if qa in key_names:
             continue
-        if ka == kb == "number":  # widened integer/decimal pairs arrive as number
+        if ka == kb == "integer" and name_a.lower() in tolerated:
+            # Whole numbers with a tolerance of their own: only that column's abs and rel (a missing one is 0,
+            # never the rules' default), against the exact difference. No DOUBLE: past 2^53 it drops digits.
+            x, y = f"CAST(a.{qa} AS HUGEINT)", f"CAST(b.{qb} AS HUGEINT)"
+            same = f"({x} IS NOT DISTINCT FROM {y} OR ({x} IS NOT NULL AND {y} IS NOT NULL AND {_int_within(x, y, r, name_a)}))"
+            metrics.append((name_a, "integer", None))
+        elif ka == kb == "number":  # widened integer/decimal pairs are number
             ab, rl = _tolerance(r, name_a)
             x, y = f"CAST(a.{qa} AS DOUBLE)", f"CAST(b.{qb} AS DOUBLE)"
             if ab == rl == 0 and name_a.lower() in cols["exact"]:
@@ -286,7 +324,13 @@ def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[st
         n = _count(con, f'SELECT count(*) FROM j WHERE NOT no_a AND NOT no_b AND NOT "s{i}"')
         entry: dict[str, Any] = {"rows": n}
         _m_name, max_abs, max_rel = metrics[i]
-        if n and max_abs:
+        if n and max_abs == "integer":  # the exact difference, then as a number
+            mx = one_row(con.execute(f'SELECT CAST(max(abs(CAST("a{i}" AS HUGEINT) - CAST("b{i}" AS HUGEINT))) AS DOUBLE), '
+                             f'max(CAST(abs(CAST("a{i}" AS HUGEINT) - CAST("b{i}" AS HUGEINT)) AS DOUBLE) / '
+                             f'nullif(greatest(abs(CAST("a{i}" AS DOUBLE)), abs(CAST("b{i}" AS DOUBLE))), 0)) '
+                             f'FROM j WHERE NOT no_a AND NOT no_b AND NOT "s{i}"'))
+            entry |= {"max_abs": _finite(mx[0]), "max_rel": _finite(mx[1])}
+        elif n and max_abs:
             mx = one_row(con.execute(f'SELECT max(abs(CAST("a{i}" AS DOUBLE) - CAST("b{i}" AS DOUBLE))), '
                              f'max(abs(CAST("a{i}" AS DOUBLE) - CAST("b{i}" AS DOUBLE)) / '
                              f'nullif(greatest(abs(CAST("a{i}" AS DOUBLE)), abs(CAST("b{i}" AS DOUBLE))), 0)) '
@@ -344,7 +388,7 @@ def _whole_rows(con: Any, cols: dict[str, Any], r: dict[str, Any], offset: int, 
     if not pairs:
         na, nb = _count(con, "SELECT count(*) FROM a"), _count(con, "SELECT count(*) FROM b")
         return {"level": "complete", "method": "whole rows", "counts": {"only_pc": max(na - nb, 0), "only_fabric": max(nb - na, 0)},
-                "examples": [], "offset": int(offset)}
+                "distinct": {"only_pc": 0, "only_fabric": 0}, "examples": [], "offset": int(offset)}
     # A tolerance per column can't apply to whole rows: the default relative tolerance sets the digits.
     ea = ", ".join(f"{_norm(_q(x), ka if ka == kb else 'other', r, exact=x.lower() in cols['exact'])} AS c{i}"
                    for i, (x, _y, ka, kb) in enumerate(pairs))
@@ -360,6 +404,8 @@ def _whole_rows(con: Any, cols: dict[str, Any], r: dict[str, Any], offset: int, 
         FROM ga FULL OUTER JOIN gb ON {on}""")
     only_pc = _count(con, "SELECT coalesce(sum(na - nb), 0) FROM w WHERE na > nb")
     only_fabric = _count(con, "SELECT coalesce(sum(nb - na), 0) FROM w WHERE nb > na")
+    # The examples list each distinct row once, with how many more times one side has it: what pages count.
+    distinct = one_row(con.execute("SELECT count(*) FILTER (WHERE na > nb), count(*) FILTER (WHERE nb > na) FROM w"))
     if export is not None:
         _export(con, f"""SELECT CASE WHEN na > nb THEN 'only_pc' ELSE 'only_fabric' END AS "status", abs(na - nb) AS "times",
             {', '.join(f'c{i} AS {_q(x)}' for i, (x, *_y) in enumerate(pairs))} FROM w WHERE na <> nb ORDER BY {names} NULLS FIRST""",
@@ -371,7 +417,8 @@ def _whole_rows(con: Any, cols: dict[str, Any], r: dict[str, Any], offset: int, 
                  "status": "only_pc" if row[-2] > row[-1] else "only_fabric", "times": abs(row[-2] - row[-1])}
                 for row in rows]
     out = {"level": "complete", "method": "whole rows", "counts": {"only_pc": only_pc, "only_fabric": only_fabric},
-           "examples": examples, "offset": int(offset)}
+           "distinct": {"only_pc": int(distinct[0]), "only_fabric": int(distinct[1])}, "examples": examples,
+           "offset": int(offset)}
     if any(k == "number" for _x, _y, k, _k2 in pairs):
         out["note"] = (f"Rows matched as whole rows, numbers rounded to {_sig_digits(float(r['rel']))} significant digits. "
                        "Add key columns to see which values changed.")

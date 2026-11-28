@@ -72,9 +72,10 @@ async function whDefinition(ref, o) {
   return def.trim();
 }
 
-// The Script as menu items for an object. open(title, text) opens a script tab; query(name) runs SELECT TOP (100).
+// The Script as menu items for an object. open(title, text) opens a script tab; query(name) runs SELECT TOP (100);
+// compare(name), when given, opens Compare data with the table or view as A.
 // Fabric's own schemas (queryinsights, _rsc, sys) can't be changed, so their objects have no ALTER or DROP.
-function whScriptItems(ref, o, cols, { open, query }) {
+function whScriptItems(ref, o, cols, { open, query, compare }) {
   const full = whName(o.schema, o.name);
   const drop = () => open(`${o.name} (DROP)`, `${whScriptHeader(ref, "DROP")}DROP ${WH_DROP_KIND[o.type]} ${full};\n`);
   const module = (verb) => async () => {
@@ -89,6 +90,10 @@ function whScriptItems(ref, o, cols, { open, query }) {
   const items = [];
   if (o.type === "U" || o.type === "V") items.push({ label: "Select top 100 rows", icon: "play", action: () => query(full) });
   if (o.type === "U") items.push({ label: "Table detail", icon: "dataBarVertical", action: () => whTableDetail(ref, o, cols, { open }) });
+  // S34 (Preview): Compare data with this table or view as A.
+  if ((o.type === "U" || o.type === "V") && compare && previewShown() && PREVIEW_FEATURES.sqlCompare) {
+    items.push({ label: "Compare with…", icon: "branchCompare", action: () => compare(full) });
+  }
   const fabric = whFabricSchema(o.schema);
   if (o.type === "U") {
     items.push({ label: "Script as CREATE", icon: "code", action: () => open(`${o.name} (CREATE)`, `${whScriptHeader(ref, "CREATE")}${whCreateTable(o, cols || [])}`) });
@@ -162,7 +167,8 @@ function warehouseSqlProvider(ref) {
 
 // The explorer box. actions: load() lists the objects (asking first, since it runs in Fabric),
 // query(name) opens SELECT TOP (100) on a table or view, insert(text) types a name in the editor,
-// open(title, text) opens a script in a new tab without running it, diagram() opens the Diagram. Each object's ⋯ button (or a
+// open(title, text) opens a script in a new tab without running it, diagram() opens the Diagram, compare(name)
+// opens Compare data (name is [schema].[name], or none). Each object's ⋯ button (or a
 // right-click, or Shift+F10) has Script as. The objects are a tree: one row takes Tab, the arrow keys
 // move and open, Home and End jump, and Enter does what a click does.
 function whExplorer(ref, actions) {
@@ -202,6 +208,19 @@ function whExplorer(ref, actions) {
       cur.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
     } else return;
     e.preventDefault();
+  }
+
+  // Diagram (parity item 15) and Compare data (S34), both Preview.
+  function explorerActions(cat) {
+    if (!previewShown()) return null;
+    const list = [
+      actions.diagram && cat.objects.some((o) => o.type === "U") ? btn("Diagram", "flowchart", actions.diagram, "tool outline small",
+        { title: "The tables of a schema and how they link, from the warehouse's keys and from names. Reads the keys with one catalog query in Fabric. Read only." }) : null,
+      actions.compare && PREVIEW_FEATURES.sqlCompare && cat.objects.some((o) => o.type === "U" || o.type === "V")
+        ? btn("Compare data", "branchCompare", () => actions.compare(), "tool outline small",
+          { title: "Compare the rows of two tables, views or queries. Each runs in Fabric and uses capacity, then the rows are compared on this PC. Read only." }) : null,
+    ].filter(Boolean);
+    return list.length ? h("div", { class: "sql-explorer-actions" }, list) : null;
   }
 
   function draw() {
@@ -276,9 +295,7 @@ function whExplorer(ref, actions) {
     box.replaceChildren(...(empty ? [empty] : [tree]),
       h("div", { class: "muted-text wh-note" }, `Listed from the warehouse catalog at ${timeText(cat.at)}. `,
         h("a", { href: "#", onclick: (e) => { e.preventDefault(); actions.load(); } }, "Refresh")),
-      previewShown() && cat.objects.some((o) => o.type === "U") && actions.diagram ? h("div", { class: "sql-explorer-actions" },
-        btn("Diagram", "flowchart", actions.diagram, "tool outline small",
-          { title: "The tables of a schema and how they link, from the warehouse's keys and from names. Reads the keys with one catalog query in Fabric. Read only." })) : null);
+      explorerActions(cat));
     if (cur && hadFocus) cur.focus();  // after the tree is back in the page, or the focus is lost
   }
   draw();

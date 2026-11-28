@@ -39,8 +39,8 @@ This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and r
 The notebook is at 100%. Its last two gaps, the Markdown toolbar and preview (N23) and Present mode (N49), are both built as Preview. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
 signature help, Format SQL and a compatibility check that none of the others have), and its results
 grid now sorts, filters, resizes, opens and copies over every row, with several statements and
-result sets per run. Compare data (S34) now compares the rows of two tables or queries on this PC, in
-Preview. Its open rows are open transactions across runs (S18), and two rows that need Chris's decision:
+result sets per run. Compare data (S34) now compares the rows of two tables or queries on this PC, on the lakehouse and
+warehouse SQL pages, in Preview. Its open rows are open transactions across runs (S18), and two rows that need Chris's decision:
 editing rows in the grid (S35) and other engines (S42).
 
 ## Notebook matrix
@@ -149,7 +149,7 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S31 | Table detail, data preview, profile | P | P | Y | Y | Y | Have | Preview, `whdetail.js` |
 | S32 | Diagram of tables and their relationships | Y | N | Y | Y | N | Have | Explorer › Diagram, from warehouse keys and names, read only, Preview (#2795) |
 | S33 | Schema compare and deploy | Y | Y | Y | Y | N | Have | `whproject.js` |
-| S34 | Data compare between two tables | Y | N | Y | Y | N | Have | Explorer › Compare data, or a table's menu › Compare with: two tables or queries, rows matched on key columns, number tolerances, read only, on this PC, Preview (`sqlcompare.js`, `sql_compare.py`) |
+| S34 | Data compare between two tables | Y | N | Y | Y | N | Have | Explorer › Compare data, or a table's menu › Compare with, on the lakehouse and warehouse SQL pages: two tables or queries, rows matched on key columns, number tolerances, read only, compared on this PC (a warehouse's runs in Fabric, after a confirm), Preview (`sqlcompare.js`, `sql_compare.py`) |
 | S35 | Edit rows in the result grid | Y | N | Y | Y | N | Gap | writes to lakehouse tables are guarded; needs a decision |
 | S36 | Query history with search | P | Y | Y | Y | Y | Have | `sqlhistory.js:82` |
 | S37 | Saved and shared queries | Y | Y | Y | Y | Y | Have | `sqlqueries.js` |

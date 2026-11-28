@@ -6926,6 +6926,20 @@ test("Compare data (S34) says its verdict, tiles and the rows listed as the mock
   const whole = sqlCompareTable({ method: "whole rows", common: [{ name: "a" }], examples: [{ status: "only_a", row: { a: 5 }, times: 2 }] });
   assert.deepStrictEqual(JSON.parse(JSON.stringify(whole)), { keyed: false, names: ["a"], rows: [{ status: "only_a", times: 2, values: [5] }] });
   assert.deepStrictEqual([sqlCompareCell(null), sqlCompareCell(undefined), sqlCompareCell(1240.5), sqlCompareCell("x")], ["NULL", "", "1,240.5", "x"]);
+  // A warehouse: its tables and views as [schema].[name], with the primary key the catalog knows, never a guessed one.
+  const wh = {};
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "sqlcompare.js"), "utf8")}; Object.assign(this, { sqlCompareWarehouseTables, sqlCompareFabricConfirm });`, wh);
+  const q = (s, n) => `[${s}].[${n}]`;
+  const cat = { objects: [{ schema: "dbo", name: "orders", type: "U" }, { schema: "dbo", name: "v", type: "V" }, { schema: "dbo", name: "p", type: "P" },
+    { schema: "s", name: "t", type: "U" }], cols: { "dbo.orders": [{ name: "id", type: "int" }] }, pks: { "dbo.orders": ["id"], "dbo.v": ["x"] } };
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(wh.sqlCompareWarehouseTables(cat, q))), [
+    { name: "[dbo].[orders]", columns: [{ name: "id", type: "int" }], keys: ["id"] },
+    { name: "[dbo].[v]", columns: [], keys: [] }, { name: "[s].[t]", columns: [], keys: [] }], "no procedure; a view and a table with no known key have none");
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(wh.sqlCompareWarehouseTables({ ...cat, pks: undefined }, q).map((t) => t.keys))), [[], [], []],
+    "before the Diagram reads the keys, no key");
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(wh.sqlCompareFabricConfirm({ name: "WH_Gold", kind: "warehouse" }))), { title: "Run A and B in Fabric on WH_Gold?",
+    text: "Compare runs A, then B, on the warehouse. Both only read, and both use capacity. Nothing is changed." });
+  assert.match(wh.sqlCompareFabricConfirm({ name: "Sales", kind: "endpoint" }).text, /on the SQL analytics endpoint\./);
 });
 
 // Academy board 5: an exercise's How this works. Only python_lab names the AppContainer; delta_lab and

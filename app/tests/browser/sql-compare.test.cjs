@@ -1,6 +1,7 @@
-// S34 Compare data on the lakehouse SQL page (sqlcompare.js), from the approved mockup: Explorer > Compare
-// data and a table's menu > Compare with. A and B each run once as reads (sql_start); a new key, tolerance,
-// tile or page compares the same two results again (sql_compare) without running anything.
+// S34 Compare data on the lakehouse and warehouse SQL pages (sqlcompare.js), from the approved mockup: Explorer >
+// Compare data and a table's menu > Compare with. A and B each run once as reads (sql_start); a new key, tolerance,
+// tile or page compares the same two results again (sql_compare) without running anything. On a warehouse they
+// run in Fabric after one confirm.
 // axe covers dialogs: sqlcompare.js:sqlCompareDialog
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
@@ -142,4 +143,87 @@ test("a side left empty is refused before anything runs", { skip }, async () => 
   await d.getByRole("alert").getByText("Pick a table, or a query that only reads, for A.").waitFor();
   assert.strictEqual(compares().length, n);
   await page().locator(".dialog-actions").getByRole("button", { name: "Close" }).click();
+});
+
+// The warehouse page: A and B run in Fabric as reads (target warehouse, T-SQL, no allow), after one confirm.
+// A new key, a tile or a second Compare of the same A and B asks nothing and runs nothing.
+const WH = { kind: "warehouse", workspace_id: "ws1", workspace_name: "Sales Dev", item_id: "wh1", name: "WH_Gold" };
+async function openWarehouse() {
+  await page().evaluate((wh) => openWarehouseQuery(wh), WH);
+  await page().waitForSelector(".warehouse-page .sql-edit .cm-editor");
+  await page().evaluate((wh) => {
+    const cols = [{ name: "order_id", type: "bigint" }, { name: "amount", type: "decimal(18,2)" }, { name: "status", type: "varchar(20)" }];
+    // The explorer's catalog, as if listed, with the primary key the Diagram read.
+    sqlPage.catalog = { key: sqlRefKey(wh), state: "done", at: new Date(), error: null,
+      objects: [{ schema: "dbo", name: "orders", type: "U" }, { schema: "dbo", name: "orders_rebuilt", type: "U" }, { schema: "dbo", name: "vOrders", type: "V" }],
+      cols: { "dbo.orders": cols, "dbo.orders_rebuilt": cols, "dbo.vOrders": cols }, pks: { "dbo.orders": ["order_id"] } };
+    sqlPage.whRedraw?.();
+    // Count the confirms Compare shows.
+    window.compareConfirms = [];
+    if (!window.realConfirmDialog) window.realConfirmDialog = confirmDialog;
+    window.confirmDialog = (title, text, ok, opts) => { window.compareConfirms.push({ title, text, ok }); return window.realConfirmDialog(title, text, ok, opts); };
+  }, WH);
+  await page().locator(".wh-explorer").getByRole("button", { name: "Compare data" }).waitFor();
+}
+const confirms = () => page().evaluate(() => window.compareConfirms);
+
+test("on a warehouse, Compare data asks once, runs A and B in Fabric as reads, and a re-compare runs nothing", { skip }, async () => {
+  await openWarehouse();
+  await page().locator(".wh-explorer").getByRole("button", { name: "Compare data" }).click();
+  const d = dialog();
+  assert.strictEqual(await d.getByLabel("A: table").inputValue(), "[dbo].[orders]");
+  assert.strictEqual(await d.getByLabel("B: table").inputValue(), "[dbo].[orders_rebuilt]");
+  await d.getByRole("button", { name: "Stop matching on order_id" }).waitFor();  // the primary key the catalog knows
+
+  answer = keyed;
+  const before = starts().length;
+  await page().locator(".dialog-actions").getByRole("button", { name: "Compare" }).click();
+  const ask = page().getByRole("dialog", { name: "Run A and B in Fabric on WH_Gold?" });
+  await ask.getByText("Compare runs A, then B, on the warehouse. Both only read, and both use capacity. Nothing is changed.").waitFor();
+  if (axeSource) assert.deepStrictEqual(await axeFindings(page(), "#dialog-root"), []);
+  assert.strictEqual(starts().length, before, "nothing runs before the confirm");
+  await ask.getByRole("button", { name: "Run both" }).click();
+  await d.locator(".sql-compare-verdict").getByText("Differs").waitFor();
+  const ran = starts().slice(before);
+  assert.deepStrictEqual(ran.map((p) => [p.query, p.target, p.dialect, p.allow, p.lakehouse_ref]), [
+    ["SELECT * FROM [dbo].[orders]", "warehouse", "tsql", undefined, undefined],
+    ["SELECT * FROM [dbo].[orders_rebuilt]", "warehouse", "tsql", undefined, undefined]], "both run in Fabric as reads, with no allow");
+  assert.deepStrictEqual(ran[0].warehouse_ref, { workspace_id: "ws1", item_id: "wh1", kind: "warehouse" });
+  assert.deepStrictEqual(compares().at(-1).keys, ["order_id"]);
+  if (axeSource) assert.deepStrictEqual(await axeFindings(page(), "#dialog-root"), []);  // CI installs axe-core
+
+  // A tile, a key and Compare again on the same A and B: no confirm, nothing runs.
+  await d.getByRole("button", { name: /15\s*Changed/ }).click();
+  await d.getByText("Showing 1–2 of 15 changed rows.").waitFor();
+  await d.getByRole("button", { name: "Stop matching on order_id" }).click();
+  await d.getByLabel("Add a key column").waitFor();
+  const asked = compares().length;
+  await page().locator(".dialog-actions").getByRole("button", { name: "Compare" }).click();
+  for (const end = Date.now() + 5000; compares().length === asked && Date.now() < end;) await new Promise((r) => setTimeout(r, 25));
+  assert.strictEqual(compares().length, asked + 1, "Compare again compares the same results");
+  assert.strictEqual(starts().length, before + 2, "a new tile, key or Compare of the same A and B runs nothing");
+  assert.strictEqual((await confirms()).length, 1, "the confirm shows once");
+
+  // B changes: the confirm shows again, and Cancel brings the dialog back with nothing run.
+  await d.getByLabel("B: table").selectOption("[dbo].[vOrders]");
+  await page().locator(".dialog-actions").getByRole("button", { name: "Compare" }).click();
+  await ask.getByRole("button", { name: "Cancel" }).click();
+  await d.getByLabel("B: table").waitFor();
+  assert.strictEqual(await d.getByLabel("B: table").inputValue(), "[dbo].[vOrders]");
+  assert.strictEqual(starts().length, before + 2, "Cancel runs nothing");
+  assert.strictEqual((await confirms()).length, 2);
+  await page().locator(".dialog-actions").getByRole("button", { name: "Close" }).click();
+  await dialog().waitFor({ state: "detached" });
+});
+
+test("on a warehouse, a table's menu has Compare with, and a table with no known key starts with none", { skip }, async () => {
+  await openWarehouse();
+  await page().locator(".wh-tree").getByRole("treeitem", { name: "orders_rebuilt", exact: true }).click({ button: "right" });
+  await page().getByRole("menuitem", { name: "Compare with…" }).click();
+  const d = dialog();
+  assert.strictEqual(await d.getByLabel("A: table").inputValue(), "[dbo].[orders_rebuilt]");
+  assert.strictEqual(await d.getByLabel("B: table").inputValue(), "[dbo].[orders]");
+  assert.strictEqual(await d.getByRole("button", { name: /^Stop matching on/ }).count(), 0, "no key is guessed");
+  await page().keyboard.press("Escape");
+  await dialog().waitFor({ state: "detached" });
 });

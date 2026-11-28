@@ -1,8 +1,9 @@
 // Compare data (editor parity S34, Preview), from the approved mockup: Explorer > Compare data, or a
-// table's menu > Compare with. A and B are each a lakehouse table or a query. Compare runs each one as an
-// ordinary run that only reads (its queue, Stop and time limit), then sql_compare reads the two results on
-// this PC with the row diff Verify uses. Changing the key, a tolerance or the tile shown compares the same
-// two results again; nothing runs again until A or B changes.
+// table's menu > Compare with. A and B are each a table (or a warehouse's view) or a query. Compare runs each
+// one as an ordinary run that only reads (its queue, Stop and time limit): on this PC for a lakehouse, in
+// Fabric for a warehouse, after a confirm. Then sql_compare reads the two results on this PC with the row
+// diff Verify uses. Changing the key, a tolerance or the tile shown compares the same two results again;
+// nothing runs again until A or B changes.
 
 // The query a side runs: a table is all of its rows; a query is run as written, less a trailing ;.
 function sqlCompareSideQuery(side) {
@@ -12,6 +13,24 @@ function sqlCompareSideQuery(side) {
 
 function sqlCompareSideLabel(side, letter) {
   return side.kind === "table" && side.name ? `${letter}: ${side.name}` : `${letter}: query`;
+}
+
+// A warehouse's tables and views for Compare, from the Explorer's catalog: each one's name as nameOf
+// writes it ([schema].[name]), its columns, and the primary key the catalog knows (cat.pks, read by the
+// Diagram), else no key. A key is never guessed.
+function sqlCompareWarehouseTables(cat, nameOf) {
+  return (cat?.objects || []).filter((o) => o.type === "U" || o.type === "V").map((o) => ({
+    name: nameOf(o.schema, o.name),
+    columns: cat.cols?.[`${o.schema}.${o.name}`] || [],
+    keys: o.type === "U" ? [...(cat.pks?.[`${o.schema}.${o.name}`] || [])] : [],
+  }));
+}
+
+// The confirm before a warehouse's Compare runs A and B in Fabric.
+function sqlCompareFabricConfirm(ref) {
+  return { title: `Run A and B in Fabric on ${ref.name}?`,
+    text: `Compare runs A, then B, on the ${ref.kind === "endpoint" ? "SQL analytics endpoint" : "warehouse"}. ` +
+      "Both only read, and both use capacity. Nothing is changed." };
 }
 
 const SQL_COMPARE_TILES = [["same", "Same"], ["only_a", "Only in A"], ["only_b", "Only in B"], ["changed", "Changed"]];
@@ -76,15 +95,21 @@ function sqlCompareTable(out, showAll) {
 const sqlCompareCell = (v) => v === null ? "NULL" : v === undefined ? "" : typeof v === "number" ? v.toLocaleString("en-US", { maximumFractionDigits: 20 }) : String(v);
 
 function sqlCompareDialog(ctx) {
-  // ctx: { ref, dialect, tables: [names], a: preset table name, columns(name) -> Promise<[{name, type}]> }
+  // ctx: { ref, dialect, tables: [names], a: preset table name, columns(name) -> Promise<[{name, type}]> }.
+  // A warehouse adds start(query) -> sql_start's status, confirm() -> Promise<bool> before A and B run,
+  // keys(name) -> the table's known key, and where ("in Fabric"). A lakehouse leaves them out.
   const first = ctx.tables[0] || "";
+  const where = ctx.where || "on this PC";
+  const knownKey = (side) => (side.kind === "table" && side.name && ctx.keys ? ctx.keys(side.name) : []);
   const s = {
     a: { kind: "table", name: ctx.a || first, sql: "" },
     b: { kind: ctx.tables.length > 1 || !ctx.a ? "table" : "query", name: ctx.tables.find((t) => t !== (ctx.a || first)) || "", sql: "" },
     keys: [], tol: {}, ran: null, runs: null, out: null, status: null, offset: 0, showAll: false, busy: "", job: null, error: "",
     columns: [],
   };
+  s.keys = knownKey(s.a);
   let closed = false;
+  let asking = false;  // the confirm is showing in place of this dialog, which comes back after it
   const box = h("div", { class: "sql-compare" });
   const sig = () => JSON.stringify([sqlCompareSideQuery(s.a), sqlCompareSideQuery(s.b), ctx.dialect]);
 
@@ -102,7 +127,7 @@ function sqlCompareDialog(ctx) {
       h("option", { value: "table", selected: side.kind === "table", disabled: !ctx.tables.length }, "Table"),
       h("option", { value: "query", selected: side.kind === "query" }, "Query"));
     const value = side.kind === "table"
-      ? h("select", { id, "aria-label": `${letter}: table`, onchange: (e) => { side.name = e.target.value; s.keys = letter === "A" ? [] : s.keys; draw(); fillColumns().then(draw); } },
+      ? h("select", { id, "aria-label": `${letter}: table`, onchange: (e) => { side.name = e.target.value; s.keys = letter === "A" ? knownKey(side) : s.keys; draw(); fillColumns().then(draw); } },
         ctx.tables.map((t) => h("option", { value: t, selected: t === side.name }, t)))
       : h("textarea", { id, rows: 3, spellcheck: "false", class: "sql-compare-query", "aria-label": `${letter}: query`,
         placeholder: "SELECT * FROM …", oninput: (e) => { side.sql = e.target.value; } }, side.sql);
@@ -198,10 +223,10 @@ function sqlCompareDialog(ctx) {
           : t.cols.length ? h("td", { colspan: t.cols.length * 2, class: "muted-text grp" }, r.status === "only_a" ? "No row in B with this key" : "No row in A with this key") : null))));
   }
 
-  // One side's run: an ordinary SQL page run that only reads, on this lakehouse. Stop ends it.
+  // One side's run: an ordinary SQL page run that only reads, on this lakehouse or in Fabric. Stop ends it.
   async function runSide(query, letter) {
     const job = s.job;
-    let st = await rpc("sql_start", { query, lakehouse_ref: ctx.ref, dialect: ctx.dialect });
+    let st = await (ctx.start ? ctx.start(query) : rpc("sql_start", { query, lakehouse_ref: ctx.ref, dialect: ctx.dialect }));
     job.id = st.id;
     let wait = 150;
     while (["queued", "running", "cancelling"].includes(st.state)) {
@@ -222,13 +247,22 @@ function sqlCompareDialog(ctx) {
     if (!qa || !qb) { s.error = `Pick a table, or a query that only reads, for ${!qa ? "A" : "B"}.`; draw(); return; }
     s.error = "";
     if (s.ran !== sig()) {
+      if (ctx.confirm) {
+        // The confirm replaces this dialog while it shows; this dialog comes back as it was.
+        asking = true;
+        const ok = await ctx.confirm();
+        asking = false;
+        if (closed) return;
+        open();
+        if (!ok) return;
+      }
       s.job = { id: null, stopped: false };
       s.out = null; s.runs = null; s.status = null; s.offset = 0;
       try {
-        s.busy = "Running A on this PC…"; draw();
+        s.busy = `Running A ${where}…`; draw();
         const a = await runSide(qa, "A");
         if (!a) { s.busy = ""; s.job = null; if (!closed) draw(); return; }
-        s.busy = "Running B on this PC…"; draw();
+        s.busy = `Running B ${where}…`; draw();
         const b = await runSide(qb, "B");
         if (!b) { s.busy = ""; s.job = null; if (!closed) draw(); return; }
         s.runs = { a, b }; s.ran = sig();
@@ -271,7 +305,7 @@ function sqlCompareDialog(ctx) {
     if (s.job.id) rpc("sql_cancel", { execution: s.job.id }).catch(() => {});
   }
 
-  const swap = btn("Swap A and B", null, () => { [s.a, s.b] = [s.b, s.a]; s.keys = []; s.tol = {}; draw(); fillColumns().then(draw); }, "tool outline");
+  const swap = btn("Swap A and B", null, () => { [s.a, s.b] = [s.b, s.a]; s.keys = knownKey(s.a); s.tol = {}; draw(); fillColumns().then(draw); }, "tool outline");
   const go = btn("Compare", null, () => compare(), "tool primary");
   const stopBtn = btn("Stop", null, stop, "tool outline");
   function draw() {
@@ -286,8 +320,12 @@ function sqlCompareDialog(ctx) {
     swap.disabled = !!s.busy;
     if (focused) [...box.querySelectorAll("button, select, input, textarea")].find((el) => (el.getAttribute("aria-label") || el.textContent) === focused)?.focus();
   }
+  const closeBtn = btn("Close", null, closeDialog, "tool outline");
+  function open() {
+    showDialog("Compare data", box, [swap, stopBtn, closeBtn, go], () => { if (!asking) { closed = true; stop(); } });
+    box.closest(".dialog")?.classList.add("wide", "sql-compare-dialog");
+  }
   fillColumns().then(draw);
   draw();
-  showDialog("Compare data", box, [swap, stopBtn, btn("Close", null, closeDialog, "tool outline"), go], () => { closed = true; stop(); });
-  box.closest(".dialog")?.classList.add("wide", "sql-compare-dialog");
+  open();
 }

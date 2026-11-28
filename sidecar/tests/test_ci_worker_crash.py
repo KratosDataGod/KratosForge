@@ -27,7 +27,7 @@ def _xdist_runs() -> list[str]:
 
 def test_every_xdist_run_in_ci_stops_when_a_worker_dies():
     runs = _xdist_runs()
-    assert len(runs) == 3, runs  # ci.yml's main run, and compat_tests.sh's sqlglot and duckdb runs
+    assert len(runs) == 4, runs  # ci.yml's main and debugger-py313 runs, and compat_tests.sh's sqlglot and duckdb runs
     for run in runs:
         assert "--dist loadfile" in run and "--max-worker-restart 0" in run, run
 

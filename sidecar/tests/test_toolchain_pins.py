@@ -104,10 +104,10 @@ def test_ci_installs_the_engines_packages_from_hashed_locks_at_constraints_versi
     assert "--require-hashes -r ../.github/requirements/test-linux.txt -r ../.github/requirements/tsql-live.txt" in (
         ROOT / ".github" / "workflows" / "tsql-contract-live.yml"
     ).read_text(encoding="utf-8")
-    assert CI.count("--require-hashes -r ../.github/requirements/test-linux.txt") == 2
+    assert CI.count("--require-hashes -r ../.github/requirements/test-linux.txt") == 3  # vscode-extension, ui-browser, debugger-py313
     assert '--require-hashes -r "../.github/requirements/$lock"' in CI and "lock=test-windows.txt" in CI
     assert "--require-hashes -r ../.github/requirements/lint.txt" in CI
-    assert CI.count("python -m pip install --no-deps --no-build-isolation -e .") == 4
+    assert CI.count("python -m pip install --no-deps --no-build-isolation -e .") == 5
 
 
 def test_the_windows_shell_coverage_run_is_advisory_and_pinned():

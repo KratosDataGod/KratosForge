@@ -4,7 +4,7 @@ Chris asked on 2026-11-13 for the notebook and SQL editor to have the same funct
 notebooks and SQL editors: a feature parity matrix against the top ten, a roadmap, and an execution
 plan ordered by capability and usefulness, reaching 95% as soon as possible and the last 5% soon after.
 
-This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and rows move as their PRs merge (last update 2026-11-18: SQL rows at main `d9c8868`, notebook rows after #2803).
+This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and rows move as their PRs merge (last update 2026-11-28 at main `be5ef815c`, after an audit of every Have row against the code).
 
 ## How to read it
 
@@ -32,16 +32,21 @@ This page is that plan. It was read against main `e9e8e3e8b` (2026-11-13), and r
 
 | Group | Counted rows | Have | Partial | Gap | Score |
 | --- | --- | --- | --- | --- | --- |
-| Notebook | 54 | 54 | 0 | 0 | 100% |
-| SQL editor | 45 | 42 | 2 | 1 | 96% |
-| **Both** | **99** | **96** | **2** | **1** | **98%** |
+| Notebook | 54 | 49 | 5 | 0 | 95% |
+| SQL editor | 45 | 38 | 5 | 2 | 90% |
+| **Both** | **99** | **87** | **10** | **2** | **93%** |
 
-The notebook is at 100%. Its last two gaps, the Markdown toolbar and preview (N23) and Present mode (N49), are both built as Preview. The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
+On 2026-11-28 every row marked Have was checked against the code on main. Ten didn't hold as written
+and moved back: N09, N12, N19, N22 and N45 to Partial; S10, S36 and S37 to Partial (on the warehouse
+and SQL endpoint pages, not the lakehouse page); and S41 to Gap. Before the audit this table read 98%.
+
+The notebook's open rows are lint underlines (N09), multi-cursor (N12), rebinding command-mode keys (N19), pasting images (N22) and scrolling long outputs (N45). The SQL editor's editing is strong (dialects, schema-aware suggestions, hover and
 signature help, Format SQL and a compatibility check that none of the others have), and its results
 grid now sorts, filters, resizes, opens and copies over every row, with several statements and
 result sets per run. Compare data (S34) now compares the rows of two tables or queries on this PC, in
-Preview. Its open rows are open transactions across runs (S18), and two rows that need Chris's decision:
-editing rows in the grid (S35) and other engines (S42).
+Preview. Its open rows are templates, history and saved queries on the lakehouse page (S10, S36, S37), running
+queries (S41, needs a mockup), and three rows that need Chris's decision: open transactions across runs
+(S18), editing rows in the grid (S35) and other engines (S42).
 
 ## Notebook matrix
 
@@ -49,7 +54,7 @@ Products: JL = JupyterLab, VSC = VS Code, Fab = Fabric, Dbx = Databricks.
 
 | # | Capability | JL | VSC | Fab | Dbx | Hex | KratosForge | Where / what's missing |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| N01 | Code and Markdown cells; add, delete, move, drag to reorder | Y | Y | Y | Y | Y | Have | `app/ui/notebook.js`, `nbdrag.js` |
+| N01 | Code and Markdown cells; add, delete, move, drag to reorder | Y | Y | Y | Y | Y | Have | `notebook.js`; drag to reorder is `moveCellTo` in `nbcells.js` |
 | N02 | Command-mode keys (A, B, DD, M, Y, Z, C, X, V, Shift+arrows) | Y | Y | Y | Y | P | Have | `notebook.js`, `nbselect.js` |
 | N03 | Select several cells and run, delete, move or freeze them | Y | Y | Y | Y | P | Have | `nbselect.js` |
 | N04 | Split and merge cells | Y | Y | Y | Y | N | Have | split in `notebook.js`, merge `nbselect.js:33` |
@@ -57,26 +62,26 @@ Products: JL = JupyterLab, VSC = VS Code, Fab = Fabric, Dbx = Databricks.
 | N06 | Find and replace across the notebook (case, word, regex) | Y | Y | Y | Y | P | Have | `nbfind.js` |
 | N07 | Completion from the live kernel | Y | Y | Y | Y | Y | Have | `kernel_complete` (`sidecar/fabric_desktop/service.py`) |
 | N08 | Hover docs and signature help | P | Y | Y | Y | P | Have | `nbintel.js`, `kernel_inspect` |
-| N09 | Inline syntax and lint underlines | P | Y | Y | Y | N | Have | `nbintel.js` |
+| N09 | Inline syntax and lint underlines | P | Y | Y | Y | N | Partial | `nbintel.js` underlines the first Python syntax error in a cell; no lint underlines (best-practice findings are a list in `nbpractices.js`) |
 | N10 | Go to definition, find references, rename across cells | P | Y | N | P | N | Have | F12, Shift+F12 and F2 across Python cells, read with Python's parser (#2615) |
 | N11 | Format a cell or the notebook | P | Y | Y | Y | N | Have | #470; the Format code button has its own thread |
-| N12 | Multi-cursor, bracket matching, folding, comment toggle | Y | Y | Y | Y | Y | Have | CodeMirror 6 setup in `notebook.js` |
-| N13 | Outline from headings; collapse a heading's section | Y | Y | Y | Y | Y | Have | `notebook.js` |
-| N14 | Cell tags and titles | Y | Y | P | Y | Y | Have | `notebook.js` |
-| N15 | Code snippets | P | Y | Y | N | Y | Have | `nbresources.js` |
+| N12 | Multi-cursor, bracket matching, folding, comment toggle | Y | Y | Y | Y | Y | Partial | bracket matching, folding and comment toggle in `notebook.js`; multi-cursor is off in notebook cells (the SQL editor turns it on) |
+| N13 | Outline from headings; collapse a heading's section | Y | Y | Y | Y | Y | Have | outline in `notebook.js`; collapse a section is `toggleSection` in `nbcells.js` |
+| N14 | Cell tags and titles | Y | Y | P | Y | Y | Have | `editTitle` and `addTag` in `nbcells.js` |
+| N15 | Code snippets | P | Y | Y | N | Y | Have | `SNIPPETS` in `notebook.js` |
 | N16 | Drag a table into a cell; Load data menu | N | P | Y | Y | Y | Have | `nbdrag.js` |
 | N17 | Editor display settings: word wrap, font size | Y | Y | P | Y | P | Have | Settings > Editor: word wrap and font size for notebooks and SQL (`editorprefs.js`, #2791) |
 | N18 | Vim key bindings | Y | Y | N | N | N | Have | Settings > Editor > Key bindings, Vim (Preview, #2791) |
-| N19 | Rebind keyboard shortcuts | Y | Y | N | N | N | Have | Settings > Editor > Change keys (#2791) |
+| N19 | Rebind keyboard shortcuts | Y | Y | N | N | N | Partial | Settings > Editor > Change keys (#2791) rebinds a fixed list of editor commands; command-mode keys (A, B, DD, M ...) are fixed |
 | N20 | Markdown: numbered and nested lists, tables, code blocks, quotes, H4 to H6, clickable links | Y | Y | Y | Y | Y | Have | markdown-it: CommonMark, GitHub tables, nested lists, code, quotes, links opened in the browser (#2589) |
 | N21 | LaTeX math in Markdown | Y | Y | Y | Y | Y | Have | KaTeX drawn as MathML, nothing fetched (#2589) |
-| N22 | Images in Markdown, including pasted attachments | Y | Y | Y | Y | Y | Have | pasted attachments and inline data images; remote images are not fetched (#2589) |
+| N22 | Images in Markdown, including pasted attachments | Y | Y | Y | Y | Y | Partial | attachments already in an .ipynb and inline data images show and are kept on save (#2589); pasting an image into a cell isn't possible yet; remote images are not fetched |
 | N23 | Rich-text Markdown editing (toolbar, live preview) | N | P | Y | N | Y | Have | Formatting toolbar and Edit, Split or Preview view while editing a Markdown cell (`nbmarkdown.js`, Preview, #3329) |
 | N24 | Run cell, all, above, below; restart and run all; interrupt | Y | Y | Y | Y | Y | Have | `notebook.js`, `nbnext.js` |
 | N25 | Run the selected text or current line | P | Y | Y | Y | N | Have | `nbselect.js` |
-| N26 | Execution count and time per cell | Y | Y | Y | Y | Y | Have | `notebook.js:465` |
+| N26 | Execution count and time per cell | Y | Y | Y | Y | Y | Have | `notebook.js` execution count and run time on each cell |
 | N27 | A session per notebook; several notebooks running | Y | Y | Y | Y | Y | Have | Preview, `kernel_sessions` |
-| N28 | Kernel status, restart, list of sessions | Y | Y | Y | Y | Y | Have | `notebook.js` |
+| N28 | Kernel status, restart, list of sessions | Y | Y | Y | Y | Y | Have | `notebook.js` status and restart; the session list is `sessions.js` (Preview) |
 | N29 | Variable explorer | P | Y | Y | Y | P | Have | `nbvars.js` |
 | N30 | DataFrame viewer: paging, sort, search, profile | P | Y | Y | Y | Y | Have | #381, #382 (`frame_page`, `frame_profile`) |
 | N31 | Debugger: breakpoints, step, inspect | Y | Y | N | Y | N | Have | Preview, `debugging.js` |
@@ -93,7 +98,7 @@ Products: JL = JupyterLab, VSC = VS Code, Fab = Fabric, Dbx = Databricks.
 | N42 | matplotlib, Plotly, Altair, Bokeh | Y | Y | Y | Y | Y | Have | `chart_output.py`, `vendor/vega` |
 | N43 | ipywidgets | Y | Y | Y | Y | N | Have | `ipywidgets.js` |
 | N44 | No-code data cleaning | N | Y | Y | P | N | Have | `wrangler.js` |
-| N45 | Collapse, scroll and clear outputs; hide code | Y | Y | Y | Y | Y | Have | `notebook.js:149` |
+| N45 | Collapse, scroll and clear outputs; hide code | Y | Y | Y | Y | Y | Partial | collapse, clear and hide code in `notebook.js`; long text output can't be set to scroll (only tables scroll) |
 | N46 | Download a result as CSV, Excel or Parquet | N | P | Y | Y | Y | Have | `frame_download` |
 | N47 | Find inside outputs | Y | Y | N | N | N | Have | Find searches cell outputs too (#2581) |
 | N48 | Publish a notebook as a read-only report or app | P | N | N | Y | Y | Have | Notebook > Share > Open as report, outputs only in its own window (`nbreport.js`, Preview, #2797) |
@@ -125,13 +130,13 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S07 | Hover a table, column or function for its details | P | Y | Y | Y | Y | Have | hover cards for tables, columns and functions in Spark SQL, T-SQL and DuckDB (#2598) |
 | S08 | Go to (peek) definition of a table, view or procedure | Y | Y | Y | Y | N | Have | F12 opens a table, view, procedure or function in the Explorer (#2610, #2915); Alt+F12 peeks at its definition and opens it as a script (#2915) |
 | S09 | Rename an alias everywhere | N | N | Y | N | N | Not counted | one product |
-| S10 | Snippets and templates | Y | Y | Y | Y | P | Have | `sqltemplates.js` |
+| S10 | Snippets and templates | Y | Y | Y | Y | P | Partial | templates (`sqltemplates.js`) on the warehouse and SQL endpoint pages only; none on the lakehouse page, and no editor snippets |
 | S11 | Signature help for functions | P | Y | Y | P | P | Have | signature help for functions (#2598) |
 | S12 | Run all or the selection; F5 and Ctrl+Enter | Y | Y | Y | Y | Y | Have | #2406 |
 | S13 | Run the statement under the cursor | N | P | Y | Y | Y | Have | Ctrl+Shift+Enter runs the statement at the cursor (#2582) |
 | S14 | Scripts with several statements and several result sets | Y | Y | Y | Y | Y | Have | split at `;` and `GO`, a result tab for each, stop on the first error, Preview (#2799) |
 | S15 | Stop a running query | Y | Y | Y | Y | Y | Have | `sql_cancel` |
-| S16 | Time, rows and a Messages view | Y | Y | Y | Y | Y | Have | `query.js:604` |
+| S16 | Time, rows and a Messages view | Y | Y | Y | Y | Y | Have | `sqlMessages` in `query.js` (Messages is Preview on the lakehouse page) |
 | S17 | Query variables and parameters | Y | P | Y | Y | Y | Have | `:name` and `{{name}}`, bound as typed values and never part of the SQL text, Preview (#2799, #2832) |
 | S18 | Transactions and auto-commit control | Y | Y | Y | Y | P | Partial | warehouse changes go through Allow changes and a confirm; a script wrapped in `BEGIN TRAN` ... `COMMIT` runs as one guarded transaction (WR-204); no open transaction across runs |
 | S19 | Sort the result grid by a column | P | Y | Y | Y | Y | Have | sorts every row of the run's result on this PC (#2792); the notebook table too |
@@ -146,17 +151,17 @@ Products: SSMS, ADS = Azure Data Studio / VS Code MSSQL, DG = DataGrip, DBv = DB
 | S28 | Results pane: resize, maximize, hide (Ctrl+R) | Y | Y | Y | Y | Y | Have | maximize, hide with Ctrl+R, and resize (#2583) |
 | S29 | Object explorer: schemas, tables, views, procedures, functions, columns | Y | Y | Y | Y | Y | Have | warehouse Explorer; lakehouse lists tables and columns |
 | S30 | Script as SELECT, CREATE, ALTER, DROP | Y | Y | Y | Y | P | Have | warehouse ([Warehouses](../warehouse.md)) |
-| S31 | Table detail, data preview, profile | P | P | Y | Y | Y | Have | Preview, `whdetail.js` |
+| S31 | Table detail, data preview, profile | P | P | Y | Y | Y | Have | Preview, `whdetail.js` (columns, profile); data preview is Script as > SELECT TOP (100) (`warehouse.js`), warehouse only |
 | S32 | Diagram of tables and their relationships | Y | N | Y | Y | N | Have | Explorer › Diagram, from warehouse keys and names, read only, Preview (#2795) |
 | S33 | Schema compare and deploy | Y | Y | Y | Y | N | Have | `whproject.js` |
 | S34 | Data compare between two tables | Y | N | Y | Y | N | Have | Explorer › Compare data, or a table's menu › Compare with: two tables or queries, rows matched on key columns, number tolerances, read only, on this PC, Preview (`sqlcompare.js`, `sql_compare.py`) |
 | S35 | Edit rows in the result grid | Y | N | Y | Y | N | Gap | writes to lakehouse tables are guarded; needs a decision |
-| S36 | Query history with search | P | Y | Y | Y | Y | Have | `sqlhistory.js:82` |
-| S37 | Saved and shared queries | Y | Y | Y | Y | Y | Have | `sqlqueries.js` |
+| S36 | Query history with search | P | Y | Y | Y | Y | Partial | `whHistory` with search (`sqlhistory.js`) on the warehouse and SQL endpoint pages only |
+| S37 | Saved and shared queries | Y | Y | Y | Y | Y | Partial | `sqlqueries.js` on the warehouse and SQL endpoint pages only |
 | S38 | Open and save .sql files on disk | Y | Y | Y | Y | P | Have | open and save `.sql` files on this PC, Preview (#2799) |
 | S39 | Estimated plan, drawn | Y | Y | Y | Y | P | Have | warehouse (`sqlplan.js`); lakehouse queries on this PC through DuckDB EXPLAIN, Preview (#2604) |
 | S40 | Actual plan or profile after a run | Y | Y | Y | Y | Y | Have | Profile runs a lakehouse query under EXPLAIN ANALYZE and shows the Query profile, Preview (#2604) |
-| S41 | Running queries; stop someone's | Y | N | P | Y | Y | Have | Preview, `whmonitor.js` |
+| S41 | Running queries; stop someone's | Y | N | P | Y | Y | Gap | `whmonitor.js` (Preview) reads completed queries only; no live list of running queries and no way to stop someone's |
 | S42 | Connect to other engines (SQL Server, Postgres, Snowflake, Databricks SQL) | P | P | Y | Y | N | Partial | lakehouse, SQL endpoint, warehouse and local project only |
 | S43 | SQL notebooks mixing SQL and Markdown | N | Y | N | N | Y | Have | notebooks with `%%sql` |
 | S44 | SSMS-style keys beyond F5 (Ctrl+R, Ctrl+Shift+U/L) | Y | Y | Y | Y | P | Have | F5, Ctrl+Enter, Shift+Alt+F, Ctrl+R, Ctrl+Shift+U/L (#2583) |

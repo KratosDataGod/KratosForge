@@ -6,10 +6,13 @@ PC: nothing runs, and nothing is written to OneLake.
 
 ## Format one cell or the whole notebook
 
+- **Format** in a code cell's top bar formats that cell in one click. The bar shows when you point
+  at the cell or select it.
 - **Shift+Alt+F** while you edit a code cell formats that cell. It's the same key that formats SQL
   on the SQL query page.
 - **...** on a code cell, then **Format cell**.
-- **Edit > Format notebook** formats every code cell. A message says how many cells changed.
+- **Format notebook** on the **Home** tab (also on the **Edit** tab) formats every code cell. A
+  message says how many cells changed.
 
 **Ctrl+Z** in a cell undoes its formatting.
 
@@ -21,6 +24,7 @@ PC: nothing runs, and nothing is written to OneLake.
 | `%%pyspark` or `%python` | Formatted as Python. The magic line stays. |
 | Line magics and shell lines in Python (`%time`, `%run`, `!pip`) | Kept exactly as written; the Python around them is formatted. |
 | `%%sql` or `%sql` | The SQL is laid out as **Format SQL** does on the SQL query page, in Spark SQL: one clause per line, keywords in capitals. The magic line stays. When the formatter can't show that the result means the same, the cell is left as written and the message says why. |
+| `%%tsql` | The T-SQL is laid out as **Format SQL** does for a Fabric Warehouse on the SQL query page. A cell with `-type Lakehouse` or `-type SQLAnalyticsEndpoint` uses the SQL analytics endpoint's T-SQL, and `-type SQLDatabase` uses the SQL database's. The `%%tsql` line and its options stay as written. When the formatter can't show that the result means the same, the cell is left as written and the message says why. |
 | Markdown, `%%html`, `%md`, `%sh` and other languages, and cells that start with another cell magic such as `%%time` | Left as written. |
 | Frozen cells | Left as written. Unfreeze a cell to format it. |
 | A cell Python can't read | Left as written. The message names the line and what's wrong, and **Show cell** goes to it. The other cells are still formatted. |
@@ -31,5 +35,5 @@ changed.
 ## How it works
 
 The engine runs ruff's formatter, which ships with the app, once per cell and gives each cell to it
-on its own. SQL cells use the same formatter as the SQL query page (sqlglot). Neither runs your
+on its own. SQL and T-SQL cells use the same formatter as the SQL query page (sqlglot). Neither runs your
 code or reads your data.

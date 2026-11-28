@@ -361,6 +361,36 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "1.2.1-q12",
+      "type": "yesno",
+      "stem": "A team plans to connect a Fabric workspace to Git. For each statement, choose Yes if it is true. Otherwise, choose No.",
+      "parts": [
+        {
+          "text": "The workspace can connect to a repository on an on-premises Azure DevOps Server."
+        },
+        {
+          "text": "The workspace can connect to a cloud-based GitHub Enterprise repository."
+        },
+        {
+          "text": "A workspace that contains unsupported items can't be connected until those items are removed."
+        },
+        {
+          "text": "The workspace's subfolders are preserved in the Git repository."
+        }
+      ],
+      "answer": [
+        "no",
+        "yes",
+        "no",
+        "yes"
+      ],
+      "explanation": "The supported providers are Azure DevOps, GitHub and GitHub Enterprise, each cloud-based only, so an on-premises server isn't supported. A workspace with unsupported items can still be connected. Those items are ignored, which means they aren't saved or synced, and they aren't deleted either. The workspace structure, including subfolders, is preserved in the repository.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/git-integration/intro-to-git-integration",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

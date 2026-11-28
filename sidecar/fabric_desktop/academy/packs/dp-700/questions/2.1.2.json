@@ -356,6 +356,74 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "2.1.2-q12",
+      "type": "matching",
+      "stem": "Fabrikam is designing the dimensions for a sales star schema in a Fabric warehouse. Match each requirement to the dimension design that fits it. Each design may be used once, more than once, or not at all.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Conformed dimension"
+        },
+        {
+          "id": "b",
+          "text": "Junk dimension"
+        },
+        {
+          "id": "c",
+          "text": "SCD type 2"
+        },
+        {
+          "id": "d",
+          "text": "Degenerate dimension"
+        },
+        {
+          "id": "e",
+          "text": "SCD type 3"
+        },
+        {
+          "id": "f",
+          "text": "SCD type 1"
+        },
+        {
+          "id": "g",
+          "text": "Role-playing dimension"
+        }
+      ],
+      "parts": [
+        {
+          "text": "A customer's email address changes and the old value doesn't need to be kept"
+        },
+        {
+          "text": "Past sales must still report under the sales region a customer belonged to at the time"
+        },
+        {
+          "text": "Only the original and the current product category need to be stored"
+        },
+        {
+          "text": "The sales fact has order date, ship date and delivery date keys that all relate to one date table"
+        },
+        {
+          "text": "Many small flags with only a few values each are consolidated into one table"
+        },
+        {
+          "text": "The order number stays in the fact table with no separate dimension table"
+        }
+      ],
+      "answer": [
+        "f",
+        "c",
+        "e",
+        "g",
+        "b",
+        "d"
+      ],
+      "explanation": "Type 1 overwrites the row, which suits values like an email address where history isn't needed. Type 2 adds a new version row with tracking attributes, so history is preserved for attributes such as a sales region. Type 3 keeps limited history in attributes, for example only the initial and current values. One date table used three ways by the fact is a role-playing dimension. A junk dimension consolidates many small, low-cardinality dimensions. An order number at the grain of the facts is a degenerate dimension and isn't copied into its own table. A conformed dimension is one shared by several fact tables, which none of these requirements describes.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-dimension-tables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

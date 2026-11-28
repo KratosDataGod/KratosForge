@@ -321,6 +321,36 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.1.1-q11",
+      "type": "yesno",
+      "stem": "A data engineer uses the Job runs page of the Monitor hub to check ingestion runs. For each statement, choose Yes if it is true. Otherwise, choose No.",
+      "parts": [
+        {
+          "text": "The page shows runs of Dataflow Gen1."
+        },
+        {
+          "text": "Keyword search checks only the items loaded on the current page, while the filter drop-down menus don't have this limit."
+        },
+        {
+          "text": "The engineer sees runs only for Fabric items they have permission to view."
+        },
+        {
+          "text": "Each item in the list shows a summarized history of its last 10 runs."
+        }
+      ],
+      "answer": [
+        "no",
+        "yes",
+        "yes",
+        "no"
+      ],
+      "explanation": "The Job runs page doesn't support or show Dataflow Gen1, though it does show Dataflow Gen2 and pipelines. Keyword search checks only the items loaded on the current page, and the Item type, Status and Workspace drop-down menus don't have that limit. Any Fabric user can open the Monitor hub but sees only activities for items they have permission to view. The list gives a summarized history of the last five runs for each item.",
+      "source": "https://learn.microsoft.com/en-us/fabric/admin/monitoring-hub-jobs",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

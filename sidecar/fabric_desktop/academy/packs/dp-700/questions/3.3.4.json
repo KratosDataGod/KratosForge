@@ -354,6 +354,36 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "3.3.4-q12",
+      "type": "yesno",
+      "stem": "An eventhouse table has a soft delete period of 56 days in its retention policy. An engineer sets the table's caching policy to keep 28 days hot. For each statement, choose Yes if it is true. Otherwise, choose No.",
+      "parts": [
+        {
+          "text": "Queries can still return data that is 40 days old."
+        },
+        {
+          "text": "The table's caching policy overrides a caching policy set on the database."
+        },
+        {
+          "text": "The caching policy decides how long data stays queryable."
+        },
+        {
+          "text": "Before the policy was set, with no caching policy at the table or database level, all the data was treated as hot."
+        }
+      ],
+      "answer": [
+        "yes",
+        "yes",
+        "no",
+        "yes"
+      ],
+      "explanation": "Caching policy and retention policy are independent. Retention, through the soft delete period, sets how much data can be queried, so all 56 days stay queryable, while the caching policy only decides which data sits in the faster hot cache. A non-null table-level policy overrides the database-level one. By default the effective policy is null, which means all the data is considered hot.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/cache-policy",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

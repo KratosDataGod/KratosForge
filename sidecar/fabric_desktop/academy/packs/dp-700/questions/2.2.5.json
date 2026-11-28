@@ -346,6 +346,90 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "2.2.5-q12",
+      "type": "hotarea",
+      "stem": "A Copy activity loads files into a lakehouse table. Fabric must choose the best throughput for the source and destination pair, rows that don't fit the destination must be skipped instead of failing the run, the skipped rows must be recorded, and no interim store is wanted. Complete the Settings tab.",
+      "snippet": "Intelligent throughput optimization   {{1}}\nFault tolerance                       {{2}}\nEnable logging                        {{3}}\nEnable staging                        {{4}}",
+      "snippet_label": "Copy activity Settings tab",
+      "parts": [
+        {
+          "label": "Intelligent throughput optimization",
+          "options": [
+            {
+              "id": "a",
+              "text": "Maximum"
+            },
+            {
+              "id": "b",
+              "text": "Standard"
+            },
+            {
+              "id": "c",
+              "text": "Auto"
+            },
+            {
+              "id": "d",
+              "text": "Balanced"
+            }
+          ]
+        },
+        {
+          "label": "Fault tolerance",
+          "options": [
+            {
+              "id": "a",
+              "text": "Not selected"
+            },
+            {
+              "id": "b",
+              "text": "Selected"
+            }
+          ]
+        },
+        {
+          "label": "Enable logging",
+          "options": [
+            {
+              "id": "a",
+              "text": "Not selected"
+            },
+            {
+              "id": "b",
+              "text": "Selected"
+            }
+          ]
+        },
+        {
+          "label": "Enable staging",
+          "options": [
+            {
+              "id": "a",
+              "text": "Selected, Workspace"
+            },
+            {
+              "id": "b",
+              "text": "Not selected"
+            },
+            {
+              "id": "c",
+              "text": "Selected, External"
+            }
+          ]
+        }
+      ],
+      "answer": [
+        "c",
+        "b",
+        "b",
+        "b"
+      ],
+      "explanation": "With Auto, the optimal throughput setting is applied dynamically based on the source and destination pair and the data pattern. Fault tolerance lets the copy ignore errors in the middle of the run, such as rows that are incompatible between source and destination. Enable logging records copied files and skipped files and rows. Enable staging copies through an interim staging store, either built-in workspace staging or an external account, so it stays off here.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-data-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

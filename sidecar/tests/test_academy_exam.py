@@ -231,7 +231,7 @@ def test_view_never_carries_answers_explanations_or_sources(bank):
         q = bank["questions"][item["q"]]
         assert set(item) >= {"stem", "options", "type", "answer", "flagged"}
         assert item["answer"] is None
-        assert sorted(o["id"] for o in item["options"]) == sorted(o["id"] for o in q["options"])
+        assert sorted(o["id"] for o in item["options"]) == sorted(o["id"] for o in q.get("options") or [])
         assert item["select"] == (len(q["answer"]) if q["type"] == "multiple" else None)
     assert v["notice"] == exam.NOTICE and "not a Microsoft score" in v["notice"]
 
@@ -310,6 +310,8 @@ def _all_parts_wrong(q, it):
 
 
 def test_answers_and_flags(bank):
+    # One-answer-list questions only: a multi-part question's answer has an entry per part (tested below).
+    bank = {**bank, "questions": {k: q for k, q in bank["questions"].items() if q["type"] in exam.CHOICE_TYPES}}
     s = exam.resume(exam.build(bank, cert_version="v", count=4, seed=5, now=T0), T0)
     a, b = s["items"][0], s["items"][1]
     exam.answer(s, a["q"], a["options"][:1], now=at(1))
@@ -511,10 +513,10 @@ def _multi_bank():
             "questions": {q["id"]: {**base, **q, "objective": q["id"].split("-")[0]} for q in qs}}
 
 
-def test_the_bundled_bank_has_two_of_each_multi_part_type_with_a_learn_source(bank):
+def test_the_bundled_bank_has_twelve_of_each_multi_part_type_with_a_learn_source(bank):
     for t in exam.PART_TYPES:
         qs = [q for q in bank["questions"].values() if q["type"] == t]
-        assert len(qs) == 2, t
+        assert len(qs) == 12, t
         for q in qs:
             assert q["source"].startswith("https://learn.microsoft.com/") and len(q["explanation"]) > 40, q["id"]
     langs = {q["language"] for q in bank["questions"].values() if q["type"] == "code"}

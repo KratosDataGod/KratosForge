@@ -419,6 +419,58 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "3.1.4-q14",
+      "type": "matching",
+      "stem": "Tailspin Toys uses Activator to watch the temperature in its refrigerated trucks. Match each part of the setup to the Activator concept it is. Each concept may be used once or not at all.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Rule"
+        },
+        {
+          "id": "b",
+          "text": "Event"
+        },
+        {
+          "id": "c",
+          "text": "Action"
+        },
+        {
+          "id": "d",
+          "text": "Property"
+        },
+        {
+          "id": "e",
+          "text": "Object"
+        }
+      ],
+      "parts": [
+        {
+          "text": "One truck that is being monitored"
+        },
+        {
+          "text": "The temperature field reported for each truck"
+        },
+        {
+          "text": "The condition of a temperature above 8 degrees, and what to do when it is met"
+        },
+        {
+          "text": "One reading that holds a truck ID, a timestamp and a temperature"
+        }
+      ],
+      "answer": [
+        "e",
+        "d",
+        "a",
+        "b"
+      ],
+      "explanation": "The entities Activator monitors are business objects, here each truck. A property is a specific field of the object that you watch, such as temperature. A rule defines the condition to detect and the action to take when it is met. An event is one observation about an object's state, and it typically holds the object's identifier, a timestamp and the values being monitored. An action, such as a Teams message, is only one part of the rule.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/data-activator/activator-introduction",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

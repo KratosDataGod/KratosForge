@@ -415,6 +415,54 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.6-q14",
+      "type": "code",
+      "language": "pyspark",
+      "stem": "A notebook cleans the customer table. Missing acctbal values become \"0\", a new column high_balance is true when acctbal is over 1000, that column is then renamed to is_high_balance, and the result is saved as the table customer_clean. Complete the code.",
+      "snippet": "from pyspark.sql.functions import col\n\ncust = spark.table(\"customer\").na.{{1}}(\"0\", subset=[\"acctbal\"])\nflagged = cust.{{2}}(\"high_balance\", col(\"acctbal\") > 1000)\nrenamed = flagged.{{3}}(\"high_balance\", \"is_high_balance\")\nrenamed.write.{{4}}(\"customer_clean\")",
+      "options": [
+        {
+          "id": "a",
+          "text": "withColumn"
+        },
+        {
+          "id": "b",
+          "text": "select"
+        },
+        {
+          "id": "c",
+          "text": "drop"
+        },
+        {
+          "id": "d",
+          "text": "withColumnRenamed"
+        },
+        {
+          "id": "e",
+          "text": "fill"
+        },
+        {
+          "id": "f",
+          "text": "saveAsTable"
+        },
+        {
+          "id": "g",
+          "text": "csv"
+        }
+      ],
+      "answer": [
+        "e",
+        "a",
+        "d",
+        "f"
+      ],
+      "explanation": "na.fill replaces nulls in the listed columns with the given value, while na.drop removes rows with nulls. withColumn adds a column from an expression, such as a comparison with col(). withColumnRenamed renames an existing column from its old name to a new one. write.saveAsTable saves the DataFrame as a table, while csv writes files instead.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

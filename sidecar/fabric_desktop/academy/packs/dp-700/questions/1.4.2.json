@@ -325,6 +325,36 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.4.2-q11",
+      "type": "yesno",
+      "stem": "A pipeline must run whenever a file lands in a storage container, so the team adds a storage event trigger. For each statement, choose Yes if it is true. Otherwise, choose No.",
+      "parts": [
+        {
+          "text": "Creating the trigger creates a new eventstream in the workspace."
+        },
+        {
+          "text": "Events are filtered to specific files and folders with the Subject field."
+        },
+        {
+          "text": "When the pipeline is run by hand to test it, @pipeline().TriggerEvent.FileName returns the name of the most recent file."
+        },
+        {
+          "text": "Triggers like this can be created only from the pipeline canvas."
+        }
+      ],
+      "answer": [
+        "yes",
+        "yes",
+        "no",
+        "no"
+      ],
+      "explanation": "Storage event triggers use eventstreams and Activator alerts, and creating one adds a new eventstream to the workspace. File name and folder name are part of the Subject field, which is how events are filtered. During a manual test the file and folder name parameters aren't set and return NULL, which is why the page writes @pipeline()?.TriggerEvent?.FileName with the ? operator. Triggers can be created from the pipeline canvas or directly in the Activator experience.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/pipeline-storage-event-triggers",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

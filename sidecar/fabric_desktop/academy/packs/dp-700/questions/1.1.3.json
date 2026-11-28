@@ -316,6 +316,94 @@
       "version": 2,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.3-q11",
+      "type": "hotarea",
+      "stem": "A notebook must read the raw folder under Files in the lakehouse SalesLake, which is in the workspace SalesWS. Use the ABFS driver with TLS and refer to the workspace and lakehouse by name. Complete the path.",
+      "snippet": "{{1}}://{{2}}@{{3}}/{{4}}/Files/raw/",
+      "snippet_label": "OneLake path",
+      "parts": [
+        {
+          "label": "scheme",
+          "options": [
+            {
+              "id": "a",
+              "text": "https"
+            },
+            {
+              "id": "b",
+              "text": "wasbs"
+            },
+            {
+              "id": "c",
+              "text": "abfss"
+            }
+          ]
+        },
+        {
+          "label": "workspace",
+          "options": [
+            {
+              "id": "a",
+              "text": "SalesLake"
+            },
+            {
+              "id": "b",
+              "text": "SalesWS"
+            },
+            {
+              "id": "c",
+              "text": "SalesWS.workspace"
+            }
+          ]
+        },
+        {
+          "label": "host",
+          "options": [
+            {
+              "id": "a",
+              "text": "saleslake.dfs.core.windows.net"
+            },
+            {
+              "id": "b",
+              "text": "onelake.dfs.fabric.microsoft.com"
+            },
+            {
+              "id": "c",
+              "text": "onelake.blob.core.windows.net"
+            }
+          ]
+        },
+        {
+          "label": "item",
+          "options": [
+            {
+              "id": "a",
+              "text": "SalesLake.lakehouse"
+            },
+            {
+              "id": "b",
+              "text": "Lakehouse/SalesLake"
+            },
+            {
+              "id": "c",
+              "text": "SalesLake"
+            }
+          ]
+        }
+      ],
+      "answer": [
+        "c",
+        "b",
+        "b",
+        "a"
+      ],
+      "explanation": "The ABFS driver uses the abfs scheme, written abfss with TLS, and https is the scheme of the plain HTTPS form. In an ABFS path the workspace name comes before the @ and the OneLake host onelake.dfs.fabric.microsoft.com comes after it. When names are used, the item needs its type as an extension, such as SalesLake.lakehouse, because the same item name can be reused across item types. Only GUID-based paths leave the item type out.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-access-api",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

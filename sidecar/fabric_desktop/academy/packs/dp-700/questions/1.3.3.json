@@ -378,6 +378,54 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "1.3.3-q13",
+      "type": "code",
+      "language": "tsql",
+      "stem": "In a Fabric warehouse, each sales rep must see only their own rows in sales.Orders, whose SalesRep column holds the rep's user name. Rows they can't see must be left out of results without an error. Complete the code.",
+      "snippet": "CREATE FUNCTION Security.fn_rep(@SalesRep AS nvarchar(50))\n    RETURNS {{1}}\nWITH {{2}}\nAS\n    RETURN SELECT 1 AS fn_rep_result\n    WHERE @SalesRep = {{3}}();\nGO\n\nCREATE SECURITY POLICY RepFilter\nADD {{4}} PREDICATE Security.fn_rep(SalesRep)\nON sales.Orders\nWITH (STATE = ON);",
+      "options": [
+        {
+          "id": "a",
+          "text": "RECOMPILE"
+        },
+        {
+          "id": "b",
+          "text": "USER_NAME"
+        },
+        {
+          "id": "c",
+          "text": "FILTER"
+        },
+        {
+          "id": "d",
+          "text": "BLOCK"
+        },
+        {
+          "id": "e",
+          "text": "TABLE"
+        },
+        {
+          "id": "f",
+          "text": "SCHEMABINDING"
+        },
+        {
+          "id": "g",
+          "text": "BIT"
+        }
+      ],
+      "answer": [
+        "e",
+        "f",
+        "b",
+        "c"
+      ],
+      "explanation": "The predicate is an inline table-valued function, so it RETURNS TABLE and is created WITH SCHEMABINDING, as in the documented example. USER_NAME() gives the current user to compare with the SalesRep value. ADD FILTER PREDICATE creates the policy, and filter predicates silently filter the rows available to read operations, so the user never sees an error. STATE = ON turns the policy on.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/row-level-security",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

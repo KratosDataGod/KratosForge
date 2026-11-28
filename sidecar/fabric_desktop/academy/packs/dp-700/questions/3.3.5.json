@@ -316,6 +316,86 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.5-q11",
+      "type": "hotarea",
+      "stem": "A notebook must run on the native execution engine. One query in cell 5 must run on the regular Spark engine, and cell 6 onward must use the native engine again. Complete the cells.",
+      "snippet": "Cell 1\n{{1}}\n{ \"conf\": { \"{{2}}\": \"true\" } }\n\nCell 5\n%%sql\nSET spark.native.enabled={{3}};\n-- the query that must use the regular engine\n\nCell 6\n%%sql\nSET spark.native.enabled={{4}};",
+      "snippet_label": "Notebook cells",
+      "parts": [
+        {
+          "label": "magic command",
+          "options": [
+            {
+              "id": "a",
+              "text": "%%pyspark"
+            },
+            {
+              "id": "b",
+              "text": "%%sql"
+            },
+            {
+              "id": "c",
+              "text": "%%configure"
+            }
+          ]
+        },
+        {
+          "label": "property",
+          "options": [
+            {
+              "id": "a",
+              "text": "spark.sql.adaptive.enabled"
+            },
+            {
+              "id": "b",
+              "text": "spark.sql.parquet.vorder.default"
+            },
+            {
+              "id": "c",
+              "text": "spark.native.enabled"
+            }
+          ]
+        },
+        {
+          "label": "cell 5 value",
+          "options": [
+            {
+              "id": "a",
+              "text": "FALSE"
+            },
+            {
+              "id": "b",
+              "text": "TRUE"
+            }
+          ]
+        },
+        {
+          "label": "cell 6 value",
+          "options": [
+            {
+              "id": "a",
+              "text": "FALSE"
+            },
+            {
+              "id": "b",
+              "text": "TRUE"
+            }
+          ]
+        }
+      ],
+      "answer": [
+        "c",
+        "c",
+        "a",
+        "b"
+      ],
+      "explanation": "To enable the native execution engine for one notebook, put a %%configure cell with spark.native.enabled set to true at the start, in the first cell. To keep one query off the engine, set spark.native.enabled to FALSE in that cell. Spark runs cells in order, so the setting stays off until a later cell sets it back to TRUE.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/native-execution-engine-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

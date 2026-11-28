@@ -384,6 +384,36 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "2.3.2-q12",
+      "type": "yesno",
+      "stem": "A developer adds no-code operations to an eventstream. For each statement, choose Yes if it is true. Otherwise, choose No.",
+      "parts": [
+        {
+          "text": "Union keeps fields that appear in only one of its inputs."
+        },
+        {
+          "text": "Expand creates a new row for each value in an array."
+        },
+        {
+          "text": "Group by calculates aggregations across all events within a time window."
+        },
+        {
+          "text": "Aggregate can calculate the median of a field."
+        }
+      ],
+      "answer": [
+        "no",
+        "yes",
+        "yes",
+        "no"
+      ],
+      "explanation": "Union combines events with shared fields, which have the same name and data type, and drops fields that don't match. Expand creates a new row for each value within an array. Group by calculates aggregations across all events within a time window and offers more time window options than Aggregate. Aggregate calculates a sum, minimum, maximum or average, and the median isn't one of them.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

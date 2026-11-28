@@ -380,6 +380,49 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "3.2.6-q13",
+      "type": "code",
+      "language": "tsql",
+      "stem": "A load from stg.Orders fails because some RawQty text values can't be converted to int. Flag those rows without the query failing, and mark every other row OK. Complete the query.",
+      "snippet": "SELECT OrderID,\n       RawQty,\n       CASE WHEN {{1}}(RawQty AS {{2}}) {{3}}\n            THEN 'Bad quantity'\n            ELSE 'OK'\n       END AS QtyCheck\nFROM stg.Orders;",
+      "options": [
+        {
+          "id": "a",
+          "text": "CAST"
+        },
+        {
+          "id": "b",
+          "text": "TRY_CAST"
+        },
+        {
+          "id": "c",
+          "text": "= NULL"
+        },
+        {
+          "id": "d",
+          "text": "IS NULL"
+        },
+        {
+          "id": "e",
+          "text": "IS NOT NULL"
+        },
+        {
+          "id": "f",
+          "text": "int"
+        }
+      ],
+      "answer": [
+        "b",
+        "f",
+        "d"
+      ],
+      "explanation": "TRY_CAST returns the value cast to the data type when the cast succeeds and returns NULL otherwise, so the query doesn't fail on bad text. Testing the result with IS NULL, as in the documented CASE example, flags the rows that couldn't become int. IS NOT NULL would flag the good rows instead, and a comparison with = NULL isn't how NULL is tested. CAST is what fails today.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/functions/try-cast-transact-sql",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

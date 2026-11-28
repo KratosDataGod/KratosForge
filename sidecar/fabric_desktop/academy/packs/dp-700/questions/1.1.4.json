@@ -324,6 +324,68 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.4-q11",
+      "type": "hotarea",
+      "stem": "A team runs complex production DAGs in Apache Airflow jobs. The pool must stay on until someone pauses it, rather than shutting down after 20 minutes of inactivity, and it needs capacity for six more workers so more DAGs can run at once. Complete the workspace's Apache Airflow runtime settings.",
+      "snippet": "Default Data Workflow Setting   {{1}}\nCompute node size               {{2}}\nExtra nodes                     {{3}}",
+      "snippet_label": "Apache Airflow Runtime Settings",
+      "parts": [
+        {
+          "label": "Default Data Workflow Setting",
+          "options": [
+            {
+              "id": "a",
+              "text": "New Pool (custom pool)"
+            },
+            {
+              "id": "b",
+              "text": "Starter Pool"
+            }
+          ]
+        },
+        {
+          "label": "Compute node size",
+          "options": [
+            {
+              "id": "a",
+              "text": "Large"
+            },
+            {
+              "id": "b",
+              "text": "Small"
+            }
+          ]
+        },
+        {
+          "label": "Extra nodes",
+          "options": [
+            {
+              "id": "a",
+              "text": "3"
+            },
+            {
+              "id": "b",
+              "text": "6"
+            },
+            {
+              "id": "c",
+              "text": "2"
+            }
+          ]
+        }
+      ],
+      "answer": [
+        "a",
+        "a",
+        "c"
+      ],
+      "explanation": "The starter pool is the default and shuts down after 20 minutes of inactivity, while a custom pool, created with New Pool, stays on until it is paused manually and is the suggested choice for production. Large is the node size for complex or production DAGs, and Small is for simpler ones. Each extra node can run three more workers, so six more workers needs 2 extra nodes.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-workspace-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

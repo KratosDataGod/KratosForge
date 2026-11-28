@@ -457,6 +457,76 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.4-q15",
+      "type": "hotarea",
+      "stem": "The KQL table DeviceReadings holds many rows for each device. Return the complete most recent row for each DeviceId, with all its columns. Complete the query.",
+      "snippet": "DeviceReadings\n| summarize {{1}}({{2}}, {{3}}) by DeviceId",
+      "snippet_label": "KQL query",
+      "parts": [
+        {
+          "label": "function",
+          "options": [
+            {
+              "id": "a",
+              "text": "max"
+            },
+            {
+              "id": "b",
+              "text": "arg_min"
+            },
+            {
+              "id": "c",
+              "text": "arg_max"
+            }
+          ]
+        },
+        {
+          "label": "expression to maximize",
+          "options": [
+            {
+              "id": "a",
+              "text": "Temperature"
+            },
+            {
+              "id": "b",
+              "text": "Timestamp"
+            },
+            {
+              "id": "c",
+              "text": "DeviceId"
+            }
+          ]
+        },
+        {
+          "label": "columns to return",
+          "options": [
+            {
+              "id": "a",
+              "text": "count()"
+            },
+            {
+              "id": "b",
+              "text": "Timestamp"
+            },
+            {
+              "id": "c",
+              "text": "*"
+            }
+          ]
+        }
+      ],
+      "answer": [
+        "c",
+        "b",
+        "c"
+      ],
+      "explanation": "arg_max returns the row that maximizes an expression and the columns you name from that row, and it is used with summarize. Maximizing Timestamp finds the latest reading, and the wildcard * returns all the columns. max returns only the maximum value itself, without the rest of the row, and arg_min would return the earliest row.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/arg-max-aggregation-function",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

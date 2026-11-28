@@ -349,6 +349,64 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "3.1.3-q12",
+      "type": "hotarea",
+      "stem": "A pipeline refreshes a semantic model after loading new sales data. The next activity must start only after the refresh is done, the refresh must be committed all at once, and only the Sales table needs refreshing to keep it fast. Complete the semantic model refresh activity.",
+      "snippet": "Wait on completion   {{1}}\nCommit mode          {{2}}\nTables               {{3}}",
+      "snippet_label": "Semantic model refresh activity settings",
+      "parts": [
+        {
+          "label": "Wait on completion",
+          "options": [
+            {
+              "id": "a",
+              "text": "Off"
+            },
+            {
+              "id": "b",
+              "text": "On"
+            }
+          ]
+        },
+        {
+          "label": "Commit mode",
+          "options": [
+            {
+              "id": "a",
+              "text": "Partial Batch"
+            },
+            {
+              "id": "b",
+              "text": "Transactional"
+            }
+          ]
+        },
+        {
+          "label": "Tables",
+          "options": [
+            {
+              "id": "a",
+              "text": "All tables (whole model)"
+            },
+            {
+              "id": "b",
+              "text": "Sales only"
+            }
+          ]
+        }
+      ],
+      "answer": [
+        "b",
+        "b",
+        "b"
+      ],
+      "explanation": "Wait on completion, which is on by default, makes the activity wait until the refresh finishes before the pipeline moves on. Transactional commits the refresh all at once, while Partial Batch commits it in batches. Picking only the tables and partitions you need makes the refresh faster than refreshing the whole model, which is what the activity does by default.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/semantic-model-refresh-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

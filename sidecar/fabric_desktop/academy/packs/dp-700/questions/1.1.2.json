@@ -321,6 +321,36 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.2-q11",
+      "type": "yesno",
+      "stem": "Contoso is setting up domains in Fabric. A Fabric admin creates a Finance domain with a subdomain named Payroll, and names one domain admin for Finance. For each statement, choose Yes if it is true. Otherwise, choose No.",
+      "parts": [
+        {
+          "text": "The Finance domain admin can delete the Finance domain."
+        },
+        {
+          "text": "The Payroll subdomain's domain admins are the domain admins of Finance."
+        },
+        {
+          "text": "A domain contributor must be an admin of a workspace to assign that workspace to the domain."
+        },
+        {
+          "text": "When Finance is set as the default domain for a group, a workspace already assigned to another domain moves to Finance."
+        }
+      ],
+      "answer": [
+        "no",
+        "yes",
+        "yes",
+        "no"
+      ],
+      "explanation": "Domain admins can update a domain's description, contributors and workspace assignments, but they can't delete the domain, rename it or add other domain admins. Subdomains don't have their own domain admins, so a subdomain's admins are those of its parent. A domain contributor is a workspace admin who has been allowed to assign the workspaces they are admins of. A default domain doesn't override a workspace's current assignment. Only unassigned workspaces and new workspaces get the default domain.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/domains",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

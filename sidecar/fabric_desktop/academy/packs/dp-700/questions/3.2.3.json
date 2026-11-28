@@ -316,6 +316,49 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.3-q11",
+      "type": "code",
+      "language": "pyspark",
+      "stem": "An append to the Delta table orders fails with Spark_Ambiguous_DeltaLake_DataTransformationException. The table's order_id column doesn't allow nulls and its amount column is a double. Print the DataFrame's schema to compare it with the table, keep only rows that have an order_id, and convert amount to a double. Complete the code.",
+      "snippet": "from pyspark.sql.functions import col\n\ndf.{{1}}()\nclean = (df\n    .filter(col(\"order_id\").{{2}}())\n    .withColumn(\"amount\", col(\"amount\").{{3}}(\"double\"))\n)\nclean.write.mode(\"append\").saveAsTable(\"orders\")",
+      "options": [
+        {
+          "id": "a",
+          "text": "cast"
+        },
+        {
+          "id": "b",
+          "text": "isNotNull"
+        },
+        {
+          "id": "c",
+          "text": "collect"
+        },
+        {
+          "id": "d",
+          "text": "isNull"
+        },
+        {
+          "id": "e",
+          "text": "printSchema"
+        },
+        {
+          "id": "f",
+          "text": "alias"
+        }
+      ],
+      "answer": [
+        "e",
+        "b",
+        "a"
+      ],
+      "explanation": "For this error the guidance is to check that the source schema matches the target table, for example with df.printSchema(), and to validate data before the write. Filtering with isNotNull() removes the null values that the non-nullable column rejects, and cast(\"double\") converts the column to the expected type. isNull would keep only the bad rows, collect returns a list of rows rather than showing the schema, and alias only renames a column.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/troubleshoot-spark-code-runtime-errors",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

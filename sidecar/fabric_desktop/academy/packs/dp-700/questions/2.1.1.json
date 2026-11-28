@@ -326,6 +326,49 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.1.1-q11",
+      "type": "code",
+      "language": "pyspark",
+      "stem": "An incremental load rebuilds only the November 2026 rows of the Delta table sales.orders from the DataFrame nov_orders, in one atomic replacement, and leaves other months unchanged. The table isn't partitioned. Complete the code.",
+      "snippet": "(nov_orders.write\n  .mode(\"{{1}}\")\n  .option(\"{{2}}\", \"order_date >= '2026-11-01' AND order_date <= '2026-11-30'\")\n  .{{3}}(\"sales.orders\")\n)",
+      "options": [
+        {
+          "id": "a",
+          "text": "partitionOverwriteMode"
+        },
+        {
+          "id": "b",
+          "text": "append"
+        },
+        {
+          "id": "c",
+          "text": "overwrite"
+        },
+        {
+          "id": "d",
+          "text": "replaceWhere"
+        },
+        {
+          "id": "e",
+          "text": "saveAsTable"
+        },
+        {
+          "id": "f",
+          "text": "table"
+        }
+      ],
+      "answer": [
+        "c",
+        "d",
+        "e"
+      ],
+      "explanation": "replaceWhere with overwrite mode checks that the rows match the predicate and atomically replaces only the data that matches it, and saveAsTable writes to the named table. replaceWhere doesn't need the table to be partitioned on the predicate's columns. Dynamic partition overwrite, set with partitionOverwriteMode, works only on partitioned tables. Append would add the rows next to the old November rows instead of replacing them, and table is for reading a table, not writing one.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/delta/selective-overwrite",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

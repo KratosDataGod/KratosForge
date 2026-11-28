@@ -321,6 +321,49 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.7-q11",
+      "type": "code",
+      "language": "tsql",
+      "stem": "A denormalized query adds the customer name and product name to each order line. Every order line must be kept even when its CustomerKey has no match, with a NULL customer name. Lines whose ProductKey has no match must be dropped. Complete the query.",
+      "snippet": "SELECT o.OrderID, o.OrderDate, c.CustomerName, p.ProductName\nFROM dbo.FactOrders AS o\n{{1}} JOIN dbo.DimCustomer AS c\n    {{2}} o.CustomerKey = c.CustomerKey\n{{3}} JOIN dbo.DimProduct AS p\n    ON o.ProductKey = p.ProductKey;",
+      "options": [
+        {
+          "id": "a",
+          "text": "LEFT OUTER"
+        },
+        {
+          "id": "b",
+          "text": "WHERE"
+        },
+        {
+          "id": "c",
+          "text": "CROSS"
+        },
+        {
+          "id": "d",
+          "text": "RIGHT OUTER"
+        },
+        {
+          "id": "e",
+          "text": "ON"
+        },
+        {
+          "id": "f",
+          "text": "INNER"
+        }
+      ],
+      "answer": [
+        "a",
+        "e",
+        "f"
+      ],
+      "explanation": "LEFT OUTER JOIN keeps every row of the left table, FactOrders, and sets the other table's columns to NULL when there's no match. The join condition goes in the ON clause. INNER JOIN returns only matching pairs and discards unmatched rows, so order lines without a product are dropped. RIGHT OUTER would keep unmatched customers instead of unmatched orders, and CROSS JOIN returns the cross-product with no join condition.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/queries/from-transact-sql",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

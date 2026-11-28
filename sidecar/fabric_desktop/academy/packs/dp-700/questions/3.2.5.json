@@ -316,6 +316,62 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.5-q11",
+      "type": "hotarea",
+      "stem": "An eventstream must keep its incoming data for as long as the setting allows, and its sources send about 150 MB/s. Complete the eventstream settings.",
+      "snippet": "Retention (days)      {{1}}\nEvent throughput      {{2}}",
+      "snippet_label": "Eventstream settings",
+      "parts": [
+        {
+          "label": "Retention (days)",
+          "options": [
+            {
+              "id": "a",
+              "text": "90"
+            },
+            {
+              "id": "b",
+              "text": "1"
+            },
+            {
+              "id": "c",
+              "text": "365"
+            },
+            {
+              "id": "d",
+              "text": "7"
+            }
+          ]
+        },
+        {
+          "label": "Event throughput",
+          "options": [
+            {
+              "id": "a",
+              "text": "High"
+            },
+            {
+              "id": "b",
+              "text": "Low"
+            },
+            {
+              "id": "c",
+              "text": "Medium"
+            }
+          ]
+        }
+      ],
+      "answer": [
+        "a",
+        "a"
+      ],
+      "explanation": "Retention defaults to one day and can go up to 90 days, so 365 isn't allowed. Event throughput is Low below 10 MB/s, Medium from 10 to 100 MB/s, and High above 100 MB/s, so 150 MB/s needs High.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/configure-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

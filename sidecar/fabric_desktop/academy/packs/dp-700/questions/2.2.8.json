@@ -321,6 +321,49 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.8-q11",
+      "type": "code",
+      "language": "tsql",
+      "stem": "Report total sales for 2026 by region and territory, with a subtotal for each region and a grand total. Only groups whose total is over 1000 should appear. Complete the query.",
+      "snippet": "SELECT Region, Territory, SUM(Sales) AS TotalSales\nFROM dbo.Sales\n{{1}} OrderYear = 2026\nGROUP BY {{2}}(Region, Territory)\n{{3}} SUM(Sales) > 1000;",
+      "options": [
+        {
+          "id": "a",
+          "text": "HAVING"
+        },
+        {
+          "id": "b",
+          "text": "WHERE"
+        },
+        {
+          "id": "c",
+          "text": "ON"
+        },
+        {
+          "id": "d",
+          "text": "ROLLUP"
+        },
+        {
+          "id": "e",
+          "text": "ORDER BY"
+        },
+        {
+          "id": "f",
+          "text": "CUBE"
+        }
+      ],
+      "answer": [
+        "b",
+        "d",
+        "a"
+      ],
+      "explanation": "WHERE removes rows that don't meet its condition before any grouping, so it limits the data to 2026. ROLLUP groups by each combination and rolls the results up into subtotals and a grand total, moving from right to left, so it gives region subtotals. CUBE would also add a group for each territory across all regions. HAVING filters the groups in the result, which is how a condition on SUM(Sales) is applied.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/queries/select-group-by-transact-sql",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

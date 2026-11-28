@@ -322,6 +322,86 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.1.1-q11",
+      "type": "hotarea",
+      "stem": "A workspace admin creates a custom Spark pool. Each node needs 16 vCores and 128 GB of memory. The pool must grow and shrink with load, starting from a single node, and executors must be assigned automatically from the nodes available. Complete the pool settings.",
+      "snippet": "Node size                            {{1}}\nAutoscale                            {{2}}\nMinimum nodes                        {{3}}\nDynamic allocation of executors      {{4}}",
+      "snippet_label": "Custom Spark pool settings",
+      "parts": [
+        {
+          "label": "Node size",
+          "options": [
+            {
+              "id": "a",
+              "text": "X-Large"
+            },
+            {
+              "id": "b",
+              "text": "Large"
+            },
+            {
+              "id": "c",
+              "text": "Medium"
+            }
+          ]
+        },
+        {
+          "label": "Autoscale",
+          "options": [
+            {
+              "id": "a",
+              "text": "Disabled"
+            },
+            {
+              "id": "b",
+              "text": "Enabled"
+            }
+          ]
+        },
+        {
+          "label": "Minimum nodes",
+          "options": [
+            {
+              "id": "a",
+              "text": "3"
+            },
+            {
+              "id": "b",
+              "text": "1"
+            },
+            {
+              "id": "c",
+              "text": "0"
+            }
+          ]
+        },
+        {
+          "label": "Dynamic allocation of executors",
+          "options": [
+            {
+              "id": "a",
+              "text": "Disabled"
+            },
+            {
+              "id": "b",
+              "text": "Enabled"
+            }
+          ]
+        }
+      ],
+      "answer": [
+        "b",
+        "b",
+        "b",
+        "b"
+      ],
+      "explanation": "A Large node has 16 vCores and 128 GB of memory. Medium has 8 vCores and 64 GB, and X-Large has 32 vCores and 256 GB. With autoscale enabled you set a minimum and maximum number of nodes, and with it disabled the node count stays fixed. A Spark instance can start with a minimum of one node. Enabling dynamic allocation of executors assigns executors to the Spark application based on the nodes available in the pool.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-compute",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

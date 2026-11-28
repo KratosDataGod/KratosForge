@@ -353,6 +353,66 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "2.1.3-q12",
+      "type": "matching",
+      "stem": "An eventstream receives telemetry from factory machines. Match each requirement to the eventstream destination that fits it. Each destination may be used once or not at all.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Eventhouse"
+        },
+        {
+          "id": "b",
+          "text": "Spark Notebook"
+        },
+        {
+          "id": "c",
+          "text": "Custom endpoint"
+        },
+        {
+          "id": "d",
+          "text": "Derived stream"
+        },
+        {
+          "id": "e",
+          "text": "Lakehouse"
+        },
+        {
+          "id": "f",
+          "text": "Activator"
+        }
+      ],
+      "parts": [
+        {
+          "text": "Query the events with KQL and build real-time dashboards on them"
+        },
+        {
+          "text": "Store transformed events as Delta tables for data warehousing"
+        },
+        {
+          "text": "Send the events to an application outside Microsoft Fabric"
+        },
+        {
+          "text": "Start a Power Automate workflow when a reading crosses a threshold"
+        },
+        {
+          "text": "After a Filter operation, route the transformed stream to several destinations and show it in the Real-Time hub"
+        }
+      ],
+      "answer": [
+        "a",
+        "e",
+        "c",
+        "f",
+        "d"
+      ],
+      "explanation": "An eventhouse destination lets you query the events with KQL and build reports and dashboards. A lakehouse destination converts events to Delta Lake format in lakehouse tables for data warehousing. A custom endpoint lets your own applications consume the events, including systems outside Fabric. Activator monitors for thresholds and patterns and acts, for example by starting Power Automate workflows. A derived stream is the transformed stream after operations such as Filter, and it can be routed to many destinations and viewed in the Real-Time hub. A Spark Notebook destination runs a Structured Streaming job, which none of these requirements asks for.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

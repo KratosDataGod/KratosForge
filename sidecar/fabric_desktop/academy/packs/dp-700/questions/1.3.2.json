@@ -353,6 +353,36 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "1.3.2-q12",
+      "type": "yesno",
+      "stem": "A data engineer shares a lakehouse with an analyst. For each statement, choose Yes if it is true. Otherwise, choose No.",
+      "parts": [
+        {
+          "text": "With no extra permissions selected, the analyst can change data in the lakehouse."
+        },
+        {
+          "text": "With only Read all with SQL analytics endpoint added, the analyst can query data through the SQL analytics endpoint URL but not through the lakehouse URL."
+        },
+        {
+          "text": "To read the lakehouse's data with Apache Spark, the analyst needs Read all with Apache Spark."
+        },
+        {
+          "text": "Granting Read all with Apache Spark replaces the analyst's Read permission."
+        }
+      ],
+      "answer": [
+        "no",
+        "yes",
+        "yes",
+        "no"
+      ],
+      "explanation": "Sharing a lakehouse grants Read on the lakehouse and its SQL analytics endpoint, and lakehouse sharing never gives write permissions. Read all with SQL analytics endpoint lets a user read data through T-SQL with the endpoint URL but not with the lakehouse URL, which also needs Read all with Apache Spark. That permission covers reading data through Apache Spark and OneLake APIs, and it is added to Read, which is always included, rather than replacing it.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-sharing",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

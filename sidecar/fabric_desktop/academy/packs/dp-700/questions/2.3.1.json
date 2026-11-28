@@ -353,6 +353,66 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.3.1-q12",
+      "type": "matching",
+      "stem": "Wingtip Toys is planning a Real-Time Intelligence solution. Match each need to the component that fits it best. Each component may be used once or not at all.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Real-Time Dashboard"
+        },
+        {
+          "id": "b",
+          "text": "Real-Time hub"
+        },
+        {
+          "id": "c",
+          "text": "Activator"
+        },
+        {
+          "id": "d",
+          "text": "Eventhouse"
+        },
+        {
+          "id": "e",
+          "text": "Map"
+        },
+        {
+          "id": "f",
+          "text": "Eventstream"
+        }
+      ],
+      "parts": [
+        {
+          "text": "Find, explore and share the streaming data that is available across the organization"
+        },
+        {
+          "text": "Collect, transform and route large amounts of real-time data without writing code"
+        },
+        {
+          "text": "Store time-based events and run fast, detailed queries over large amounts of them"
+        },
+        {
+          "text": "Set up alerts that react to data patterns or conditions in real time"
+        },
+        {
+          "text": "Show real-time location data as bubbles, heatmaps and polygons"
+        }
+      ],
+      "answer": [
+        "b",
+        "f",
+        "d",
+        "c",
+        "e"
+      ],
+      "explanation": "The Real-Time hub is a central catalog for finding, adding, exploring and sharing streaming data. Eventstreams collect, transform and send real-time data to destinations without code. Eventhouses are the analytics engine for time-based streaming events and organize data by arrival time for fast queries. Activator sets up alerts that react to patterns or conditions in real time. Map is the geospatial tool with layers such as bubbles, heatmaps and polygons. A Real-Time Dashboard visualizes data with built-in interactions, but none of these needs asks for that alone.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

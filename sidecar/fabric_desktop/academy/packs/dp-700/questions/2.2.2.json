@@ -334,6 +334,66 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "2.2.2-q11",
+      "type": "matching",
+      "stem": "A team loads data into a Fabric warehouse in several ways. Match each requirement to the ingestion option that fits it best. Each option may be used once, more than once, or not at all.",
+      "options": [
+        {
+          "id": "a",
+          "text": "T-SQL ingestion with CTAS or INSERT...SELECT"
+        },
+        {
+          "id": "b",
+          "text": "COPY statement"
+        },
+        {
+          "id": "c",
+          "text": "BCP API"
+        },
+        {
+          "id": "d",
+          "text": "Dataflow"
+        },
+        {
+          "id": "e",
+          "text": "Pipeline"
+        }
+      ],
+      "parts": [
+        {
+          "text": "Analysts change data types and add calculated columns with no code before the data lands"
+        },
+        {
+          "text": "Load Parquet files from ADLS Gen2 at the highest throughput as part of a T-SQL script"
+        },
+        {
+          "text": "Create a new table from a join of tables in another warehouse and a lakehouse in the same workspace"
+        },
+        {
+          "text": "Run on a schedule with low code, prepare the destination with a T-SQL statement, then copy large volumes"
+        },
+        {
+          "text": "An application sends rows with SqlBulkCopy and can't stage files first"
+        },
+        {
+          "text": "Load CSV files from a OneLake lakehouse folder with code, as fast as possible"
+        }
+      ],
+      "answer": [
+        "d",
+        "b",
+        "a",
+        "e",
+        "c",
+        "b"
+      ],
+      "explanation": "Dataflows give a code-free way to transform data, such as changing types or adding calculated columns, before ingestion. The COPY statement gives the highest ingestion throughput from code and reads CSV, JSONL and Parquet from ADLS Gen2, Blob Storage and OneLake, so it fits both file loads. T-SQL ingestion with CTAS or INSERT...SELECT reads tables in other warehouses and lakehouses in the same workspace. Pipelines suit low-code workflows that run repeatedly or on a schedule and can run T-SQL and copy activities. The BCP API is for client-side ingestion with tools such as SqlBulkCopy when files can't be staged.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/ingest-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

@@ -354,6 +354,50 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "2.2.4-q12",
+      "type": "matching",
+      "stem": "Match each requirement to the type of mirroring in Fabric that fits it. Each type may be used once, more than once, or not at all.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Metadata mirroring"
+        },
+        {
+          "id": "b",
+          "text": "Database mirroring"
+        },
+        {
+          "id": "c",
+          "text": "Open mirroring"
+        }
+      ],
+      "parts": [
+        {
+          "text": "Replicate the tables of an entire operational database into OneLake"
+        },
+        {
+          "text": "Make catalog names, schemas and tables available in Fabric while the data stays in its source"
+        },
+        {
+          "text": "An in-house application writes its own change data straight into a mirrored database through public APIs"
+        },
+        {
+          "text": "Use live data from another tenant without copying it or building ETL pipelines"
+        }
+      ],
+      "answer": [
+        "b",
+        "a",
+        "c",
+        "a"
+      ],
+      "explanation": "Database mirroring replicates entire databases and tables into Fabric. Metadata mirroring synchronizes metadata such as catalog names, schemas and tables and uses shortcuts, so the data stays in its source. Because it relies on OneLake shortcuts, it also supports cross-tenant sharing of live data without copying it. Open mirroring lets any developer write an application's change data directly into a mirrored database item, based on the open Delta Lake format and public APIs.",
+      "source": "https://learn.microsoft.com/en-us/fabric/mirroring/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

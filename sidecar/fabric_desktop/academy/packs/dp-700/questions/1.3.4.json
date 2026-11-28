@@ -323,6 +323,45 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "1.3.4-q11",
+      "type": "code",
+      "language": "tsql",
+      "stem": "Users without UNMASK must see only the first letter of each email address, only the first three characters of each phone number followed by XXXX, and a random number from 1 to 100 instead of each credit limit. Complete the masks.",
+      "snippet": "ALTER TABLE dbo.Customer\nALTER COLUMN Email ADD MASKED WITH (FUNCTION = '{{1}}');\n\nALTER TABLE dbo.Customer\nALTER COLUMN Phone ADD MASKED WITH (FUNCTION = '{{2}}');\n\nALTER TABLE dbo.Customer\nALTER COLUMN CreditLimit ADD MASKED WITH (FUNCTION = '{{3}}');",
+      "options": [
+        {
+          "id": "a",
+          "text": "partial(0,\"XXXX\",3)"
+        },
+        {
+          "id": "b",
+          "text": "partial(3,\"XXXX\",0)"
+        },
+        {
+          "id": "c",
+          "text": "default()"
+        },
+        {
+          "id": "d",
+          "text": "email()"
+        },
+        {
+          "id": "e",
+          "text": "random(1, 100)"
+        }
+      ],
+      "answer": [
+        "d",
+        "b",
+        "e"
+      ],
+      "explanation": "email() shows the first letter of an email address with a constant .com suffix, in the form aXXX@XXXX.com. partial(prefix, padding, suffix) shows the given number of leading and trailing characters around a custom padding, so partial(3,\"XXXX\",0) keeps the first three characters and none at the end, while partial(0,\"XXXX\",3) would keep the last three instead. random(1, 100) replaces a numeric value with a random one in that range. default() masks the whole value by data type.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dynamic-data-masking",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

@@ -349,6 +349,36 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "1.2.3-q12",
+      "type": "yesno",
+      "stem": "A team is designing a deployment pipeline for its Fabric content. For each statement, choose Yes if it is true. Otherwise, choose No.",
+      "parts": [
+        {
+          "text": "A deployment pipeline can have a single stage."
+        },
+        {
+          "text": "The team can rename the default stages."
+        },
+        {
+          "text": "Deploying removes items from the target stage that don't exist in the source stage."
+        },
+        {
+          "text": "Deploying overwrites the paired items in the target stage."
+        }
+      ],
+      "answer": [
+        "no",
+        "yes",
+        "no",
+        "yes"
+      ],
+      "explanation": "A pipeline has from two to 10 stages, with three by default, and stages can be added, deleted or renamed. During deployment, content is copied from the source stage to the target stage and overwrites the paired items there. Items that don't exist in the source stage remain as they are.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

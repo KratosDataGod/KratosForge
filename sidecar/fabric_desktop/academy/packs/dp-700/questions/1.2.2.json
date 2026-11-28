@@ -351,6 +351,66 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "1.2.2-q12",
+      "type": "matching",
+      "stem": "A developer deploys a Fabric warehouse from a SQL database project in Visual Studio Code. Match each need to the project feature or setting that meets it. Each one may be used once or not at all.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A PostDeploy script"
+        },
+        {
+          "id": "b",
+          "text": "The .dacpac file"
+        },
+        {
+          "id": "c",
+          "text": "BlockOnPossibleDataLoss"
+        },
+        {
+          "id": "d",
+          "text": "The .publish.xml file"
+        },
+        {
+          "id": "e",
+          "text": "Generate Script"
+        },
+        {
+          "id": "f",
+          "text": "DropObjectsNotInSource"
+        }
+      ],
+      "parts": [
+        {
+          "text": "See what a publish would change without changing the target warehouse"
+        },
+        {
+          "text": "Stop a production deployment that could lose data"
+        },
+        {
+          "text": "Remove objects from the target that aren't in the project"
+        },
+        {
+          "text": "The output that a successful build writes to the bin/debug folder"
+        },
+        {
+          "text": "Reuse the saved publish settings in a later deployment"
+        }
+      ],
+      "answer": [
+        "e",
+        "c",
+        "f",
+        "b",
+        "d"
+      ],
+      "explanation": "Generate Script makes no changes to the target warehouse, so it shows what a publish would do first. BlockOnPossibleDataLoss should always be True in production to protect data. DropObjectsNotInSource drops target objects that aren't in the project, which is why it needs care in production. The build writes a .dacpac file to bin/debug. Publish settings are saved as a .publish.xml file for reuse. A PostDeploy script runs after the schema deployment, which none of these needs.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/develop-warehouse-project",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

@@ -349,6 +349,36 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "1.3.5-q12",
+      "type": "yesno",
+      "stem": "Fabrikam applies sensitivity labels to its Fabric items. For each statement, choose Yes if it is true. Otherwise, choose No.",
+      "parts": [
+        {
+          "text": "A notebook created from a labeled lakehouse inherits the lakehouse's label."
+        },
+        {
+          "text": "Downstream inheritance passes a label from a Power BI item to a dependent Fabric item."
+        },
+        {
+          "text": "Exporting data from a labeled item to a .csv file keeps the label's access control on the file."
+        },
+        {
+          "text": "Mandatory labeling stops a user from saving a new lakehouse without a label."
+        }
+      ],
+      "answer": [
+        "yes",
+        "no",
+        "no",
+        "no"
+      ],
+      "explanation": "When a new item is created from an existing one, such as a notebook from a lakehouse, it inherits the existing item's label. Downstream inheritance is supported from Power BI to Power BI, Fabric to Fabric and Fabric to Power BI, but not from a Power BI item to a Fabric item. Access control isn't supported on export paths such as .csv or .txt files. Mandatory labeling is supported for Power BI items only, and its logic isn't enforced for lakehouses, pipelines and warehouses.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/information-protection",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

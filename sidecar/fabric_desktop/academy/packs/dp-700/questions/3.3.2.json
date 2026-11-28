@@ -317,6 +317,62 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.3.2-q11",
+      "type": "hotarea",
+      "stem": "A large nightly Copy activity should use the most compute resources available for throughput. To limit the load on the source database, the activity must use at most 8 parallel threads. Complete the Settings tab.",
+      "snippet": "Intelligent throughput optimization   {{1}}\nDegree of copy parallelism            {{2}}",
+      "snippet_label": "Copy activity Settings tab",
+      "parts": [
+        {
+          "label": "Intelligent throughput optimization",
+          "options": [
+            {
+              "id": "a",
+              "text": "Standard"
+            },
+            {
+              "id": "b",
+              "text": "Maximum"
+            },
+            {
+              "id": "c",
+              "text": "Auto"
+            },
+            {
+              "id": "d",
+              "text": "Balanced"
+            }
+          ]
+        },
+        {
+          "label": "Degree of copy parallelism",
+          "options": [
+            {
+              "id": "a",
+              "text": "0"
+            },
+            {
+              "id": "b",
+              "text": "64"
+            },
+            {
+              "id": "c",
+              "text": "8"
+            }
+          ]
+        }
+      ],
+      "answer": [
+        "b",
+        "c"
+      ],
+      "explanation": "Maximum applies throughput optimization with the maximum available compute resources, while Auto, Standard and Balanced choose or balance resources for you. Degree of copy parallelism is the maximum number of threads that read or write in parallel. It must be a whole number of 1 or more, and at run time the activity uses a value no higher than the one set, so 8 caps it at eight threads.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-activity-performance-and-scalability-guide",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

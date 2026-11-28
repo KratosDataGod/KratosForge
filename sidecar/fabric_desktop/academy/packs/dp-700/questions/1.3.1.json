@@ -425,6 +425,58 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "1.3.1-q14",
+      "type": "matching",
+      "stem": "Northwind Traders wants each person to have the least privileged workspace role that still lets them do their task. Match each task to that role. Each role may be used once, more than once, or not at all.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Member"
+        },
+        {
+          "id": "b",
+          "text": "Contributor"
+        },
+        {
+          "id": "c",
+          "text": "Viewer"
+        },
+        {
+          "id": "d",
+          "text": "Admin"
+        }
+      ],
+      "parts": [
+        {
+          "text": "Connect the workspace to a Git repository"
+        },
+        {
+          "text": "Add a new colleague to the workspace as a Contributor"
+        },
+        {
+          "text": "Run a pipeline and cancel it if it hangs"
+        },
+        {
+          "text": "Query warehouse data with T-SQL through the SQL analytics endpoint"
+        },
+        {
+          "text": "Read lakehouse files with Spark in a notebook"
+        }
+      ],
+      "answer": [
+        "d",
+        "a",
+        "b",
+        "c",
+        "b"
+      ],
+      "explanation": "Only an Admin can connect a workspace to a Git repository. A Member can add members or others with lower permissions, so adding a Contributor needs Member, not Admin. Running and canceling pipelines starts at Contributor. Every role, Viewer included, can connect to the SQL analytics endpoint and read Lakehouse and Warehouse data with T-SQL. Reading lakehouse data through Spark and OneLake APIs (ReadAll) isn't part of Viewer, so it needs Contributor.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/roles-workspaces",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

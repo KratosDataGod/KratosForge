@@ -353,6 +353,58 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "3.3.3-q12",
+      "type": "code",
+      "language": "tsql",
+      "stem": "In a Fabric warehouse, create statistics on the ProductKey column of dbo.DimProduct from all its rows, refresh them after a large reload, then view only their histogram. Complete the code.",
+      "snippet": "CREATE STATISTICS DimProduct_ProductKey_Full\nON dbo.DimProduct ({{1}}) WITH {{2}};\n\n{{3}} STATISTICS dbo.DimProduct (DimProduct_ProductKey_Full) WITH FULLSCAN;\n\nDBCC {{4}} (\"dbo.DimProduct\", \"DimProduct_ProductKey_Full\") WITH HISTOGRAM;",
+      "options": [
+        {
+          "id": "a",
+          "text": "ProductKey, Category"
+        },
+        {
+          "id": "b",
+          "text": "FULLSCAN"
+        },
+        {
+          "id": "c",
+          "text": "ProductKey"
+        },
+        {
+          "id": "d",
+          "text": "SHOW_STATISTICS"
+        },
+        {
+          "id": "e",
+          "text": "NORECOMPUTE"
+        },
+        {
+          "id": "f",
+          "text": "UPDATE"
+        },
+        {
+          "id": "g",
+          "text": "CHECKTABLE"
+        },
+        {
+          "id": "h",
+          "text": "ALTER"
+        }
+      ],
+      "answer": [
+        "c",
+        "b",
+        "f",
+        "d"
+      ],
+      "explanation": "Only single-column histogram statistics can be created by hand, and multi-column statistics aren't supported, so the column list is just ProductKey. WITH FULLSCAN builds the statistics from all the rows. UPDATE STATISTICS refreshes an existing statistics object, for example after a large data update. DBCC SHOW_STATISTICS with HISTOGRAM shows only the histogram.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/statistics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

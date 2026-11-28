@@ -316,6 +316,36 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-07"
+    },
+    {
+      "id": "3.2.4-q11",
+      "type": "yesno",
+      "stem": "Rows are missing from a table in an eventhouse, so an engineer runs .show ingestion failures. For each statement, choose Yes if it is true. Otherwise, choose No.",
+      "parts": [
+        {
+          "text": "Failures from 20 days ago are still returned."
+        },
+        {
+          "text": "The command shows failures from every stage of the ingestion process."
+        },
+        {
+          "text": "The OperationId value can be used with .show operations to see more details."
+        },
+        {
+          "text": "The OriginatesFromUpdatePolicy column shows whether the failure happened while an update policy ran."
+        }
+      ],
+      "answer": [
+        "no",
+        "no",
+        "yes",
+        "yes"
+      ],
+      "explanation": "Ingestion failures are kept for 14 days, so a 20-day-old failure isn't returned. The command shows only failures related to data ingestion management commands, and failures from all stages are recorded in ingestion metrics and diagnostic logs instead. OperationId is the identifier to use with .show operations for more details. OriginatesFromUpdatePolicy tells whether the failure was registered while an update policy ran.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/ingestion-failures?view=microsoft-fabric",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

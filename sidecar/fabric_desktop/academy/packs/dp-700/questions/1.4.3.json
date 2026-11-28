@@ -348,6 +348,76 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "1.4.3-q12",
+      "type": "hotarea",
+      "stem": "A pipeline has a string parameter Region and an integer parameter BatchSize. The Copy activity's folder path must be landing/ followed by the Region value. The file name must be the ID of the current pipeline run followed by .json. BatchSize must reach a notebook as a number. Complete the dynamic content.",
+      "snippet": "Folder path            {{1}}\nFile name              {{2}}\nNotebook batch_size    {{3}}",
+      "snippet_label": "Pipeline dynamic content",
+      "parts": [
+        {
+          "label": "Folder path",
+          "options": [
+            {
+              "id": "a",
+              "text": "landing/@pipeline().parameters.Region"
+            },
+            {
+              "id": "b",
+              "text": "landing/@@{pipeline().parameters.Region}"
+            },
+            {
+              "id": "c",
+              "text": "landing/@{pipeline().parameters.Region}"
+            }
+          ]
+        },
+        {
+          "label": "File name",
+          "options": [
+            {
+              "id": "a",
+              "text": "@concat(pipeline().TriggerTime, '.json')"
+            },
+            {
+              "id": "b",
+              "text": "@concat(pipeline()?.TriggeredByPipelineRunId, '.json')"
+            },
+            {
+              "id": "c",
+              "text": "@concat(pipeline().RunId, '.json')"
+            }
+          ]
+        },
+        {
+          "label": "Notebook batch_size",
+          "options": [
+            {
+              "id": "a",
+              "text": "BatchSize"
+            },
+            {
+              "id": "b",
+              "text": "@{pipeline().parameters.BatchSize}"
+            },
+            {
+              "id": "c",
+              "text": "@pipeline().parameters.BatchSize"
+            }
+          ]
+        }
+      ],
+      "answer": [
+        "c",
+        "c",
+        "c"
+      ],
+      "explanation": "String interpolation wraps an expression in @{ } inside a string, so landing/@{pipeline().parameters.Region} inserts the value. Without the braces the text after landing/ isn't an expression, and @@ escapes the at-sign, so the expression text is returned as it is. pipeline().RunId is the ID of the current run. TriggerTime is when the trigger fired, and TriggeredByPipelineRunId is the run ID of a parent pipeline. @pipeline().parameters.BatchSize returns the number as a number, while string interpolation always returns a string.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/expression-language",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

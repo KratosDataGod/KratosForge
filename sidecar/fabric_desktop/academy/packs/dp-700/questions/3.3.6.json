@@ -353,6 +353,49 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "3.3.6-q12",
+      "type": "code",
+      "language": "tsql",
+      "stem": "An engineer wants to check which recent warehouse queries used the result set cache, then time one benchmark query without the cache. Complete the code.",
+      "snippet": "SELECT {{1}}, command\nFROM queryinsights.{{2}}\nORDER BY submit_time DESC;\n\nSELECT Region, SUM(Amount) AS Total\nFROM dbo.FactSales\nGROUP BY Region\nOPTION ( USE HINT ('{{3}}') );",
+      "options": [
+        {
+          "id": "a",
+          "text": "is_result_set_caching_on"
+        },
+        {
+          "id": "b",
+          "text": "frequently_run_queries"
+        },
+        {
+          "id": "c",
+          "text": "DISABLE_RESULT_SET_CACHE"
+        },
+        {
+          "id": "d",
+          "text": "ENABLE_RESULT_SET_CACHE"
+        },
+        {
+          "id": "e",
+          "text": "exec_requests_history"
+        },
+        {
+          "id": "f",
+          "text": "result_cache_hit"
+        }
+      ],
+      "answer": [
+        "f",
+        "e",
+        "c"
+      ],
+      "explanation": "The result_cache_hit column of queryinsights.exec_requests_history shows cache use for each query. It is 2 for a cache hit, 1 when the query created the cache and 0 when it couldn't use or create one. is_result_set_caching_on is the column in sys.databases that shows whether the feature is on for the item. The hint USE HINT ('DISABLE_RESULT_SET_CACHE') at the end of a SELECT turns caching off for that query only. Caching is already on by default for the warehouse, so only the query that must skip it needs a hint.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/result-set-caching",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

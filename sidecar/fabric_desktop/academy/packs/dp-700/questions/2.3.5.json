@@ -348,6 +348,58 @@
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-20"
+    },
+    {
+      "id": "2.3.5-q12",
+      "type": "matching",
+      "stem": "Match each streaming requirement to the window type that fits it. Each window type may be used once or not at all.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Sliding"
+        },
+        {
+          "id": "b",
+          "text": "Session"
+        },
+        {
+          "id": "c",
+          "text": "Hopping"
+        },
+        {
+          "id": "d",
+          "text": "Snapshot"
+        },
+        {
+          "id": "e",
+          "text": "Tumbling"
+        }
+      ],
+      "parts": [
+        {
+          "text": "Count orders in fixed 10-minute segments that don't overlap, so each order is counted once"
+        },
+        {
+          "text": "Every 5 minutes, report the average of the readings from the last 10 minutes"
+        },
+        {
+          "text": "Produce output only when an event enters or leaves the window"
+        },
+        {
+          "text": "Group clicks that arrive close together and close the group after 2 minutes with no clicks"
+        }
+      ],
+      "answer": [
+        "e",
+        "c",
+        "a",
+        "b"
+      ],
+      "explanation": "Tumbling windows don't repeat or overlap, and an event can't belong to more than one of them. Hopping windows move forward by a fixed hop that can be shorter than the window size, so they overlap and are emitted more often than the window size. Sliding windows output only when the window's content changes, which is when an event enters or exits. A session window starts with the first event, extends while events keep arriving within the timeout, and closes when no event arrives in time. A snapshot window groups events with the same timestamp, which none of these requirements needs.",
+      "source": "https://learn.microsoft.com/en-us/azure/stream-analytics/stream-analytics-window-functions",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-28"
     }
   ]
 }

@@ -1,0 +1,8 @@
+version: 0.2.0.dev0
+name: wrong_field_item_text
+datasets:
+- name: orders
+  source: dbo.orders
+  fields:
+  - order_id
+  - amount

@@ -98,6 +98,8 @@ UNMAPPED: dict[str, str] = {
     "FEA-SM-001": "No lesson covers relationship filter direction in a semantic model.",
     "FEA-SM-004": "No lesson covers relationship column types in a semantic model.",
     "FEA-SM-006": "No lesson covers hiding key columns in a semantic model.",
+    "FEA-WH-001": "No lesson covers a SQL analytics endpoint whose provisioning failed.",
+    "FEA-WH-002": "No lesson covers warehouse collations.",
 }
 
 

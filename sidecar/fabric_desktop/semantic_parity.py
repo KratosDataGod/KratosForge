@@ -54,7 +54,6 @@ from __future__ import annotations
 import collections
 import copy
 import functools
-import hashlib
 import json
 import math
 import re
@@ -440,7 +439,7 @@ def _read_view(side: _Side, value: Any) -> None:
             and all(k.lower().endswith((".yaml", ".yml")) for k in value):
         value = semantic_view.merged(value)
     if not isinstance(value, dict):
-        raise TypeError(f"A semantic view is its .yaml files or one document, not {type(value).__name__}")
+        raise ValueError(f"A semantic view is its .yaml files or one document, not {type(value).__name__}")
     if ossie_profiles.detect_profile(value) != "ossie-0.2":
         raise ValueError(f"A Fabric Semantic View is Ossie {ossie_profiles.V02}, and this is version "
                          f"{mo._short(value.get('version'))}")
@@ -488,7 +487,7 @@ def _read(side: _Side, value: Any, kind: str | None) -> None:
         return
     if isinstance(value, str):
         if kind == "tmdl":
-            raise TypeError("TMDL is a folder of files: pass them as path -> text")
+            raise ValueError("TMDL is a folder of files: pass them as path -> text")
         size = len(value)
         if kind == "tmsl" or (kind is None and value.lstrip("\ufeff \t\r\n").startswith("{")):
             value = _json_text(value)  # a model.bim: JSON under its own, larger cap
@@ -500,20 +499,22 @@ def _read(side: _Side, value: Any, kind: str | None) -> None:
     kind = kind or _detect(value)
     side.kind = kind
     if not isinstance(value, dict):
-        raise TypeError(f"A {kind.upper()} definition is one object, not {type(value).__name__}")
+        raise ValueError(f"A {kind.upper()} definition is one object, not {type(value).__name__}")
     if kind == "tmsl":
         side.format, side.version = "TMSL", str(value.get("compatibilityLevel", ""))
         side.label = f"TMSL (compatibility level {mo._short(side.version)})" if side.version else "TMSL"
+        mo._refuse_shape(value, mo._BIM_SHAPE, "compare")  # as export refuses it, by path
         _walk_tmsl(side, value)
         return
     if kind == "tmdl":
         from . import tmdl
 
         if not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
-            raise TypeError("TMDL files are path -> text")
+            raise ValueError("TMDL files are path -> text")
         bim, rows = tmdl.to_bim(value)
         side.format, side.version = "TMDL", str(bim.get("compatibilityLevel", ""))
         side.label = f"TMDL (compatibility level {mo._short(side.version)})"
+        mo._refuse_shape(bim, mo._BIM_SHAPE, "compare")
         _walk_tmsl(side, bim)
         side.attach(rows, "tmdl reader")
         return
@@ -734,10 +735,10 @@ def _pair(a: dict[str, Any] | None, b: dict[str, Any] | None, left: _Side, right
 
 
 def _fingerprint(text: str) -> str:
-    """Text as its length and a short hash: enough to see that two filters differ, without the filter. A short
-    filter's hash can be guessed by trying values, so this keeps text out of logs, not out of reach."""
-    digest = hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()[:12]
-    return f"{len(text)} characters, sha256 {digest}"
+    """Text as its length and a keyed fingerprint (``keyed_fingerprint``): enough to see that two filters differ,
+    without the filter, and a guessed filter can't be confirmed away from this PC."""
+    from .keyed_fingerprint import fingerprint
+    return fingerprint(text)
 
 
 def _role_changes_redacted(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
@@ -772,24 +773,28 @@ def _withheld(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _about_role(warning: dict[str, Any]) -> bool:
-    """A reader warning that may quote a role: it names a role, or comes from a role's file (an unreadable line
-    inside a role block names only itself)."""
+    """A reader warning that may quote a role: it names a role, comes from a role's file, or is a line inside a
+    role block in any file (the reader takes a role declared in model.tmdl or database.tmdl too, and an
+    unreadable line in it names only itself)."""
     file = str(warning.get("file", "")).replace("\\", "/").casefold()
-    return str(warning.get("object", "")).startswith("role") or "/roles/" in f"/{file}"
+    return (str(warning.get("object", "")).startswith("role") or "/roles/" in f"/{file}"
+            or "role" in str(warning.get("block", "")).split("/"))
 
 
 def redacted(report: dict[str, Any]) -> dict[str, Any]:
     """A copy of ``report`` safe to log or attach outside the local pane: each role row's changes name no member
     (counts instead) and quote no filter (a length and hash instead), and its evidence other than the structure
-    counts is withheld (a length and hash of it). Reader warnings about a role are withheld the same way. At L2 each
-    measure's expression text and canonical forms (which can hold literals) are a length and hash too; its changes
-    and notes name functions, tables and columns, never a literal. The report itself is unchanged."""
+    counts is withheld (a length and hash of it). Reader warnings and evidence about a role (``_about_role``) are
+    withheld the same way. At L2 each measure's expression text and canonical forms (which can hold literals) are
+    a length and hash too; its changes and notes name functions, tables and columns, never a literal. The report
+    itself is unchanged."""
     out = copy.deepcopy(report)
     for o in out.get("objects") or []:
         if isinstance(o.get("expressions"), dict):  # L2: expression text and forms can hold literals
             o["expressions"] = {k: _fingerprint(v) if isinstance(v, str) and not k.endswith("_dialect") else v
                                 for k, v in o["expressions"].items()}
         if o.get("kind") != "role":
+            o["evidence"] = [_withheld(e) if _about_role(e) else e for e in o.get("evidence") or []]
             continue
         o["changes"] = list(o.pop("changes_redacted", None) or
                             ([f"{len(o['changes'])} change(s) withheld"] if o.get("changes") else []))
@@ -1539,6 +1544,20 @@ def parity_l2(left: Any, right: Any, *, tolerances: dict[str, Any] | None = None
 
 def _parity(left: Any, right: Any, tolerances: dict[str, Any] | None, left_kind: str | None,
             right_kind: str | None, level: str) -> dict[str, Any]:
+    return _parity_sides(left, right, tolerances, left_kind, right_kind, level)[0]
+
+
+def _parity_l2_sides(left: Any, right: Any, left_kind: str | None = None,
+                     right_kind: str | None = None) -> tuple[dict[str, Any], list[_Side]]:
+    """``parity_l2``'s report and the two sides it read, so L3 builds its queries from them rather than reading
+    (and converting) both sides again. Reading is deterministic, and the comparison only reads a side (its caches
+    of SQL columns and column types are what a fresh read would build), so the sides are as a fresh read leaves
+    them."""
+    return _parity_sides(left, right, None, left_kind, right_kind, LEVEL_L2)
+
+
+def _parity_sides(left: Any, right: Any, tolerances: dict[str, Any] | None, left_kind: str | None,
+                  right_kind: str | None, level: str) -> tuple[dict[str, Any], list[_Side]]:
     tol = _tolerances(tolerances, level)
     sides = [_Side("left"), _Side("right")]
     for side, value, kind in ((sides[0], left, left_kind), (sides[1], right, right_kind)):
@@ -1552,14 +1571,14 @@ def _parity(left: Any, right: Any, tolerances: dict[str, Any] | None, left_kind:
     failed = [s for s in sides if s.error]
     if failed:
         reason = "; ".join(f"the {s.which} side couldn't be read: {s.error}" for s in failed)
-        return _report(sides[0], sides[1], _whole(TEST_FAILED, reason, failed), tol, reason, level)
+        return _report(sides[0], sides[1], _whole(TEST_FAILED, reason, failed), tol, reason, level), sides
     unsupported = [s for s in sides if s.unsupported]
     if unsupported:
         reason = "; ".join(f"the {s.which} side: {s.unsupported}" for s in unsupported)
-        return _report(sides[0], sides[1], _whole(UNSUPPORTED, reason, unsupported), tol, reason, level)
+        return _report(sides[0], sides[1], _whole(UNSUPPORTED, reason, unsupported), tol, reason, level), sides
     try:
         objects = _compare(sides[0], sides[1], level)
     except _SHAPE_ERRORS as exc:  # narrow: a shape the comparison trips on is a failed test, never a crash
         reason = f"the comparison couldn't be completed: {type(exc).__name__}: {mo._short(exc)}"
-        return _report(sides[0], sides[1], _whole(TEST_FAILED, reason, []), tol, reason, level)
-    return _report(sides[0], sides[1], objects, tol, level=level)
+        return _report(sides[0], sides[1], _whole(TEST_FAILED, reason, []), tol, reason, level), sides
+    return _report(sides[0], sides[1], objects, tol, level=level), sides

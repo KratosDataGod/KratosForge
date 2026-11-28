@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from fabric_desktop import spark_coverage
 
 HERE = Path(__file__).resolve().parent
@@ -68,16 +70,14 @@ def outcome(spark: Any, case: dict[str, Any]) -> tuple[str, str]:
     return ("same" if got == case["value"] else "wrong"), json.dumps(got, ensure_ascii=False)
 
 
-def check(spark: Any, cases: list[dict[str, Any]], refused: list[Refused]) -> None:
-    """Every case answers as Spark does or is refused by a listed entry; every entry is still needed and in the
-    docs."""
-    docs = DOCS.read_text(encoding="utf-8")
+def _sort(spark: Any, cases: list[dict[str, Any]], refused: list[Refused]) -> tuple[list[str], set[str]]:
+    """(the cases that neither answer as Spark nor are refused by a listed entry, the entries used)."""
     bad, used = [], set()
     for case in cases:
         kind, got = outcome(spark, case)
         if kind in ("same", "stopped"):
             continue
-        written = (f"@tz {case['tz']} " if "tz" in case else "") + case["sql"]  # a pattern can name the zone
+        written = _written(case)
         entry = next((r for r in refused if kind == "refused" and re.search(r.pattern, written)
                       and re.search(r.says, got)), None)
         if entry is None:
@@ -85,6 +85,45 @@ def check(spark: Any, cases: list[dict[str, Any]], refused: list[Refused]) -> No
             bad.append(f"{kind}: {case['sql']}\n    here:  {got[:300]}\n    Spark: {want[:300]}")
         else:
             used.add(entry.name)
+    return bad, used
+
+
+def _written(case: dict[str, Any]) -> str:
+    return (f"@tz {case['tz']} " if "tz" in case else "") + case["sql"]  # a pattern can name the zone
+
+
+def check(spark: Any, cases: list[dict[str, Any]], refused: list[Refused]) -> None:
+    """Every case answers as Spark does or is refused by a listed entry; every entry is still needed and in the
+    docs."""
+    bad, used = _sort(spark, cases, refused)
     assert not bad, f"{len(bad)} of {len(cases)} cases don't answer as Spark 3.5.3:\n" + "\n".join(bad)
+    _needed(refused, used)
+
+
+def parts(name: str, size: int = 8) -> list[Any]:
+    """The cases of ``name`` as pytest params of ``size`` cases each. One test of every case ran over the
+    per-test time limit on a busy runner (84 hashing cases, some 5 s each), so each part is a test of its own."""
+    cases = load(name)
+    return [pytest.param(cases[i:i + size], id=f"{name}-{i + 1}-{min(i + size, len(cases))}")
+            for i in range(0, len(cases), size)]
+
+
+def check_part(spark: Any, cases: list[dict[str, Any]], refused: list[Refused]) -> None:
+    """``check`` for one of ``parts``: every case answers as Spark does or is refused by a listed entry.
+    Whether each entry is still needed is ``check_still_needed``'s, since that needs every case."""
+    bad, _ = _sort(spark, cases, refused)
+    assert not bad, f"{len(bad)} of {len(cases)} cases don't answer as Spark 3.5.3:\n" + "\n".join(bad)
+
+
+def check_still_needed(spark: Any, name: str, refused: list[Refused]) -> None:
+    """Every entry still refuses a case of ``name`` and is in the docs. Only the cases an entry's pattern
+    matches are run: another case can't use an entry."""
+    cases = [c for c in load(name) if any(re.search(r.pattern, _written(c)) for r in refused)]
+    _, used = _sort(spark, cases, refused)
+    _needed(refused, used)
+
+
+def _needed(refused: list[Refused], used: set[str]) -> None:
+    docs = DOCS.read_text(encoding="utf-8")
     assert not [r.name for r in refused if r.name not in used], "Refused entries no case needs any more"
     assert not [r.name for r in refused if r.doc not in docs], "Refused entries docs/sql-compatibility.md doesn't list"

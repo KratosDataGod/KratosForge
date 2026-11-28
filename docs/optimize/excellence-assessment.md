@@ -43,6 +43,23 @@ A pass or a fail must cite the evidence it rests on. A control can't pass someth
 at: missing evidence always gives **not evaluated**. Every item in a workspace is reported as
 inspected, not inspected (with the reason) or unsupported (no control covers that kind of item yet).
 
+### Coverage per item type
+
+The result also sums this up per kind of item (`type_coverage`), one row per item type the
+workspace holds, sorted by name:
+
+| State | When |
+| --- | --- |
+| Inspected | Every item of that type was checked by at least one control. The row names the controls and the kinds of evidence they used. |
+| Not inspected | Controls cover the type, but at least one item couldn't be checked. The row gives the reasons in plain words (the read failed, only the first items were read, the evidence is missing, no control applies) and how many items each one holds. |
+| Unsupported | No control covers that kind of item yet, for example a Dataflow, Copy job or Eventstream today. It never counts as passing. |
+
+Each row counts the items in each state, so a type with 3 of 5 notebooks checked shows as not
+inspected with those numbers. A kind of item KratosForge has never seen is listed as unsupported.
+When the workspace's items couldn't be listed at all, the result says so instead of showing an
+empty list. Names are cut at 256 characters and lists are capped. When the read limit is reached,
+the items past it are still listed, as not inspected, with the limit as the reason.
+
 ## How scores are worked out
 
 Each control has one weight, from its severity:
@@ -88,7 +105,10 @@ A rating is shown as is only when coverage is at least 80%. From 50% to 80% it i
 Below 50%, or when nothing in a dimension could be evaluated, no rating is shown: **Insufficient
 evidence**. A score of 100 needs 100% coverage; otherwise it's shown as 99.
 
-**Critical Risk** is a separate flag. Any failed critical control sets it, whatever the score.
+**Critical Risk** is a separate flag. Any failed critical control sets it, whatever the score. It
+also caps the rating. While the flag is set, the overall rating is at most Well architected, and so is
+the rating of each dimension a failed critical control is in. A capped rating shows as "Well
+architected (capped)". The score itself doesn't change.
 
 **Confidence** of an assessment needs both of these:
 
@@ -149,16 +169,37 @@ Each finding also carries `learn`: the Learn lessons (`LM-32`, `LAB-07`) and Aca
 reviewed: it names only lessons and exercises that ship in the app, with their own titles, and a test
 fails if one is unknown, retired or renamed, or if a control is neither mapped nor listed as unmapped.
 A control that no lesson teaches yet is listed as unmapped with the reason, and its `learn` is empty;
-it is never given a loosely related lesson. Today 27 of the 39 controls are mapped and 12 are not.
+it is never given a loosely related lesson. Today 27 of the 41 controls are mapped and 14 are not.
 
 Progress follows one rule (`credit_for`): credit only for a validated fix (the control assessed again
 and passed, on measured or configuration evidence, for the same finding) or a passed exercise. A
 dismissal, an accepted risk or a rerun that couldn't evaluate the control earns nothing, so hiding a
 finding never looks like learning. The rule is engine only; nothing stores progress from it yet.
 
+## Accepted risk and exceptions
+
+An exception records that someone accepts the risk of a failed control instead of fixing it for now.
+It names the control, the resource it covers (or every resource of that control), the person who owns
+the decision, the reason, and the date it expires. The expiry is required and must fall within a year
+of the day the exception was recorded. An exception with no owner, no reason, no expiry, an expiry
+already past or more than a year out, or a control that doesn't exist is refused, and nothing is
+assessed.
+
+An exception never changes the assessment. The control still fails, the finding stays open, and every
+score, assured score, coverage figure, rating and Critical Risk flag is exactly what it would be
+without it. The exception is shown next to the failed control and its finding with its owner, reason
+and expiry. From its expiry date on, counted by the assessment's date, it is shown as expired and no
+longer counts as accepted.
+The result also says how many exceptions are active, how many have expired, and which ones matched no
+failed control.
+
+There is no screen for exceptions yet. The engine call takes them as the `exceptions` parameter, and
+they are kept with the snapshot so that rescoring it shows them the same way. They aren't saved
+anywhere else.
+
 ## The engine call
 
-`excellence_assess(workspace_id, days, profile, demo)` assesses one workspace, and its capacity when you
+`excellence_assess(workspace_id, days, profile, demo, exceptions)` assesses one workspace, and its capacity when you
 can see it. It reads only, with your own access, and makes no read the app didn't already make: the
 optimization engine's reads (the workspace, its items, notebook and pipeline definitions, job history),
 the workspace's role assignments (`GET /workspaces/{id}/roleAssignments`), the capacities you can see
@@ -167,12 +208,17 @@ app already makes before it writes a table; at most 50 per assessment), the defi
 semantic model in the workspace, at most 30, as TMSL (`getDefinition?format=TMSL`, the read the
 Semantic model tab already makes), the workspace's Git connection and Git status
 (`GET /workspaces/{id}/git/connection` and `GET /workspaces/{id}/git/status`, the reads the Git tab
-makes), and each lakehouse's tables as the [Estate X-ray](../xray-fixes.md) reads them. That is the
-folders under Tables and each Delta table's log, never a data file, read through OneLake with your own
-storage sign-in (at most 100 tables per assessment). The assessment never asks you to sign in for it,
-so without a OneLake sign-in on this PC no table is read. It also uses the Capacity Metrics exports
-already imported on this PC (Optimize > Cost and savings). That is a local read, not a Fabric call. A
-read that fails is listed in `reads` and leaves its controls not evaluated.
+makes), each warehouse's properties, at most 50 (`GET /workspaces/{id}/warehouses/{id}`, the read the
+SQL page already makes to find a warehouse's connection), and each lakehouse's tables as the
+[Estate X-ray](../xray-fixes.md) reads them. That is the folders under Tables and each Delta table's
+log, never a data file, read through OneLake with your own storage sign-in (at most 100 tables per
+assessment). The warehouse and table reads are made only with a sign-in the app already holds, so an
+assessment never asks you to sign in for them. Without a OneLake sign-in on this PC, no table is read.
+It also uses the Capacity Metrics exports already imported on this PC (Optimize > Cost and savings).
+That is a local read, not a Fabric call. A read that fails is listed in `reads` and leaves its
+controls not evaluated.
+The [API capability matrix](excellence-api-matrix.md) lists each of these reads with the scopes and
+workspace role it needs, its paging and throttling, and the controls that depend on it.
 `demo=True` assesses a labelled demonstration fixture without calling Fabric.
 
 ## Controls
@@ -218,6 +264,8 @@ read that fails is listed in `reads` and leaves its controls not evaluated.
 | FEA-DEVOPS-003 | DevOps | Medium | The workspace is connected to a Git branch and was synced at least once | Git connection |
 | FEA-DEVOPS-004 | DevOps | Low | No item has changes in the workspace that aren't committed to its branch; not applicable when the workspace isn't in Git | Git status |
 | FEA-DEVOPS-005 | DevOps | Low | No item has changes in the branch that aren't in the workspace yet; not applicable when the workspace isn't in Git | Git status |
+| FEA-WH-001 | Reliability | Medium | A lakehouse's SQL analytics endpoint is provisioned (not evaluated while it is still provisioning) | SQL analytics endpoint status (lakehouse properties) |
+| FEA-WH-002 | Architecture | Low | Every warehouse in the workspace uses the same collation (a pass needs every warehouse read) | Warehouse properties |
 
 The thresholds (4 Admins, 5 direct writers) are KratosForge's: Microsoft's guidance asks for least
 privilege but gives no number. A profile can turn any control off, with a reason, or change its
@@ -317,6 +365,26 @@ What needs the model's data isn't checked here. High-cardinality columns, model 
 Lake guardrails need VertiPaq statistics or the Delta tables' numbers. The
 [Direct Lake check](../direct-lake-check.md) on the Semantic model tab reads those, and the full Best
 Practice Analyzer runs in Fabric only when you ask for it, and the assessment starts neither.
+
+### Warehouses and SQL analytics endpoints
+
+The warehouse controls decide from item properties only. FEA-WH-001 takes a SQL analytics endpoint's
+provisioning status from its lakehouse's properties, which the assessment already reads, so it adds
+no call. An endpoint that belongs to something other than a lakehouse, such as a mirrored database,
+is not evaluated. FEA-WH-002 compares the collation each warehouse reports. Warehouses with different
+collations compare text differently, so a query or load that joins their text columns fails with a
+collation conflict. A warehouse that couldn't be read leaves the others not evaluated rather than
+passed, because they can't be compared with it.
+
+The evidence keeps item names, a status, a collation name and counts. It never holds a connection
+string, SQL text, a view or procedure body, or data. Without a sign-in the app can use without
+asking, the warehouses aren't read and these controls are not evaluated. Signing in again and
+assessing again reads them.
+
+Some checks need a read the assessment doesn't make yet. The SQL best-practice rules on a warehouse's
+views and stored procedures need their text, query insights need the warehouse's queryinsights views,
+and table maintenance needs table statistics. All of these are read over the warehouse's SQL
+connection, which the SQL page opens only when you run a query, so there is no control for them yet.
 
 ### Capacity usage evidence
 

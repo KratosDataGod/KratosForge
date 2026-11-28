@@ -2245,8 +2245,28 @@ _ESCAPES = str.maketrans({"\n": "\\n", "\r": "\\r", "\t": "\\t", "\f": "\\f", "\
                           "\x07": "\\a"})
 
 
+def _java_len(text: str) -> int:
+    """``text.length()`` in Java: UTF-16 units, so a character past U+FFFF (an emoji) counts two."""
+    return len(text) + sum(ord(c) > 0xFFFF for c in text)
+
+
+def _java_prefix(text: str, units: int) -> str:
+    """``text.substring(0, units)`` in Java. A cut through a character past U+FFFF leaves half of it (a lone
+    surrogate), which reaches Python as "?" when the JVM encodes it, so that half is "?": one unit, and the
+    column stays as wide as Spark's."""
+    out, used = [], 0
+    for c in text:
+        used += 2 if ord(c) > 0xFFFF else 1
+        if used > units:
+            if used - units == 1 and ord(c) > 0xFFFF:
+                out.append("?")
+            break
+        out.append(c)
+    return "".join(out)
+
+
 def _half_width(text: str) -> int:
-    return len(text) + len(_WIDE.findall(text))
+    return _java_len(text) + len(_WIDE.findall(text))
 
 
 def _java_double(value: float, digits: str | None = None) -> str:
@@ -2344,11 +2364,13 @@ def show_string(df: DataFrame, n: int = 20, truncate: bool | int = True, vertica
     """What ``df.show(n, truncate, vertical)`` prints in Spark 3.5."""
     if not isinstance(n, int) or isinstance(n, bool):
         raise TypeError(f"Argument `n` should be an int, got {type(n).__name__}.")
-    if not isinstance(truncate, (bool, int)):
-        raise TypeError(f"Argument `truncate` should be a bool or an int, got {type(truncate).__name__}.")
     if not isinstance(vertical, bool):
         raise TypeError(f"Argument `vertical` should be a bool, got {type(vertical).__name__}.")
-    width = (20 if truncate else 0) if isinstance(truncate, bool) else truncate
+    # PySpark 3.5: truncate=True is 20, anything else goes through int(), so "5" and 5.9 are 5.
+    try:
+        width = 20 if truncate is True else int(truncate)
+    except ValueError:
+        raise TypeError(f"Argument `truncate` should be a bool, got {type(truncate).__name__}.") from None
     n = max(n, 0)
     fields = df.schema.fields
     taken = df.limit(n + 1).collect()
@@ -2356,8 +2378,8 @@ def show_string(df: DataFrame, n: int = 20, truncate: bool | int = True, vertica
 
     def cell(value: Any, data_type: Any) -> str:
         text = _pretty(value, data_type).translate(_ESCAPES)
-        if width > 0 and len(text) > width:
-            text = text[:width] if width < 4 else text[:width - 3] + "..."
+        if width > 0 and _java_len(text) > width:
+            text = _java_prefix(text, width) if width < 4 else _java_prefix(text, width - 3) + "..."
         return text
 
     rows = [[f.name.translate(_ESCAPES) for f in fields]] + [[cell(v, f.dataType) for v, f in zip(r, fields, strict=True)] for r in taken[:n]]

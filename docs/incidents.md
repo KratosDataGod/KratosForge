@@ -16,7 +16,7 @@ KratosForge finds problems by itself: a failed run, a late table, a run waiting 
 
 Each environment keeps its incidents in one file, `incidents/incidents.json`, in its `LH_Meta` (open ones plus the last 200 resolved). Every change is a conditional write, so two agents or PCs that see the same failure at the same moment open one incident, and two people can't both take the same number. Agents and the app keep working on this file as they always have.
 
-**History in the central lakehouse.** Every incident and every timeline entry is also copied to the central KratosForge lakehouse (`FabricDesktop_Central`), where it's kept for good, including the incidents and entries the live list drops. Two tables hold it: `fdinc_incident_event`, one row per timeline entry, and `fdinc_incident_snapshot`, one row per state of an incident (state, priority, owner, and when it opened, was acknowledged and was resolved). Rows are only ever added, and the same change copied from two PCs is stored once. Passwords, keys and tokens in titles and notes are removed before copying. A copy needs the PC to be connected to the central lakehouse with write access (**Settings > Optimize lakehouses**), and IT can turn the central lakehouse off with `allow_optimize_lakehouse`. A copy runs each time incident measures are asked for (below); the screen for them comes with stage 4. Until a copy runs, changes wait in the live list, and only the latest state of an incident at that moment becomes a snapshot.
+**History in the central lakehouse.** Every incident and every timeline entry is also copied to the central KratosForge lakehouse (`FabricDesktop_Central`), where it's kept for good, including the incidents and entries the live list drops. Two tables hold it: `fdinc_incident_event`, one row per timeline entry, and `fdinc_incident_snapshot`, one row per state of an incident (state, priority, owner, and when it opened, was acknowledged and was resolved). Rows are only ever added, and the same change copied from two PCs is stored once. Passwords, keys and tokens in titles and notes are removed before copying. A copy needs the PC to be connected to the central lakehouse with write access (**Settings > Optimize lakehouses**), and IT can turn the central lakehouse off with `allow_optimize_lakehouse`. A copy runs each time incident measures are asked for, which the [SLA report](#sla-reports-preview) does each time it opens. Until a copy runs, changes wait in the live list, and only the latest state of an incident at that moment becomes a snapshot.
 
 ## Priorities
 
@@ -78,6 +78,17 @@ Every kind gets the same text: one line each, credential-shaped values removed, 
 
 For an incident about a metadata table, the incident page lists the published data products whose ports carry that table in the environment, the projects linked to them, and who to tell (owners, people who linked a project, followers). **Tell them** posts one `incident.impact` notice through the platform's Teams routes, naming only the people you confirm, and a note on the incident records who was told. Details in the [user guide](user-guide.md#whos-affected-preview).
 
+## SLA reports (Preview)
+
+**Monitor > KratosForge > Operations > Incidents > Reports**, beside **Board**, shows how incidents opened in one environment (Dev, Test or Prod) over the last 7, 30 or 90 days were handled:
+
+- **The summary**: how many opened, were resolved and are still open, and the share of incidents that met the acknowledge SLA and the resolve SLA, with how many are breached. When no incident has reached its target yet, it says **None judged yet**.
+- **By priority**: one row per priority that had incidents, with the counts, time to acknowledge and time to resolve (median and 90th percentile), and met, missed and breached for each clock. A measure with nothing in it says **Nothing to measure**, a priority with no target says **No target**, and a clock nobody has reached yet says **None judged yet**. In a narrow window, each priority is a card.
+
+Nothing is estimated. An incident without the times a measure needs is left out of that measure, so counts can differ between columns. The share met counts breached incidents as not met. SLA counts use the targets in effect now: an incident still inside its window, or a priority with no target, counts as neither met nor missed. Missed means it was done late; breached means it's still open and already late.
+
+Each time it opens, or the environment or window changes, it first copies what's new to the central lakehouse (above), so the latest changes count. The first time, when the incident tables aren't there yet, it says what setting them up adds and does nothing until you choose **Set up history** and confirm. Opening tickets in ServiceNow or Jira from here is stage 5 and isn't part of this.
+
 ## Where incidents are kept
 
 There will be two choices, set by IT:
@@ -95,8 +106,8 @@ KratosForge doesn't try to be a full service desk: change management, problem re
 | 1b | Every incident change copied to the central KratosForge lakehouse, kept for good | Released (a copy runs when measures are asked for) |
 | 2 | Screens: the list with number, priority and SLA, the incident page with its timeline and what to do, **Report an incident**, **Change priority** | Released |
 | 3 | Incidents that need you in the bell; Teams, flow or email delivery | This release |
-| 4 | Full history and reports: time to acknowledge, time to resolve, SLAs met | Measures in the engine; the screen waits on its mockup |
-| 5 | Your service desk: ServiceNow, Jira Service Management or another tool | Planned |
+| 4 | Full history and reports: time to acknowledge, time to resolve, SLAs met | This release: the [SLA report](#sla-reports-preview) (Preview) |
+| 5 | Your service desk: ServiceNow, Jira Service Management or another tool | Planned: waits on the product owner's go and a security review |
 
 Each stage is tested without Fabric or a service desk. Nothing here has run against a live tenant or a real service desk yet, which is why it's Preview.
 

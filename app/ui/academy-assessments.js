@@ -12,7 +12,10 @@
 
 const ASSESS_DEFAULT_PACK = "dp-700";
 const ASSESS_BEAT_MS = 15000;
-const ASSESS_TYPES = { single: "Single answer", multiple: "Multiple answers", order: "Ordering" };
+const ASSESS_TYPES = { single: "Single answer", multiple: "Multiple answers", order: "Ordering", matching: "Matching",
+  hotarea: "Hot area", yesno: "Yes or no", code: "Code completion" };
+// Multi-part questions (one answer per part, partial credit): what a part is called in the review's score line.
+const ASSESS_PARTS = { matching: ["match", "matches"], hotarea: ["blank", "blanks"], yesno: ["statement", "statements"], code: ["gap", "gaps"] };
 const ASSESS_COUNT_WORDS = ["", "one", "two", "three", "four", "five", "six", "seven", "eight"];
 const assess = {
   mode: "home",          // home | exam | review | results | answers
@@ -46,6 +49,16 @@ function assessClock(seconds) {
 
 function assessWhen(stamp) {
   return stamp ? dateTimeText(stamp) : "";
+}
+
+// Answered: any choice, or for a multi-part question every part (the engine says which in "answered").
+function assessDone(it) {
+  return it.answered ?? Boolean(it.answer);
+}
+
+// A score in points: whole, or to 2 places (partial credit).
+function assessPoints(n) {
+  return String(Math.round(Number(n || 0) * 100) / 100);
 }
 
 function assessWeight(w) {
@@ -204,23 +217,48 @@ function assessHome() {
   const diagnostic = h("section", { class: "card pad assess-card" },
     h("h2", {}, "Domain diagnostic"),
     h("p", {}, `${home.diagnostic_per_objective} questions per objective in one domain, to see which objectives need work.`),
-    h("div", { class: "assess-meta" }, "Untimed · pick a domain"),
-    btn("Choose domain", null, () => { assess.pick = assess.pick === "domain" ? null : "domain"; assessDraw(); }, "tool outline",
-      { "aria-expanded": assess.pick === "domain" ? "true" : "false" }),
-    assess.pick === "domain" ? h("div", { class: "assess-pick", role: "group", "aria-label": "Domains" },
-      home.domains.map((d) => btn(`${d.id} ${d.title}`, null, () => assessStart({ kind: "diagnostic", domain: d.id }), "tool outline"))) : null);
+    h("div", { class: "assess-meta" }, "Untimed · one domain or all of them"),
+    btn("Choose a diagnostic", null, () => { Object.assign(assess, { pick: "diagnostic", fromHome: false }); assessDraw(); }, "tool outline"));
   const drill = h("section", { class: "card pad assess-card" },
     h("h2", {}, "Objective drill"),
     h("p", {}, "Every question for the objectives you pick, with the answer and why after each one."),
     h("div", { class: "assess-meta" }, "Untimed · 4 or more questions per objective"),
     btn("Pick objectives", null, () => { assess.pick = assess.pick === "objectives" ? null : "objectives"; assessDraw(); }, "tool outline",
       { "aria-expanded": assess.pick === "objectives" ? "true" : "false" }));
+  if (assess.pick === "diagnostic") return [assessNotice(home.notice), assessDiagnostic(home)];
   return [
     assessNotice(home.notice),
     h("div", { class: "assess-cards" }, practice, diagnostic, drill),
     assess.pick === "objectives" ? assessObjectivePicker(home) : null,
     assessHistory(home),
   ];
+}
+
+// Board 6 of the Academy mockup: one diagnostic screen, reached from Academy Home's "Take a diagnostic" or
+// from the Domain diagnostic card. Each domain, or all of them, with its size, about how long it takes (at
+// the practice exam's pace) and the last time it was finished on this PC.
+function assessDiagnostic(home) {
+  const code = home.certification.code || home.certification.id.toUpperCase();
+  const choices = [...home.domains.map((d) => ({ id: d.id, title: `${d.id} ${d.title}`, ...d.diagnostic })),
+    { id: "all", title: `All of ${code}`, ...home.diagnostic_all }].filter((c) => c.questions);
+  if (!choices.some((c) => c.id === assess.diagPick)) assess.diagPick = choices[0]?.id;
+  const meta = (c) => [`${c.questions} questions`, c.minutes ? `about ${c.minutes} min` : null,
+    c.last ? `last finished ${assessWhen(c.last.finished_at)}, ${c.last.correct} of ${c.last.total} right` : "not taken yet"].filter(Boolean).join(" · ");
+  const back = () => {
+    assess.pick = null;
+    if (assess.fromHome && typeof academyPage !== "undefined") { assess.fromHome = false; academyPage.tab = "home"; render(); } else assessDraw();
+  };
+  return h("section", { class: "card pad assess-diag", "aria-labelledby": "assess-diag-h" },
+    h("h2", { id: "assess-diag-h" }, "Diagnostic"),
+    h("p", {}, `${ASSESS_COUNT_WORDS[home.diagnostic_per_objective] || home.diagnostic_per_objective} questions per objective, to find what you already know and which objectives need work. It isn't timed, so you can stop and come back, and it isn't an exam.`.replace(/^./, (c) => c.toUpperCase())),
+    h("fieldset", { class: "assess-diag-choices" }, h("legend", {}, `Which part of ${code}?`),
+      choices.map((c) => h("label", { class: "assess-diag-choice" },
+        h("input", { type: "radio", name: "assess-diag", value: c.id, checked: assess.diagPick === c.id, onchange: () => { assess.diagPick = c.id; } }),
+        h("span", {}, h("b", {}, c.title), h("span", { class: "assess-meta" }, meta(c)))))),
+    h("p", { class: "assess-diag-note" }, "Right answers count toward Knowledge in Readiness, and nothing else. Exercises are still needed to prove an objective. ",
+      h("span", { class: "academy-pill knowledge_only" }, "KNOWLEDGE ONLY")),
+    h("div", { class: "row" }, btn("Start the diagnostic", null, () => choices.length && assessStart({ kind: "diagnostic", domain: assess.diagPick }), "tool primary"),
+      btn(assess.fromHome ? "Back to Home" : "Back", null, back, "tool outline")));
 }
 
 function assessObjectivePicker(home) {
@@ -261,6 +299,8 @@ function assessHistory(home) {
 
 function assessKindName(s, home) {
   const code = home.certification.code || home.certification.id.toUpperCase();
+  if (s.kind === "diagnostic" && s.domain === "all") return `Diagnostic: all of ${code}`;
+  if (s.kind === "diagnostic" && s.domain) return `Domain diagnostic: ${s.domain}`;
   return { practice: `${code} practice exam`, diagnostic: "Domain diagnostic", drill: "Objective drill" }[s.kind] || s.kind;
 }
 
@@ -279,7 +319,7 @@ async function assessOpen(id) {
 
 function assessEnterExam(v) {
   Object.assign(assess, { view: v, mode: "exam", checks: {}, timeUp: false, pick: null, result: null, answers: null, focusNext: true });
-  const firstOpen = v.items.findIndex((it) => !it.answer);
+  const firstOpen = v.items.findIndex((it) => !assessDone(it));
   assess.cur = firstOpen < 0 ? 0 : firstOpen;
   if (v.time_left === 0) { assessTimeUp(); return; }
   assessStartClock();
@@ -305,11 +345,16 @@ function assessQuestion(v, it) {
     h("div", { class: "assess-qhead" }, h("span", {}, `Question ${it.n} of ${v.total} · objective ${it.objective}`), h("span", {}, ASSESS_TYPES[it.type] || "")),
     it.case ? h("details", { class: "assess-case", open: true }, h("summary", {}, `Case study: ${it.case.title}`), h("p", {}, it.case.text)) : null,
     h("p", { class: "assess-stem", id: stemId, tabindex: "-1", "data-assess-focus": "" }, it.stem),
-    it.type === "order" ? assessOrder(v, it, stemId, locked) : assessChoices(v, it, stemId, locked),
+    assessBody(v, it, stemId, locked),
     !v.running ? h("p", { class: "muted-text" }, "Paused. Resume to answer.") : null,
     v.kind === "drill" ? assessDrillCheck(v, it, check) : null,
     assessNav(v));
   return panel;
+}
+
+function assessBody(v, it, stemId, locked) {
+  const draw = { order: assessOrder, matching: assessMatching, hotarea: assessSnippet, code: assessSnippet, yesno: assessYesNo }[it.type];
+  return (draw || assessChoices)(v, it, stemId, locked);
 }
 
 function assessChoices(v, it, stemId, locked) {
@@ -369,10 +414,10 @@ function assessOrder(v, it, stemId, locked) {
 
 function assessDrillCheck(v, it, check) {
   if (!check && !it.checked) {
-    return h("div", { class: "row assess-checkrow" }, btn("Check answer", null, () => assessCheck(v, it), "tool primary", { disabled: !it.answer || !v.running }));
+    return h("div", { class: "row assess-checkrow" }, btn("Check answer", null, () => assessCheck(v, it), "tool primary", { disabled: !assessDone(it) || !v.running }));
   }
   if (!check) return h("p", { class: "muted-text small" }, "Checked. Finish the drill to see every answer again.");
-  return assessAnswerList(it, check.answer, check.key, check.also_accept, check.correct, check.explanation, check.source);
+  return assessAnswerList(it, check.answer, check.key, check.also_accept, check.correct, check.explanation, check.source, check);
 }
 
 function assessNav(v) {
@@ -390,11 +435,13 @@ function assessNav(v) {
 function assessSide(v) {
   const grid = h("div", { class: "assess-grid", role: "group", "aria-label": "Go to question" },
     v.items.map((it, i) => {
-      const words = [`Question ${it.n}`, it.answer ? "answered" : "not answered", it.flagged ? "flagged" : null, i === assess.cur ? "current" : null].filter(Boolean).join(", ");
-      return h("button", { type: "button", class: `${it.answer ? "done" : ""}${it.flagged ? " flag" : ""}${i === assess.cur ? " cur" : ""}`.trim(),
+      const words = [`Question ${it.n}`, assessDone(it) ? "answered" : "not answered", it.flagged ? "flagged" : null, i === assess.cur ? "current" : null].filter(Boolean).join(", ");
+      return h("button", { type: "button", class: `${assessDone(it) ? "done" : ""}${it.flagged ? " flag" : ""}${i === assess.cur ? " cur" : ""}`.trim(),
         "aria-label": words, "aria-current": i === assess.cur ? "true" : null, onclick: () => assessGo(i) }, String(it.n));
     }));
   const keysOn = assessKeysOn();
+  const cur = v.items[assess.cur];
+  const numbers = !cur || cur.type === "single" || cur.type === "multiple" || cur.type === "order";
   return h("aside", { class: "assess-side", "aria-label": "Exam progress" },
     h("div", { class: "card pad" },
       h("div", { class: "assess-clock", role: "timer", "aria-live": "off" }, assessClock(v.elapsed)),
@@ -409,16 +456,19 @@ function assessSide(v) {
       btn("Review and finish", null, () => { assess.mode = "review"; assessDraw(); }, "tool outline")),
     h("div", { class: "card pad assess-keys muted-text small" },
       h("label", { class: "row" }, h("input", { type: "checkbox", checked: keysOn, onchange: (e) => { assessKeysOn(e.target.checked); assessDraw(); } }), "Keyboard shortcuts"),
-      keysOn ? h("span", {}, "While focus is in the question: ", h("kbd", {}, "1"), "–", h("kbd", {}, "8"), " choose · ", h("kbd", {}, "F"), " flag · ",
+      keysOn && numbers ? h("span", {}, "While focus is in the question: ", h("kbd", {}, "1"), "–", h("kbd", {}, "8"), " choose · ", h("kbd", {}, "F"), " flag · ",
         h("kbd", {}, "N"), " next · ", h("kbd", {}, "P"), " previous · ", h("kbd", {}, "R"), " review.")
+        : keysOn ? h("span", {}, "While focus is in the question: ", h("kbd", {}, "F"), " flag · ", h("kbd", {}, "N"), " next · ", h("kbd", {}, "P"),
+          " previous · ", h("kbd", {}, "R"), " review. Number keys choose only in single and multiple answer questions.")
         : h("span", {}, "Off: only ", h("kbd", {}, "Tab"), ", ", h("kbd", {}, "Space"), " and ", h("kbd", {}, "Enter"), ", which always work.")));
 }
 
 function assessKeys(e, v, it) {
   if (!assessKeysOn() || e.ctrlKey || e.metaKey || e.altKey) return;
-  if (e.target.closest("textarea, input[type=text]")) return;
+  // A list keeps its letters for type-ahead (choosing "Notebook" with N), so shortcuts wait outside it.
+  if (e.target.closest("textarea, input[type=text], select")) return;
   const k = e.key.toLowerCase();
-  if (/^[1-8]$/.test(k) && it.type !== "order" && v.running && !it.checked && !assess.checks[it.q]) {
+  if (/^[1-8]$/.test(k) && (it.type === "single" || it.type === "multiple") && v.running && !it.checked && !assess.checks[it.q]) {
     const input = assess.container.querySelector(`.assess-options input[data-n="${k}"]`);
     if (!input) return;
     e.preventDefault();
@@ -476,10 +526,200 @@ async function assessCheck(v, it) {
   if (!out || assess.view?.id !== v.id) return;
   assess.checks[it.q] = out;
   assessKeep(out.view);
-  assess.announce = out.correct ? "Correct." : "Not correct. The right answer and why are shown.";
+  const parts = ASSESS_PARTS[it.type];
+  assess.announce = out.correct ? "Correct."
+    : parts && out.parts_right ? `${out.parts_right} of ${out.part_count} ${parts[1]} right. The right answers and why are shown.`
+      : "Not correct. The right answer and why are shown.";
   assessDraw();
   assess.container?.querySelector(".assess-why")?.setAttribute("tabindex", "-1");
   assess.container?.querySelector(".assess-why")?.focus();
+}
+
+// ---------- multi-part questions: matching, hot area, yes or no, code completion ----------
+// One answer per part, sent to the engine as a list with "" for an empty part. Every part is a native
+// control (a list or a radio group), so the keyboard and a screen reader can answer all of it; dragging
+// an item onto a requirement is only a shortcut for the mouse.
+
+function assessPartsOf(it) {
+  const n = it.parts.length;
+  return it.answer && it.answer.length === n ? it.answer.slice() : Array(n).fill("");
+}
+
+// Option text without the backticks that mark code (a native list shows plain text).
+function assessPlain(text) {
+  return String(text).replace(/`/g, "");
+}
+
+function assessSetPart(v, it, i, id, refocus) {
+  const next = assessPartsOf(it);
+  if (it.type === "code" && id) {        // a token sits in one gap at most: choosing it again moves it
+    const j = next.indexOf(id);
+    if (j >= 0 && j !== i) {
+      next[j] = "";
+      const tok = it.parts[i].options.find((o) => o.id === id);
+      assess.announce = `${assessPlain(tok?.text || "")} moved from gap ${j + 1} to gap ${i + 1}. Gap ${j + 1} is empty.`;
+    }
+  }
+  next[i] = id;
+  assessAnswer(v, it, next, refocus);
+}
+
+function assessPartStatus(it, locked, words) {
+  if (locked && assess.view?.running) return null;   // checked in a drill: the answer below says the rest
+  const mine = assessPartsOf(it);
+  const filled = mine.filter(Boolean).length;
+  const text = filled === mine.length ? words.done : filled === 0 ? words.empty : words.some(filled, mine.length);
+  return h("p", { class: "muted-text small" }, text);
+}
+
+function assessMatching(v, it, stemId, locked) {
+  const helpId = `${stemId}-help`;
+  const itemsId = `${stemId}-items`;
+  const mine = assessPartsOf(it);
+  const uses = (id) => mine.filter((m) => m === id).length;
+  const pool = h("div", { class: "assess-pool", role: "group", "aria-labelledby": itemsId },
+    h("h3", { id: itemsId }, "Items"),
+    h("ul", {}, it.options.map((o) => h("li", {
+      class: "assess-chip", draggable: locked ? null : "true", "data-item": o.id,
+      ondragstart: (e) => { e.dataTransfer.setData("text/plain", o.id); e.dataTransfer.effectAllowed = "copy"; e.currentTarget.classList.add("lifted"); },
+      ondragend: (e) => e.currentTarget.classList.remove("lifted"),
+    }, h("span", { class: "assess-grip", "aria-hidden": "true" }, "⋮⋮"), h("span", {}, assessText(o.text)),
+    uses(o.id) ? h("span", { class: "assess-uses" }, `used ${uses(o.id)}×`) : null))));
+  const targets = h("div", { class: "assess-targets", role: "group", "aria-label": "Requirements" },
+    h("h3", {}, "Requirements"),
+    it.parts.map((p, i) => {
+      const tid = `${stemId}-t${i}`;
+      const focus = `.assess-targets select[data-part="${i}"]`;
+      const list = h("select", { class: mine[i] ? "" : "empty", "aria-labelledby": tid, "aria-describedby": helpId, "data-part": String(i), disabled: locked,
+        onchange: (e) => assessSetPart(v, it, i, e.target.value, focus) },
+      h("option", { value: "" }, "Choose an item"),
+      it.options.map((o) => h("option", { value: o.id, selected: mine[i] === o.id }, assessPlain(o.text))));
+      const over = (e, on) => { if (!locked) { e.preventDefault(); e.currentTarget.classList.toggle("over", on); } };
+      return h("div", { class: "assess-target", "data-part": String(i),
+        ondragover: (e) => over(e, true), ondragleave: (e) => over(e, false),
+        ondrop: (e) => {
+          over(e, false);
+          const id = e.dataTransfer.getData("text/plain");
+          if (locked || !it.options.some((o) => o.id === id)) return;
+          assess.announce = `${assessPlain(it.options.find((o) => o.id === id).text)} matched to requirement ${i + 1}.`;
+          assessSetPart(v, it, i, id, null);
+        } },
+      h("span", { id: tid }, assessText(p.text)),
+      h("span", { class: "assess-slot" }, list,
+        mine[i] && !locked ? btn("Clear", null, () => assessSetPart(v, it, i, "", focus), "tool outline small", { type: "button", "aria-label": `Clear ${assessPlain(p.text)}` }) : null));
+    }));
+  return h("div", { class: "assess-parts" },
+    h("p", { class: "muted-text small", id: helpId }, "Drag an item onto a requirement, or choose it in the requirement's list. The lists work with the keyboard and a screen reader."),
+    h("div", { class: "assess-match" }, pool, targets),
+    assessPartStatus(it, locked, { empty: "Not answered yet. Fill every requirement to answer.",
+      some: (k, n) => `${k} of ${n} filled. Not answered until every requirement has an item.`,
+      done: "Answered. You can change any match until you finish." }));
+}
+
+// Hot area and code completion: a list at each numbered blank (gap) of the snippet, written {{N}}.
+function assessSnippet(v, it, stemId, locked) {
+  const code = it.type === "code";
+  const word = code ? "gap" : "blank";
+  const mine = assessPartsOf(it);
+  const n = mine.length;
+  const at = new Map(mine.map((m, i) => [m, i]).filter(([m]) => m));
+  const body = String(it.snippet).split(/\{\{(\d)\}\}/).map((piece, k) => {
+    if (k % 2 === 0) return piece;
+    const i = Number(piece) - 1;
+    const p = it.parts[i];
+    if (!p) return piece;
+    const focus = `.assess-snippet select[data-part="${i}"]`;
+    return [h("span", { class: "assess-gapn", "aria-hidden": "true" }, String(i + 1)),
+      h("select", { class: mine[i] ? "" : "empty", "aria-label": code ? `Gap ${i + 1}` : `Blank ${i + 1}, ${p.label}`, "data-part": String(i), disabled: locked,
+        onchange: (e) => assessSetPart(v, it, i, e.target.value, focus) },
+      h("option", { value: "" }, "Choose"),
+      p.options.map((o) => {
+        const where = at.get(o.id);
+        const elsewhere = code && where !== undefined && where !== i ? ` (in gap ${where + 1})` : "";
+        return h("option", { value: o.id, selected: mine[i] === o.id }, `${assessPlain(o.text)}${elsewhere}`);
+      }))];
+  });
+  const bankId = `${stemId}-tokens`;
+  return h("div", { class: "assess-parts" },
+    h("p", { class: "muted-text small" }, code ? "Choose a token for each numbered gap. Each token is used once at most, and some aren't used."
+      : "Choose a value for each numbered blank. Tab moves from blank to blank."),
+    h("div", { class: "assess-snippet", role: "group", "aria-label": `${it.snippet_label} with ${n} ${word}s` }, body),
+    code ? h("div", { class: "assess-bank" }, h("span", { class: "muted-text small", id: bankId }, "Tokens:"),
+      h("ul", { "aria-labelledby": bankId }, it.options.map((o) => h("li", { class: at.has(o.id) ? "used" : "" }, assessPlain(o.text),
+        at.has(o.id) ? h("span", { class: "sr-only" }, ` (in gap ${at.get(o.id) + 1})`) : null)))) : null,
+    assessPartStatus(it, locked, code
+      ? { empty: `Not answered yet. Fill all ${n} gaps to answer.`, some: () => `Not answered yet. Fill all ${n} gaps to answer.`,
+        done: "Answered. Choosing a token already in another gap moves it here and empties that gap." }
+      : { empty: `Not answered yet. Choose all ${n} blanks to answer.`, some: () => `Not answered yet. Choose all ${n} blanks to answer.`,
+        done: "Answered. You can change any blank until you finish." }));
+}
+
+// Yes or no: one radio group per statement, labelled by the statement; arrow keys choose Yes or No.
+function assessYesNo(v, it, stemId, locked) {
+  const mine = assessPartsOf(it);
+  const n = mine.length;
+  const table = h("table", { class: "assess-yn" },
+    h("thead", {}, h("tr", {}, h("th", {}, "Statement"), h("th", { class: "c" }, "Yes"), h("th", { class: "c" }, "No"))),
+    h("tbody", {}, it.parts.map((p, i) => {
+      const sid = `${stemId}-s${i}`;
+      const name = `assess-yn-${it.q}-${i}`;
+      return h("tr", {}, h("td", { id: sid }, assessText(p.text)),
+        p.options.map((o) => {
+          const lid = `${stemId}-l${i}${o.id}`;
+          return h("td", { class: "c" }, h("label", { class: "assess-yn-label" },
+            h("input", { type: "radio", name, value: o.id, checked: mine[i] === o.id, disabled: locked, "aria-labelledby": `${sid} ${lid}`, "data-part": String(i),
+              onchange: () => assessSetPart(v, it, i, o.id, `input[name="${name}"][value="${o.id}"]`) }),
+            h("span", { id: lid }, o.text)));
+        }));
+    })));
+  const hint = " Each statement is a radio group, and arrow keys choose Yes or No.";
+  return h("div", { class: "assess-parts" }, table,
+    assessPartStatus(it, locked, { empty: `Not answered yet. Answer all ${n} statements.${hint}`,
+      some: (k) => `${k} of ${n} answered. The question counts as answered when all ${n} are.${hint}`, done: `Answered.${hint}` }));
+}
+
+// The review's score line: "3 of 4 matches right · 0.75 points".
+function assessScoreLine(it, mine, score) {
+  const [one, many] = ASSESS_PARTS[it.type];
+  const n = score.part_count ?? it.parts.length;
+  const pts = Number(score.points ?? 0);
+  const done = Boolean(mine?.length) && mine.every(Boolean);
+  return h("p", { class: "assess-score" }, done ? `${score.parts_right ?? 0} of ${n} ${n === 1 ? one : many} right` : "Not answered",
+    h("span", { class: pts >= 1 ? "ok" : pts > 0 ? "part" : "bad" }, ` · ${assessPoints(pts)} point${pts === 1 ? "" : "s"}`));
+}
+
+// Each part right or wrong in words, with the correct answer beside a wrong one.
+function assessPartsReview(it, mine, key) {
+  const textOf = (i, id) => assessPlain(it.parts[i]?.options.find((o) => o.id === id)?.text ?? "");
+  if (it.type === "matching") {
+    return h("div", { class: "assess-targets" }, it.parts.map((p, i) => {
+      const ok = mine[i] === key[i];
+      return h("div", { class: `assess-target ${ok ? "r-ok" : "r-bad"}` }, h("span", {}, assessText(p.text)),
+        h("span", { class: "assess-res" }, ok ? h("b", { class: "ok" }, `✓ ${textOf(i, mine[i])}`)
+          : [h("b", { class: "bad" }, `✗ Yours: ${mine[i] ? textOf(i, mine[i]) : "not answered"}`), h("br"), h("b", { class: "ok" }, `✓ Correct: ${textOf(i, key[i])}`)]));
+    }));
+  }
+  if (it.type === "yesno") {
+    return h("table", { class: "assess-yn" },
+      h("thead", {}, h("tr", {}, h("th", {}, "Statement"), h("th", { class: "c" }, "Yours"), h("th", { class: "c" }, "Correct"))),
+      h("tbody", {}, it.parts.map((p, i) => {
+        const ok = mine[i] === key[i];
+        return h("tr", { class: ok ? "r-ok" : "r-bad" }, h("td", {}, assessText(p.text)),
+          h("td", { class: "c" }, h("b", { class: ok ? "ok" : "bad" }, `${ok ? "✓" : "✗"} ${mine[i] ? textOf(i, mine[i]) : "Not answered"}`)),
+          h("td", { class: "c" }, h("b", { class: "ok" }, textOf(i, key[i]))));
+      })));
+  }
+  const word = it.type === "code" ? "Gap" : "Blank";
+  const body = String(it.snippet).split(/\{\{(\d)\}\}/).map((piece, k) => {
+    if (k % 2 === 0) return piece;
+    const i = Number(piece) - 1;
+    const ok = mine[i] === key[i];
+    return [h("span", { class: "assess-gapn" }, h("span", { class: "sr-only" }, `${word} `), String(i + 1)),
+      ok ? h("span", { class: "assess-fill ok" }, h("span", { class: "sr-only" }, "yours, right: "), `${textOf(i, mine[i])} ✓`)
+        : [h("span", { class: "assess-fill bad" }, h("span", { class: "sr-only" }, "yours, wrong: "), mine[i] ? textOf(i, mine[i]) : "not answered"), " ",
+          h("span", { class: "assess-fill key" }, h("span", { class: "sr-only" }, "correct: "), `${textOf(i, key[i])} ✓`)]];
+  });
+  return h("div", { class: "assess-snippet", role: "group", "aria-label": `${it.snippet_label} with your answers` }, body);
 }
 
 // ---------- review before finishing ----------
@@ -488,7 +728,7 @@ function assessReview() {
   const v = assess.view;
   const rows = v.items.map((it, i) => ({ it, i }));
   const flagged = rows.filter((r) => r.it.flagged);
-  const attention = rows.filter((r) => r.it.flagged || !r.it.answer);
+  const attention = rows.filter((r) => r.it.flagged || !assessDone(r.it));
   const shown = { flagged, attention, all: rows }[assess.filter] || attention;
   const switcher = h("div", { class: "assess-switch", role: "group", "aria-label": "Show" },
     [["flagged", `Flagged (${flagged.length})`], ["attention", `Flagged or not answered (${attention.length})`], ["all", `All ${rows.length}`]].map(([id, label]) =>
@@ -507,8 +747,8 @@ function assessReview() {
       h("tbody", {}, shown.map(({ it, i }) => h("tr", {},
         h("td", {}, String(it.n)), h("td", {}, it.objective),
         h("td", {}, assess.timeUp ? assessShort(it.stem) : h("a", { href: "#", onclick: (e) => { e.preventDefault(); assessGo(i); } }, assessShort(it.stem))),
-        h("td", {}, it.answer ? null : h("span", { class: "pill-s fail" }, "Not answered"), it.flagged ? h("span", { class: "pill-s wrn" }, "Flagged") : null,
-          it.answer && !it.flagged ? h("span", { class: "pill-s neu" }, "Answered") : null)))))
+        h("td", {}, assessDone(it) ? null : h("span", { class: "pill-s fail" }, "Not answered"), it.flagged ? h("span", { class: "pill-s wrn" }, "Flagged") : null,
+          assessDone(it) && !it.flagged ? h("span", { class: "pill-s neu" }, "Answered") : null)))))
       : h("p", { class: "muted-text" }, "Nothing to show here."),
   ];
 }
@@ -543,7 +783,7 @@ function assessResults() {
   return [
     h("div", { class: "assess-headline card" },
       h("div", {}, h("div", { class: "muted-text small" }, `${r.label} · ${r.title}`),
-        h("div", { class: "assess-big" }, `${r.correct} of ${r.total} `, h("span", { class: "muted-text" }, `(${r.percent}%)`))),
+        h("div", { class: "assess-big" }, `${assessPoints(r.correct)} of ${r.total} `, h("span", { class: "muted-text" }, `(${r.percent}%)`))),
       h("p", { class: "muted-text small assess-headline-note" }, `Not ${r.vendor ? `a ${r.vendor}` : "the vendor's"} score, not a scaled score and not a prediction of passing. It shows which objectives your answers were strong or weak on in this ${r.kind === "practice" ? "practice exam" : "assessment"}. ${time}`),
       h("div", { class: "row wrap" },
         btn("See answers and why", null, () => assessOpenAnswers(), "tool primary"),
@@ -554,13 +794,13 @@ function assessResults() {
       h("thead", {}, h("tr", {}, h("th", {}, "Domain"), h("th", {}, "Weight"), h("th", {}, "Correct"), h("th", { class: "assess-barcol" }, h("span", { class: "sr-only" }, "Share correct")))),
       h("tbody", {}, r.by_domain.map((d) => h("tr", {},
         h("td", {}, d.title ? `${d.domain} ${d.title}` : `Domain ${d.domain}`), h("td", {}, assessWeight(d.weight)),
-        h("td", {}, `${d.correct} of ${d.total}`),
+        h("td", {}, `${assessPoints(d.correct)} of ${d.total}`),
         h("td", { "aria-hidden": "true" }, h("div", { class: "assess-bar" }, h("i", { style: `width:${d.percent}%` }))))))),
     h("h3", {}, "Weakest objectives"),
     weak.length ? h("table", { class: "assess-table" },
       h("thead", {}, h("tr", {}, h("th", {}, "Objective"), h("th", {}, "Correct"), h("th", {}, "Next step"))),
       h("tbody", {}, weak.map((o) => h("tr", {},
-        h("td", {}, o.text ? `${o.objective} ${o.text}` : o.objective), h("td", {}, `${o.correct} of ${o.total}`),
+        h("td", {}, o.text ? `${o.objective} ${o.text}` : o.objective), h("td", {}, `${assessPoints(o.correct)} of ${o.total}`),
         h("td", {}, h("a", { href: "#", onclick: (e) => { e.preventDefault(); assessStart({ kind: "drill", objectives: [o.objective] }); } }, `Objective drill for ${o.objective}`))))))
       : h("p", { class: "muted-text" }, "Every objective in this assessment was answered correctly."),
     r.left_out?.length ? h("p", { class: "muted-text small" }, `${r.left_out.length} question${r.left_out.length === 1 ? " was" : "s were"} removed from the bank during this exam and left out of the result.`) : null,
@@ -598,10 +838,11 @@ function assessAnswers() {
   return [head, switcher,
     h("section", { class: "assess-qpanel card", "aria-labelledby": "assess-ans-stem" },
       h("div", { class: "assess-qhead" }, h("span", {}, `Question ${it.n} of ${assess.answers.length} · objective ${it.objective}`),
-        h("span", {}, it.correct ? h("span", { class: "pill-s pass" }, "Correct") : h("span", { class: "pill-s fail" }, it.answer ? "Wrong" : "Not answered"))),
+        h("span", {}, it.correct ? h("span", { class: "pill-s pass" }, "Correct") : it.points > 0 ? h("span", { class: "pill-s wrn" }, "Partly right")
+          : h("span", { class: "pill-s fail" }, assessDone(it) ? "Wrong" : "Not answered"))),
       h("p", { class: "assess-stem", id: "assess-ans-stem" }, it.stem),
       it.changed_since ? h("p", { class: "muted-text small" }, "This question was edited after your exam. Your result stays as it was scored.") : null,
-      assessAnswerList(it, it.answer, it.key, it.also_accept, it.correct, it.explanation, it.source),
+      assessAnswerList(it, it.answer, it.key, it.also_accept, it.correct, it.explanation, it.source, it),
       h("div", { class: "assess-qfoot" }, h("span", { class: "muted-text small" }, `${at + 1} of ${shown.length} shown`),
         h("div", { class: "row" },
           btn("◂ Previous", null, () => { assess.answerAt = at - 1; assessDraw(); }, "tool outline", { disabled: at === 0 }),
@@ -609,10 +850,12 @@ function assessAnswers() {
 }
 
 // The options with the learner's answer and the right one marked in words, then why and the source page.
-function assessAnswerList(it, mine, key, also, correct, explanation, source) {
+function assessAnswerList(it, mine, key, also, correct, explanation, source, score = {}) {
   const text = Object.fromEntries(it.options.map((o) => [o.id, o.text]));
   let list;
-  if (it.type === "order") {
+  if (ASSESS_PARTS[it.type]) {
+    list = [assessScoreLine(it, mine, score), assessPartsReview(it, mine || [], key)];
+  } else if (it.type === "order") {
     list = h("div", { class: "assess-orders" },
       h("div", {}, h("div", { class: "assess-tag" }, correct ? "Your order ✓" : "Your order ✗"),
         mine?.length ? h("ol", {}, mine.map((id) => h("li", {}, assessText(text[id] || "")))) : h("p", { class: "muted-text" }, "Not answered.")),
@@ -627,7 +870,7 @@ function assessAnswerList(it, mine, key, also, correct, explanation, source) {
       return h("li", { class: isKey ? "key" : isMine ? "mine" : "" }, h("span", { class: "assess-tag" }, tag), h("span", {}, assessText(o.text)));
     }));
   }
-  return h("div", {}, list,
+  return h("div", { class: "assess-review" }, list,
     h("div", { class: "assess-why" }, h("strong", {}, "Why: "), explanation, h("br"), "Based on: ",
       h("a", { href: "#", onclick: (e) => { e.preventDefault(); openLink(source); } }, assessSourceName(source))));
 }

@@ -80,8 +80,8 @@ class OptimizeMixin:
 
     def _optimize_allowed(self) -> None:
         if not app_settings.value("allow_optimize_lakehouse"):
-            raise PermissionError("Your organization has turned off shared optimization lakehouses "
-                                  "(allow_optimize_lakehouse in its policy file).")
+            raise PermissionError("Your organization has turned off shared optimization lakehouses. "
+                                  + app_settings.ask_it("allow_optimize_lakehouse"))
 
     def _optimize_lake(self, workspace_id: str, lakehouse_id: str, schemas: bool | None = None,
                        token: Callable[[], str] | None = None) -> Any:
@@ -476,13 +476,14 @@ class OptimizeMixin:
             name = (self.optimize_registry.active() or {}).get("lakehouse_name") or "the central lakehouse"
             n = lambda count, word: f"{count} {word}{'s' if count != 1 else ''}"  # noqa: E731
             changed = "What would be added changed since you looked. " if approve and confirm else ""
-            ask = PermissionError(
-                f"{changed}Adds {n(len(findings), 'finding')} and {n(len(recommendations), 'recommendation')} "
-                f"from {source} to {name}, about {n(len(artifacts), 'item')} in {n(len(workspaces), 'workspace')}: "
-                "their names and ids, what was found and why, and the evidence and impact figures, with anything "
-                "that looks like a secret removed. No code or data, and everyone who can read the lakehouse sees "
-                "them, whatever they can open in Fabric. Confirm to continue.")
+            what = (f"Adds {n(len(findings), 'finding')} and {n(len(recommendations), 'recommendation')} "
+                    f"from {source} to {name}, about {n(len(artifacts), 'item')} in {n(len(workspaces), 'workspace')}: "
+                    "their names and ids, what was found and why, and the evidence and impact figures, with anything "
+                    "that looks like a secret removed. No code or data, and everyone who can read the lakehouse sees "
+                    "them, whatever they can open in Fabric.")
+            ask = PermissionError(f"{changed}{what} Confirm to continue.")
             ask.would = out  # type: ignore[attr-defined]
+            ask.what = what  # type: ignore[attr-defined]  # the sentence alone, for a dialog that asks itself
             raise ask
         sent = self._optimize_write(ANALYSIS, payload)
         return out | {"shared": sent["sent"], "queued": len(findings) if sent["queued"] else 0,

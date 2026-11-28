@@ -40,8 +40,11 @@ def test_spark_sql_writes_to_json_as_spark_and_databricks_sql_as_duckdb(duck):
     query = "SELECT to_json(named_struct('t', TIMESTAMP '2026-01-02 03:04:05')) AS j"
     spark = duck._sql(query, "spark")
     databricks = duck._sql(query, "databricks")
-    assert "LIST_TRANSFORM" in spark and "LIST_TRANSFORM" not in databricks
+    # Spark SQL writes the JSON itself (its kf_ helpers); Databricks SQL is DuckDB's TO_JSON. A timestamp's
+    # daylight-saving handling can add a LIST_TRANSFORM to either, depending on the zone, so that isn't the mark
+    assert "kf_a" in spark and "kf_a" not in databricks and databricks.startswith("SELECT CAST(TO_JSON(")
     with duckdb.connect() as con:
+        con.execute("SET TimeZone = 'UTC'")  # Spark writes the session zone's offset; UTC is Z
         assert con.sql(spark).fetchall() == [('{"t":"2026-01-02T03:04:05.000Z"}',)]
 
 
@@ -66,8 +69,8 @@ def test_a_column_never_shows_another_columns_values(duck):
     assert result.status != "ok" or result.table.to_pylist()[0]["A"] != "[1,2]"
 
 
-@pytest.mark.xfail(strict=True, reason="two VARIANT or ARRAY columns whose names differ only in case aren't written as "
-                                       "JSON: DuckDB 1.5.6 can't give the VARIANTs to Arrow, and 2.0 shows their bytes")
 def test_two_array_columns_named_alike_but_for_case_show_as_json(duck):
     result = duck.execute(CellRequest(TWO_ARRAYS, "sql", dialect="snowflake", result_rows=10))
-    assert result.status == "ok" and result.table.to_pylist() == [{"a": "[1,2]", "A": "[3]"}]
+    # both unquoted names are A in Snowflake (SFX-073); each column keeps its own value
+    assert result.status == "ok" and result.table.column_names == ["A", "A"]
+    assert [c.to_pylist() for c in result.table.columns] == [["[1,2]"], ["[3]"]]

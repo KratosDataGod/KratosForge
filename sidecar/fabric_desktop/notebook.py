@@ -186,6 +186,26 @@ def _json_value(value: Any) -> Any:
     return str(value)
 
 
+def _python_values(column: Any) -> list[Any]:
+    """``column``'s values in Python. One Python can't hold stopped to_pylist, and the cell with it: a date
+    or timestamp before year 1 (DuckDB's year 0) with an OverflowError, a struct whose fields share a name
+    (DuckDB's (NULL, NULL)) with a ValueError. That value shows as Arrow's text instead."""
+    try:
+        return list(column.to_pylist())
+    except (OverflowError, ValueError):
+        return [_python_value(scalar) for scalar in column]
+
+
+def _python_value(scalar: Any) -> Any:
+    try:
+        return scalar.as_py()
+    except (OverflowError, ValueError):
+        try:
+            return scalar.cast(pa.string()).as_py()
+        except pa.ArrowException:  # no cast to text, as for a struct
+            return str(scalar)
+
+
 def as_table(value: Any) -> pa.Table | None:
     """Arrow view of a data frame-like value, or None if it is not one."""
     module = type(value).__module__
@@ -235,7 +255,7 @@ def display(value: Any) -> dict[str, Any]:
     if table is not None:
         shown = table.slice(0, PREVIEW_ROWS)
         # Column by column, not to_pylist: its dicts keep one of two columns that share a name.
-        columns = [[_json_value(v) for v in column.to_pylist()] for column in shown.columns]
+        columns = [[_json_value(v) for v in _python_values(column)] for column in shown.columns]
         rows = [list(row) for row in zip(*columns, strict=True)] if columns else \
             [[] for _ in range(min(table.num_rows, PREVIEW_ROWS))]   # slicing a table with no columns says 1000
         total = _total_rows(value, table)
@@ -2436,18 +2456,25 @@ def _fs_magic(fs: Any, line: str) -> Any:
         return True  # as dbutils.fs.refreshMounts() on this PC
     if command not in _FS_USAGE:
         raise ValueError(f"%fs {command} isn't a command here. Use ls, head, cp, mv, rm, mkdirs or put.")
-    from .dbutils_local import _file_info, fs_magic_path
-    for path in args[:1] if command in ("put", "head") else args:
+    from .dbutils_local import fs_magic_path, volume_arg, volume_info
+    paths = args[:1] if command in ("put", "head") else args
+    for path in paths:
         try:
             fs_magic_path(path)  # bare absolute paths and dbfs:/ are Databricks storage, as in dbutils.fs
         except ValueError as exc:
             raise ValueError(f"%fs {command}: {exc}") from None
+    try:  # a /Volumes path is its volume's folder on this PC, as in dbutils.fs (databricks_volumes)
+        whole = command == "mv" or (command in ("cp", "rm") and "-r" in flags)
+        args = [volume_arg(a, whole=whole and i == 0, change=command in ("mv", "rm") and i == 0)
+                if i < len(paths) else a for i, a in enumerate(args)]
+    except ValueError as exc:
+        raise ValueError(f"%fs {command}: {exc}") from None
     if len(args) < _FS_USAGE[command] - (command == "ls"):
         raise ValueError(f"%fs {command} needs {_FS_USAGE[command]} path{'s' if _FS_USAGE[command] > 1 else ''}.")
     if command == "ls":
         import polars as pl
         # As dbutils.fs.ls lists them, so a folder's name and path end with /, as in Databricks.
-        found = [_file_info(f) for f in fs.ls(args[0] if args else "Files")]
+        found = [volume_info(f) for f in fs.ls(args[0] if args else "Files")]
         return pl.DataFrame({"name": [f.name for f in found], "path": [f.path for f in found],
                              "size": [f.size for f in found], "isDir": [f.isDir() for f in found]},
                             schema={"name": pl.Utf8, "path": pl.Utf8, "size": pl.Int64, "isDir": pl.Boolean})
@@ -2715,7 +2742,8 @@ COMPUTE = ("default", "local", "fabric")
 def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
     """A cell's settings as Jupyter and Fabric store them: the parameters tag, hidden input or
     output, and frozen (can't be edited or run); a collapsed heading section as JupyterLab stores it,
-    and a cell title where Databricks keeps it, so both read them back."""
+    and a cell title where Databricks keeps it, so both read them back. KratosForge's own settings
+    (a chart, the Fabric step, breakpoints, a slide start) go under fabric_desktop."""
     md: dict[str, Any] = {}
     tags = [t for t in meta.get("tags", []) if isinstance(t, str)]
     if tags:
@@ -2738,6 +2766,8 @@ def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
             md["fabric_desktop"]["charts"] = charts
     if meta.get("fabric_step"):  # the last cell runs on Fabric Spark (fabric_step.py)
         md.setdefault("fabric_desktop", {})["run_on"] = "fabric"
+    if meta.get("slide_start"):  # Present mode starts a slide at this cell (nbpresent.js)
+        md.setdefault("fabric_desktop", {})["slide_start"] = True
     breakpoints = breakpoints_meta(meta.get("breakpoints"))
     if breakpoints:  # the debugger's breakpoints (debugger.py), kept with the cell
         md.setdefault("fabric_desktop", {})["breakpoints"] = breakpoints
@@ -2807,6 +2837,8 @@ def _cell_meta(md: Any) -> dict[str, Any]:
         meta["charts"] = charts
     if own.get("run_on") == "fabric":
         meta["fabric_step"] = True
+    if own.get("slide_start") is True:
+        meta["slide_start"] = True
     breakpoints = breakpoints_meta(own.get("breakpoints"))
     if breakpoints:
         meta["breakpoints"] = breakpoints
@@ -2862,8 +2894,12 @@ def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[s
     keep = dict(before)
     if isinstance(keep.get("tags"), list) and any(isinstance(t, str) for t in keep["tags"]):
         del keep["tags"]
+    # editable and deletable false are the app's own only as part of frozen (run_control.frozen, which
+    # _cell_metadata writes with them); on their own they are another tool's (JupyterLab's "protect
+    # from deletion") and stay.
+    frozen = isinstance(keep.get("run_control"), dict) and on(keep["run_control"].get("frozen"))
     for k in ("editable", "deletable"):
-        if keep.get(k) is False:
+        if frozen and keep.get(k) is False:
             del keep[k]
     if keep.get(_HEADING_COLLAPSED) is True:
         del keep[_HEADING_COLLAPSED]
@@ -2876,7 +2912,7 @@ def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[s
             else:
                 del keep[key]
     if isinstance(keep.get("fabric_desktop"), dict) and keep["fabric_desktop"]:
-        rest = {k: v for k, v in keep["fabric_desktop"].items() if k not in ("chart", "charts", "run_on", "breakpoints")}
+        rest = {k: v for k, v in keep["fabric_desktop"].items() if k not in ("chart", "charts", "run_on", "breakpoints", "slide_start")}
         if rest:
             keep["fabric_desktop"] = rest
         else:
@@ -2958,6 +2994,10 @@ def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
     else:
         meta.pop("dependencies", None)
     raw_cells = [c for c in before.get("cells", []) if isinstance(c, dict)] if isinstance(before.get("cells"), list) else []
+    problem = ipynb_cell_problem(raw_cells)
+    if problem:
+        raise ValueError(f"The notebook wasn't saved, because {problem} in the file on disk. Fix that cell in a text "
+                         "editor or Jupyter, then save again.")
     read_ids = [c["cell_id"] for c in from_ipynb({"cells": raw_cells})["cells"]]
     old_cells = dict(zip(read_ids, raw_cells, strict=True))
     cells = []
@@ -2981,10 +3021,11 @@ def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
             used = _attachments_used(old.get("attachments"), "".join(cell["source"]))
             if used:
                 cell["attachments"] = used
-        cells.append(cell)
+        cells.append({k: cell[k] for k in old if k in cell} | cell)  # the file's key order, so the diff is the edit
     minor = before.get("nbformat_minor")
-    # Keys of the file's own beyond the format's (Fabric writes "notebookName"), in the file's order.
-    out = {k: v for k, v in before.items() if k not in new} | new | {"metadata": meta, "cells": cells}
+    # In the file's key order (Fabric writes nbformat first and its own "notebookName"), so the rest
+    # of the file doesn't move; a key the file didn't have goes last.
+    out = before | new | {"metadata": meta, "cells": cells}
     if isinstance(minor, int) and minor > out["nbformat_minor"]:
         out["nbformat_minor"] = minor
     return out
@@ -3087,10 +3128,16 @@ def ipynb_cell_problem(cells: list[Any]) -> str | None:
     return None
 
 
+def other_cell_type_note(cell_type: Any) -> str:
+    """The import note for a cell that isn't code or markdown (a raw cell), which comes in as code."""
+    return f"The cell's type ({str(cell_type or 'none')[:40]}) isn't code or markdown, so it comes in as a code cell."
+
+
 def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
     cells = []
     for c in nb.get("cells", []):
-        source = c.get("source", "")
+        source = c.get("source")
+        source = "" if source is None else source
         cell = {"type": "markdown" if c.get("cell_type") == "markdown" else "code",
                 "source": "".join(source) if isinstance(source, list) else source}
         if isinstance(c.get("id"), str):
@@ -3150,6 +3197,20 @@ def _write_atomic(path: Path, text: str) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def _loaded_notebook(nb: Any) -> dict[str, Any]:
+    """from_ipynb of a parsed .ipynb, refused (TypeError) when the file is JSON but not a notebook the
+    rest of the app can read: every cell's source is text, the lakehouse and workspace are objects."""
+    if not isinstance(nb, dict):
+        raise TypeError(f"it holds {type(nb).__name__}, not one JSON object")
+    loaded = from_ipynb(nb)
+    if not all(isinstance(c["source"], str) for c in loaded["cells"]):
+        raise TypeError("a cell's source isn't text")
+    for key in ("lakehouse", "workspace"):
+        if loaded[key] is not None and not isinstance(loaded[key], dict):
+            raise TypeError(f"its {key} isn't an object")
+    return loaded
+
+
 def disk_stamp(nb: dict[str, Any]) -> str:
     """A short hash of a saved notebook's cells (type, source, and the cell settings the app reads,
     such as a parameters tag), so a save can tell whether the file was changed since the app read it,
@@ -3182,13 +3243,23 @@ class NotebookStore:
         return [{"name": name, "modified": p.stat().st_mtime} for name, p in files]
 
     def load(self, name: str) -> dict[str, Any]:
+        damaged = (f"{self.path(name).name} is damaged or isn't a notebook any more, so it can't be opened. The "
+                   "file has been left as it is. Fix it in a text editor, or put back an earlier copy.")
         try:
             nb = json.loads(self.path(name).read_text(encoding="utf-8"))
-        except ValueError as exc:  # cut off by a power cut, NUL bytes, or Git conflict markers: left as it is
-            raise ValueError(f"{self.path(name).name} is damaged or isn't a notebook any more, so it can't be "
-                             "opened. The file has been left as it is. Fix it in a text editor, or put back an "
-                             "earlier copy.") from exc
-        return {"name": name, **from_ipynb(nb), "disk_stamp": disk_stamp(nb)}
+        except (ValueError, RecursionError) as exc:  # cut off by a power cut, NUL bytes, Git conflict markers
+            raise ValueError(damaged) from exc
+        problem = ipynb_cell_problem(nb["cells"]) if isinstance(nb, dict) and isinstance(nb.get("cells"), list) else None
+        if problem:
+            raise ValueError(f"{self.path(name).name} can't be opened, because {problem}. The file has been left as it "
+                             "is. Fix that cell in a text editor or Jupyter, then open it again.")
+        try:
+            loaded = _loaded_notebook(nb)
+            stamp = disk_stamp(nb)
+        except (ValueError, TypeError, AttributeError, RecursionError) as exc:
+            # JSON that isn't a notebook (a list, a lakehouse that is text): left as it is
+            raise ValueError(damaged) from exc
+        return {"name": name, **loaded, "disk_stamp": stamp}
 
     def save(self, name: str, cells: builtins.list[dict[str, Any]], lakehouse: dict[str, Any] | None = None,
              compute: str | None = None, workspace: dict[str, Any] | None = None,
@@ -3227,6 +3298,10 @@ class NotebookStore:
             now = disk_stamp(before) if parsed else raw_stamp(raw)
             if now != expected_stamp:
                 return {"name": name, "changed_on_disk": True, "disk_stamp": now, "unreadable": not parsed}
+        problem = ipynb_cell_problem(before["cells"]) if isinstance(before.get("cells"), list) else None
+        if problem:
+            raise ValueError(f"{path.name} wasn't saved, because {problem} in the file on disk. Fix that cell in a "
+                             "text editor or Jupyter, then save again.")
         saved = from_ipynb(before) if before and (compute is None or workspace is None) else {}
         if compute is None:
             compute = saved.get("compute", "default")

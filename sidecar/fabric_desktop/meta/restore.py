@@ -12,7 +12,7 @@ from typing import Any
 
 from deltalake import CommitProperties, DeltaTable
 
-from .. import delta_profile
+from .. import delta_profile, maintenance
 
 _MAINTENANCE = ("OPTIMIZE", "VACUUM START", "VACUUM END", "SET TBLPROPERTIES")
 _KEEPS_FILES = ("VACUUM", "SET TBLPROPERTIES")
@@ -87,15 +87,18 @@ def versions(uri: str, options: dict[str, str] | None, retention_days: int, limi
 
 
 def restore(uri: str, options: dict[str, str] | None, version: int, metadata: dict[str, str] | None = None) -> dict[str, Any]:
-    """Restore the table to ``version`` as a new commit. Fails, changing nothing, if files it needs are gone."""
-    table = DeltaTable(uri, storage_options=options)
-    before = table.version()
-    if int(version) >= before:
-        raise ValueError(f"Version {version} isn't earlier than the current version ({before}).")
-    metrics = table.restore(int(version), ignore_missing_files=False,
-                            commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
-    after = DeltaTable(uri, storage_options=options)
-    delta_profile.note_after_write(after)
-    return {"from_version": before, "to_version": int(version), "new_version": after.version(),
-            "files_restored": int(metrics.get("numRestoredFile", 0) or 0),
-            "files_removed": int(metrics.get("numRemovedFile", 0) or 0)}
+    """Restore the table to ``version`` as a new commit. Fails, changing nothing, if files it needs are gone.
+    Under the table's compaction lock, so a Compact on this PC can't delete a file it brings back meanwhile."""
+    with maintenance.compaction_lock(uri):
+        table = DeltaTable(uri, storage_options=options)
+        before = table.version()
+        if int(version) >= before:
+            raise ValueError(f"Version {version} isn't earlier than the current version ({before}).")
+        metrics = table.restore(int(version), ignore_missing_files=False,
+                                commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None,
+                                post_commithook_properties=maintenance.KEEP_LOG)
+        after = DeltaTable(uri, storage_options=options)
+        delta_profile.note_after_write(after)
+        return {"from_version": before, "to_version": int(version), "new_version": after.version(),
+                "files_restored": int(metrics.get("numRestoredFile", 0) or 0),
+                "files_removed": int(metrics.get("numRemovedFile", 0) or 0)}

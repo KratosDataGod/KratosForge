@@ -124,17 +124,17 @@ def _ctes_into_using(tree: exp.Merge, target: exp.Table) -> None:
         return
     ctes = {c.alias_or_name.lower(): c.alias_or_name for c in with_.expressions}
     if not target.args.get("db") and target.name.lower() in ctes:
-        raise ValueError(f"A MERGE into the CTE '{target.name}' can't be run on the local engine yet, because it "
-                         "changes tables only. Name the table after MERGE, and put the CTE's filter in ON or in a "
-                         "WHEN clause's AND.")
+        raise ValueError(f"A MERGE into the CTE '{target.name}' can't run on the local engine yet, because a "
+                         "local MERGE changes tables only. Name the table after MERGE, and put the CTE's filter in ON "
+                         "or in a WHEN clause's AND.")
     using = tree.args.get("using")
     for key in ("on", "whens"):
         part = tree.args.get(key)
         for table in part.find_all(exp.Table) if isinstance(part, exp.Expression) else []:
             if not table.args.get("db") and table.name.lower() in ctes:
                 raise ValueError(f"This MERGE reads the CTE '{ctes[table.name.lower()]}' outside USING, and the "
-                                 "local engine can't run that yet, because it carries a MERGE's CTEs into its USING "
-                                 "only. Join what you need into the USING query, or put the CTE's query where it is "
+                                 "local engine can't run that yet, because it moves a MERGE's CTEs into USING only."
+                                 " Join what you need into the USING query, or put the CTE's query where it is "
                                  "read.")
     alias = using.alias if using is not None else ""
     if using is None or not (alias or isinstance(using, exp.Table)):

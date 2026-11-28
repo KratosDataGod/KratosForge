@@ -13,8 +13,8 @@ DBX = "dbx-de-associate"
 
 
 def test_an_exercise_id_without_a_folder_is_not_an_exercise():
-    with pytest.raises(ValueError, match="dp-700 has no exercise E99"):
-        exercises.get(PACK, "E99")
+    with pytest.raises(ValueError, match="dp-700 has no exercise E998"):
+        exercises.get(PACK, "E998")
     with pytest.raises(ValueError, match="has no exercise"):
         exercises.get(PACK, "../E01")
 
@@ -86,9 +86,9 @@ def test_a_pipeline_s_child_file_and_a_notebook_must_be_there(broken):  # noqa: 
 
 
 def test_a_grading_folder_without_its_exercise_is_reported(broken, tmp_path):  # noqa: F811
-    stray = tmp_path / "packs" / PACK / "grading" / "E98"
+    stray = tmp_path / "packs" / PACK / "grading" / "E997"
     stray.mkdir(parents=True)
-    assert f"{PACK} grading/E98: no exercise has this id" in broken("E36", {})
+    assert f"{PACK} grading/E997: no exercise has this id" in broken("E36", {})
 
 
 def test_an_exercise_s_own_starter_is_its_reference_starter():
@@ -149,7 +149,7 @@ def test_exactly_two_planted_wrong_answers_are_enough_for_every_lab(broken, eid)
 
 
 @pytest.mark.parametrize("eid, change, says", [
-    ("E36", {"prerequisites": ["E99"]}, "E36: unknown prerequisite E99"),
+    ("E36", {"prerequisites": ["E998"]}, "E36: unknown prerequisite E998"),
     ("C1", {"validation": [{"kind": "result_matches"}]}, "C1: check result_matches needs table"),
     ("E36", {"validation": [{"kind": "result_matches", "data": "hidden"}]},
      "E36: a duckdb_lab check reads the answer's last result on the setup's data"),
@@ -172,5 +172,5 @@ def test_only_folders_named_like_an_exercise_are_exercises(broken, tmp_path):  #
     root = tmp_path / "packs"
     broken("E36", {})
     (root / PACK / "exercises" / "notes").mkdir()
-    (root / PACK / "exercises" / "E97").write_text("not a folder", encoding="utf-8")
+    (root / PACK / "exercises" / "E996").write_text("not a folder", encoding="utf-8")
     assert exercises.ids(PACK, root) == exercises.ids(PACK)

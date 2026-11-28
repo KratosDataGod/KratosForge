@@ -96,7 +96,7 @@ def test_an_unknown_best_local_counts_as_local_verified():
     assert exercises.completes({"best_local": "bogus"}, "simulated") is False
 
 
-@pytest.mark.parametrize("eid", ["E99", "X1", "../E36"])
+@pytest.mark.parametrize("eid", ["E998", "X1", "../E36"])
 def test_get_refuses_an_exercise_that_isnt_there(eid):
     with pytest.raises(ValueError, match=f"{PACK} has no exercise"):
         exercises.get(PACK, eid)
@@ -152,7 +152,7 @@ def test_blank_hints_are_caught(root):
 
 
 def test_a_prerequisite_exercise_must_exist(root):
-    assert _has(_edit(root, "E36", {"prerequisites": ["E99"]}), "unknown prerequisite E99")
+    assert _has(_edit(root, "E36", {"prerequisites": ["E998"]}), "unknown prerequisite E998")
     assert not _has(_edit(root, "E36", {"prerequisites": ["E21", "LAB-04"]}), "unknown prerequisite")
 
 
@@ -217,5 +217,5 @@ def test_a_hidden_data_check_needs_hidden_sql(root):
 
 
 def test_grading_with_no_exercise_is_caught(root):
-    (root / PACK / "grading" / "E99").mkdir()
-    assert f"{PACK} grading/E99: no exercise has this id" in exercises.problems(root)
+    (root / PACK / "grading" / "E998").mkdir()
+    assert f"{PACK} grading/E998: no exercise has this id" in exercises.problems(root)

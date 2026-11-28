@@ -158,10 +158,10 @@ _TARGET = r"[A-Za-z_][\w.]*(?:\[[^\]=\n]*\][\w.]*)*"
 _ASSIGN_MAGIC = re.compile(rf"^(\s*{_TARGET}(?:\s*,\s*{_TARGET})*\s*=\s*)[%!].*$")
 
 
-def syntax_problems(source: str) -> list[dict[str, Any]]:
-    """The first Python syntax error in a cell, as {line, col, end_line, end_col, message} with
-    1-based lines and 0-based columns in the cell's own text. Cells in another language (``%%sql``,
-    ``%%html``...) and IPython syntax (``%magic``, ``!cmd``, ``x = %sql ...``) aren't errors."""
+def python_text(source: str) -> tuple[str, int] | None:
+    """A Python cell's text as Python's parser can read it, and how many lines were cut from its top
+    (a ``%%pyspark`` line): IPython syntax (``%magic``, ``!cmd``, ``x = %sql ...``) becomes plain Python
+    that keeps every column. None for a cell in another language (``%%sql``, ``%%html``...)."""
     # The first line with text, as IPython finds a cell magic: lines of only spaces before it don't count (#2746).
     head = source.split("\n")
     blank = next((i for i, line in enumerate(head) if line.strip()), len(head))
@@ -170,7 +170,7 @@ def syntax_problems(source: str) -> list[dict[str, Any]]:
     offset = 0
     if m:
         if m.group(1).lower() not in _PY_CELL_MAGICS:
-            return []
+            return None
         offset = blank + 1
         source = "\n".join(head[offset:])
     lines = []
@@ -183,7 +183,17 @@ def syntax_problems(source: str) -> list[dict[str, Any]]:
             # `x = %sql ...` or `files = !ls` (IPython assignment forms): only a plain target at the
             # start of the line, so `=%` or `=!` inside a string is left alone.
             lines.append(_ASSIGN_MAGIC.sub(lambda a: a.group(1) + "None", line))
-    text = "\n".join(lines)
+    return "\n".join(lines), offset
+
+
+def syntax_problems(source: str) -> list[dict[str, Any]]:
+    """The first Python syntax error in a cell, as {line, col, end_line, end_col, message} with
+    1-based lines and 0-based columns in the cell's own text. Cells in another language (``%%sql``,
+    ``%%html``...) and IPython syntax (``%magic``, ``!cmd``, ``x = %sql ...``) aren't errors."""
+    cell = python_text(source)
+    if cell is None:
+        return []
+    text, offset = cell
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")

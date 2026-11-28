@@ -5114,7 +5114,10 @@ test("Python cells get hover, signature help, syntax errors and completion docs"
   const intel = fs.readFileSync(path.join(ui, "nbintel.js"), "utf8");
   assert.match(intel, /rpc\("kernel_inspect", \{ code: line\.text, cursor: pos - line\.from, notebook: state\.notebook\?\.name \}\)/);
   assert.match(intel, /rpc\("kernel_inspect", \{ code, call: true, notebook: state\.notebook\?\.name \}\)/);
-  assert.match(intel, /rpc\("notebook_syntax", \{ source \}\)/);
+  assert.match(intel, /rpc\("notebook_syntax", ctx \? \{ source, cells: ctx\.cells, cell: ctx\.cell, settings \} : \{ source \}\)/);
+  // Lint (nblint.py) is amber or blue, never red; nothing is checked while Present covers the notebook.
+  assert.match(intel, /const severity = p\.severity === "warning" \|\| p\.severity === "info" \? p\.severity : "error";/);
+  assert.match(intel, /if \(nbPresent\.root \|\| nbPresent\.opening\) return intelLastLint\.get\(view\) \|\| \[\];/);
   assert.match(intel, /function intelLive\(\) \{\n\s+return state\.notebook && !nbWhere\(state\.notebook\)\.fabric;/);
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
   assert.ok(html.indexOf('src="nbintel.js"') > html.indexOf('src="notebook.js"'));

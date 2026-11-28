@@ -1,8 +1,8 @@
 // IntelliSense in Python cells, beyond completion: hover a name for its signature and docs (or a
 // variable's type and value), signature help while typing a call's arguments, docs for the
-// highlighted completion, and a red underline for Python syntax errors as you type.
-// It all comes from the local kernel and engine (kernel_inspect, notebook_syntax): no AI service,
-// and nothing is run. With Runs on: Fabric there are no live variables, so only the syntax check works.
+// highlighted completion, and as you type a red underline for Python syntax errors and amber ones for
+// lint (a name no cell defines, the Best practices rules; nblint.py). It all comes from the local kernel
+// and engine (kernel_inspect, notebook_syntax): no AI service, and nothing is run. With Runs on: Fabric there are no live variables, so only the syntax check works.
 
 let intelTip = null;
 let intelHoverTimer = 0;
@@ -163,30 +163,79 @@ function intelCompletionInfo(base, label) {
   };
 }
 
-// ---------- syntax errors ----------
+// ---------- syntax errors and lint warnings ----------
 
+// The notebook's code cells as the Best practices panel sends them (practiceSources, nbpractices.js), and
+// which of them this editor is, so the engine reads names from every cell (they share one namespace).
+function intelLintCells(view, source) {
+  const nb = state.notebook;
+  const cell = nb?.cells.find((c) => editors.get(c.id) === view);
+  if (!cell || cell.type !== "code") return null;
+  const { sources, at } = practiceSources(nb.cells);
+  const index = at.indexOf(nb.cells.indexOf(cell));
+  if (index < 0) return null;
+  sources[index] = source;
+  return { nb, cells: sources, cell: index, n: at[index] + 1 };
+}
+
+// The governance settings the panel uses (its own copy once it has read them), read once per notebook,
+// so a rule a policy turns off or changes isn't underlined differently from the panel.
+const intelPracticeSettings = new WeakMap();
+async function intelLintSettings(nb) {
+  if (nb.practices?.settings) return nb.practices.settings;
+  if (!intelPracticeSettings.has(nb)) {
+    intelPracticeSettings.set(nb, rpc("governance_practice_settings", { kind: "notebook" })
+      .then((out) => out?.settings || {}, () => ({})));
+  }
+  return intelPracticeSettings.get(nb);
+}
+
+// Best-practice findings someone dismissed (learn.js) leave the cell as they leave the panel; the rest stay.
+async function intelLintShown(nb, problems, view) {
+  const rules = problems.filter((p) => p.source === "Best practices");
+  if (!rules.length) return problems;
+  const settings = await intelLintSettings(nb);
+  const doc = view.state.doc;
+  await learnPrepareFindings(rules, (p) => doc.line(Math.min(Math.max(p.line, 1), doc.lines)).text);  // learn.js
+  const { shown } = learnSplitFindings(rules, `${nb.place?.root || "notebooks"}/${nb.name}`, (id) => !!settings?.[id]?.enabled);
+  return problems.filter((p) => p.source !== "Best practices" || shown.includes(p));
+}
+
+// Red for the first syntax error, as before; amber (warning) or blue (info) for lint: a name no cell defines,
+// and the panel's best-practice rules. Nothing while Present (nbpresent.js) covers the notebook: its last
+// marks stay, so closing it shows them again.
+const intelLastLint = new WeakMap();
 function intelLinter() {
   return CM.linter(async (view) => {
+    if (nbPresent.root || nbPresent.opening) return intelLastLint.get(view) || [];  // nbpresent.js
     const source = view.state.doc.toString();
     if (!source.trim()) return [];
+    const ctx = intelLintCells(view, source);
+    const practicesOn = !PREVIEW_FEATURES.practices || previewShown();  // features.js: the panel is a preview
     let problems = [];
     try {
-      problems = await rpc("notebook_syntax", { source });
+      const settings = ctx && practicesOn ? await intelLintSettings(ctx.nb) : null;
+      problems = await rpc("notebook_syntax", ctx ? { source, cells: ctx.cells, cell: ctx.cell, settings } : { source });
     } catch {
       return [];
     }
+    if (!practicesOn) problems = problems.filter((p) => p.source !== "Best practices");
+    if (ctx) problems = await intelLintShown(ctx.nb, problems, view).catch(() => problems);
     if (view.state.doc.toString() !== source) return [];
     const doc = view.state.doc;
     const at = (line, col) => {
       const l = doc.line(Math.min(Math.max(line, 1), doc.lines));
       return Math.min(l.from + Math.max(col, 0), l.to);
     };
-    return problems.map((p) => {
+    const marks = problems.map((p) => {
       const from = at(p.line, p.col);
       let to = at(p.end_line, p.end_col);
       if (to <= from) to = Math.min(from + 1, doc.length);
-      return { from, to: Math.max(to, from), severity: "error", message: p.message, source: "Python" };
+      const severity = p.severity === "warning" || p.severity === "info" ? p.severity : "error";
+      return { from, to: Math.max(to, from), severity, message: p.message, source: p.source || "Python" };
     });
+    intelLastLint.set(view, marks);
+    return marks;
   }, { delay: 700 });
 }
 

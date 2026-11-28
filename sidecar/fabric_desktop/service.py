@@ -882,10 +882,17 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """Hover docs or signature help for the notebook editor (intellisense.py); runs no code."""
         return self.sessions.kernel(notebook).inspect(code, cursor, bool(call))
 
-    def notebook_syntax(self, source: str) -> list[dict[str, Any]]:
-        """The first Python syntax error in a cell, for the editor's red underline."""
+    def notebook_syntax(self, source: str, cells: list[str] | None = None, cell: int | None = None,
+                        settings: dict[str, dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+        """The first Python syntax error in a cell, for the editor's red underline. Given the notebook's code
+        ``cells`` and which one this is, a cell without one also gets its lint warnings (nblint.py): names
+        nothing defines, and the best-practice findings the panel lists, with the panel's ``settings``."""
         from .intellisense import syntax_problems
-        return syntax_problems(source)
+        problems = syntax_problems(source)
+        if problems or cells is None or cell is None:
+            return problems
+        from .nblint import lint
+        return lint(source, cells, int(cell), settings)
 
     def notebook_symbol(self, cells: list[dict[str, Any]], cell: int = 0, offset: int = 0,
                         name: str | None = None) -> dict[str, Any]:

@@ -116,8 +116,9 @@ def check(sources: list[str], scheduled: bool = False,
     counts: dict[str, list[tuple[int, int]]] = {}
     trees: list[tuple[int, ast.AST]] = []  # each Python cell's tree, for rules that read across cells
     for n, source in enumerate(sources, 1):
-        for rule_id, line in _cell(source, scheduled, counts, n, trees):
-            found.append(_finding(rule_id, n, line, settings))
+        for rule_id, at in _cell(source, scheduled, counts, n, trees):
+            place = _place(source, at)
+            found.append(_finding(rule_id, n, place["line"], settings, place=place))
     parsed = {n for n, _ in trees}
     other_text = [source if n not in parsed else  # a %%sql cell, or a cell's magic and shell lines, may name a frame
                   "\n".join(line for line in source.split("\n") if line.lstrip().startswith(("%", "!")))
@@ -133,7 +134,7 @@ def check(sources: list[str], scheduled: bool = False,
 
 
 def _finding(rule_id: str, cell: int, line: int, settings: dict[str, dict[str, Any]],
-             detail: str = "") -> dict[str, Any] | None:
+             detail: str = "", place: dict[str, int] | None = None) -> dict[str, Any] | None:
     rule = _BY_ID[rule_id]
     own = settings.get(rule_id)
     own = own if isinstance(own, dict) else {}
@@ -143,25 +144,60 @@ def _finding(rule_id: str, cell: int, line: int, settings: dict[str, dict[str, A
     where = f"cell {cell}, line {line}"
     return {"rule_id": rule_id, "severity": severity, "rule": rule.name, "category": rule.category,
             "object_type": "Cell", "object": f"{where}: {detail}" if detail else where, "cell": cell, "line": line,
-            "description": rule.description, "url": url(rule_id)}
+            "description": rule.description, "url": url(rule_id), **(place or {})}
+
+
+# Where a rule found something in a cell: a line (1-based), a parsed node, or (start, end) offsets into the source.
+_At = int | ast.AST | tuple[int, int]
+
+
+def _place(source: str, at: _At) -> dict[str, int]:
+    """``at`` as {line} or {line, col, end_line, end_col}: 1-based lines, 0-based columns counted in characters
+    of the cell's own text, so the editor can underline the exact code (Python's parser counts UTF-8 bytes)."""
+    if isinstance(at, int):
+        return {"line": at}
+    if isinstance(at, tuple):
+        start, end = at
+        while start < end and source[start] in " \t\n":  # a pip line's match starts with its indent
+            start += 1
+        line = _line_of(source, start)
+        end_line = _line_of(source, end)
+        return {"line": line, "col": start - (source.rfind("\n", 0, start) + 1),
+                "end_line": end_line, "end_col": end - (source.rfind("\n", 0, end) + 1)}
+    line = getattr(at, "lineno", 1)
+    end_line = getattr(at, "end_lineno", None) or line
+    lines = source.split("\n")
+    end_col = getattr(at, "end_col_offset", None)
+    if end_line != line:  # a loop, a handler or a call over several lines: its first line is enough to point at
+        end_line, end_col = line, None
+    return {"line": line, "col": _chars(lines, line, getattr(at, "col_offset", 0)),
+            "end_line": end_line, "end_col": _chars(lines, end_line, end_col)}
+
+
+def _chars(lines: list[str], line: int, byte_col: int | None) -> int:
+    """A column the parser gave in UTF-8 bytes, in characters of that line (the line's end when there's none)."""
+    text = lines[line - 1] if 0 < line <= len(lines) else ""
+    if byte_col is None:
+        return len(text)
+    return len(text.encode("utf-8")[:byte_col].decode("utf-8", errors="ignore"))
 
 
 def _cell(source: str, scheduled: bool, counts: dict[str, list[tuple[int, int]]], n: int,
-          trees: list[tuple[int, ast.AST]] | None = None) -> Iterator[tuple[str, int]]:
+          trees: list[tuple[int, ast.AST]] | None = None) -> Iterator[tuple[str, _At]]:
     for f in scan_text(source):
         yield "NB001", f["line"]
     for m in _ONELAKE_ID_PATH.finditer(source):
-        yield "NB002", _line_of(source, m.start())
+        yield "NB002", m.span()
     for m in _PIP.finditer(source):
-        line = _line_of(source, m.start())
         if scheduled:
-            yield "NB008", line
+            yield "NB008", m.span()
         if _unpinned(m.group(1)):
-            yield "NB009", line
+            yield "NB009", m.span()
     first = source.lstrip().split("\n", 1)[0].strip().lower()
     if first.startswith("%%") and first.split()[0] not in {"%%pyspark", "%%python"}:  # those cells are Python
-        if first.startswith("%%sql") and _SELECT_STAR.search(source):
-            yield "NB006", _line_of(source, _SELECT_STAR.search(source).start())  # type: ignore[union-attr]
+        star = _SELECT_STAR.search(source) if first.startswith("%%sql") else None
+        if star:
+            yield "NB006", star.span()
         if first.startswith("%%sql"):
             yield from (("NB020", _line_of(source, at)) for at in _short_vacuums(source))
         return
@@ -202,7 +238,7 @@ def _unpinned(args: str) -> bool:
 
 
 def _python(tree: ast.AST, source: str, scheduled: bool, counts: dict[str, list[tuple[int, int]]],
-            n: int) -> Iterator[tuple[str, int]]:
+            n: int) -> Iterator[tuple[str, _At]]:
     in_loop: set[int] = set()
     decorators: set[int] = set()  # @udf(...) is found on its function, not again as a call
     # lf = pl.scan_parquet(...).filter(...), then lf.collect() later in the cell: lf is a Polars lazy frame
@@ -222,47 +258,47 @@ def _python(tree: ast.AST, source: str, scheduled: bool, counts: dict[str, list[
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(_is_udf(d) for d in node.decorator_list):
             decorators.update(id(d) for d in node.decorator_list)
-            yield "NB018", node.lineno
+            yield "NB018", node
         if isinstance(node, ast.ExceptHandler) and all(isinstance(s, ast.Pass) for s in node.body):
-            yield "NB012", node.lineno
+            yield "NB012", node
         if isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
             for inner in ast.walk(node):
                 if isinstance(inner, ast.Call) and _called(inner) in _WRITES and id(inner) not in in_loop:
                     in_loop.add(id(inner))  # a write in nested loops is one finding
-                    yield "NB010", inner.lineno
+                    yield "NB010", inner
         if not isinstance(node, ast.Call):
             continue
         name = _called(node)
         chain = _chain(node)
         if _row_by_row(node, name):
-            yield "NB014", node.lineno
+            yield "NB014", node
         if name == "filter" and _eager_polars_read(node):
-            yield "NB015", node.lineno
+            yield "NB015", node
         if scheduled and isinstance(node.func, ast.Name) and node.func.id == "print":
-            yield "NB017", node.lineno
+            yield "NB017", node
         if chain & {"read", "readStream"} and any(a.lower().startswith(("http://", "https://")) for a in _str_args(node)):
-            yield "NB019", node.lineno
+            yield "NB019", node
         if name in {"collect", "toPandas"} and not chain & {"limit", "head", "take", "sample", "tail"} \
                 and not (name == "collect" and (chain & _POLARS_LAZY or chain & lazy)) \
                 and not _aggregated(node, summed):  # a Polars lazy query's collect() runs it; few rows once aggregated
-            yield "NB003", node.lineno
+            yield "NB003", node
         elif name == "display" and scheduled and node.args and not (_chain(node.args[0]) & {"limit", "head", "sample"}):
-            yield "NB004", node.lineno
+            yield "NB004", node
         elif name in {"csv", "json", "load"} and chain & {"read", "readStream"}:
             fmt = name if name != "load" else _format(node)
             if fmt in {"csv", "json"} and "schema" not in chain:
-                yield "NB005", node.lineno
+                yield "NB005", node
         elif name == "sql" and node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
             if _SELECT_STAR.search(node.args[0].value):
-                yield "NB006", node.lineno
+                yield "NB006", node
             if any(True for _ in _short_vacuums(node.args[0].value)):
-                yield "NB020", node.lineno
+                yield "NB020", node
         elif (_is_udf(node) and id(node) not in decorators) or (name == "register" and "udf" in _chain(node) and len(node.args) >= 2):
-            yield "NB018", node.lineno
+            yield "NB018", node
         elif name == "vacuum" and _short_hours(node):
-            yield "NB020", node.lineno
+            yield "NB020", node
         elif name in {"saveAsTable", "save"} and _overwrites(node) and not _filtered(node):
-            yield "NB007", node.lineno
+            yield "NB007", node
         elif name == "count" and not node.args and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
             counts.setdefault(node.func.value.id, []).append((n, node.lineno))
 

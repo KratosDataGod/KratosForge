@@ -35,6 +35,7 @@ from . import drift as drift_mod
 from . import keys as keys_mod
 from . import preflight
 from .project import (
+    sql_expr,
     SYSTEM_COLUMNS,
     Entity,
     GateError,
@@ -288,8 +289,7 @@ class HookContext:
         self.notes: list[str] = []
 
     def read_table(self, name: str) -> pl.DataFrame:
-        allowed = self._entity.spec.get("hooks", {}).get("reads", []) + self._entity.spec.get("step", {}).get("reads", [])
-        if name not in allowed:
+        if name not in self._entity.code_reads():
             raise PermissionError(f"{self._entity.name} custom code read {name} without declaring it in reads")
         df = self._engine.read_entity(name)
         if df is None:
@@ -320,6 +320,7 @@ class Engine:
         # Each table's own Delta features choice (delta_features), checked by every write to it.
         if project is not None and store is not None:  # some callers only want its helpers
             store.delta_policies = project.delta_policies()
+            store.history_days = {l.lakehouse: l.retention_days for l in project.layers}
         # Incremental and replayed rows go into the table with a Delta MERGE (or an append), which
         # rewrites only the files they touch. False always reads the whole table and overwrites it,
         # as before 0.20; kept for comparison (examples/benchmark/large_tables.py).
@@ -1281,7 +1282,7 @@ class Engine:
         lookups = {c for lk in e.spec.get("lookup", []) for c in (lk.get("on"), lk.get("at")) if c}
         exprs = set()
         for d in e.spec.get("derive", []):
-            exprs |= set(pl.sql_expr(d["expr"]).meta.root_names())
+            exprs |= set(sql_expr(d["expr"]).meta.root_names())
         bks = {c for k in keys_mod.entity_keys(e) for c in k["business_key"]}
         needed = own | lookups | exprs | bks | (set(columns) if e.spec.get("step") else set())
         return expected, needed
@@ -1418,7 +1419,7 @@ class Engine:
         if s.get("derive"):
             t0 = time.perf_counter()
             for d in s["derive"]:
-                df = df.with_columns(pl.sql_expr(d["expr"]).alias(d["column"]))
+                df = df.with_columns(sql_expr(d["expr"]).alias(d["column"]))
             self._step(res, "derive", t0, df.height, ", ".join(e.derived))
         ctx = HookContext(self, e)
         if "after_clean" in s.get("hooks", {}):
@@ -1444,7 +1445,7 @@ class Engine:
         redone = []
         t0 = time.perf_counter()
         for d in e.spec.get("derive", []):
-            expr = pl.sql_expr(d["expr"])
+            expr = sql_expr(d["expr"])
             if all(c in df.columns for c in expr.meta.root_names()):
                 df = df.with_columns(expr.alias(d["column"]))
                 redone.append(d["column"])
@@ -1515,7 +1516,7 @@ class Engine:
                 if hi is not None:
                     bad = bad | (df[col] > hi).fill_null(False)
             elif "expr" in c:
-                bad = ~df.select(pl.sql_expr(c["expr"]).fill_null(False)).to_series()
+                bad = ~df.select(sql_expr(c["expr"]).fill_null(False)).to_series()
             elif "python" in c:
                 out = load_python(c["python"])(df, HookContext(self, e))
                 bad = ~(out if isinstance(out, pl.Series) else df.select(out).to_series()).fill_null(False)

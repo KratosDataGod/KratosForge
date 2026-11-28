@@ -1,5 +1,5 @@
 // PB-063 part 1: an automated accessibility audit of every page in a real browser, light and dark:
-// axe-core's WCAG 2.1 A and AA rules (contrast among them), every clickable thing reachable from the
+// axe-core's WCAG 2.1 A and AA and 2.2 AA rules (contrast and target size among them), every clickable thing reachable from the
 // keyboard, and a visible focus ring on every Tab stop. A serious or critical rule violation not in KNOWN_RULES,
 // or a keyboard or focus finding not in KNOWN_KEYBOARD or KNOWN_FOCUS, fails the test. A11Y_REPORT=<file> also writes the results there as
 // Markdown (docs/ux/accessibility-audit.md is made this way). axe-core is pinned in ci.yml (AXE_CORE_VERSION)
@@ -52,7 +52,7 @@ const WORKLOAD = { id: "notebook:daily_sales", kind: "notebook", kind_label: "No
   readiness: { state: "ready", label: "Ready" }, unowned: true, partial: false, errors: [], dependencies: { upstream: [], downstream: [], products: [] },
   observation: { source: "Notebooks on this PC", state: "live", label: "Live", collected_at: ago(0), age_seconds: 0, detail: "" },
   runs: [], actions: [], assignment_history: [], platform_audit: { platform: "none", waiting: 0, error: "" }, timeline: [], consumers: [], available_actions: [] };
-const RULES = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
+const RULES = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 // Each page is checked four ways. Light and dark are the window's color scheme. At 200% (Windows display scale or
 // Ctrl+plus) the window's 1440x940 lays out as 720x470: nothing may make the whole page scroll sideways, and a Tab
 // stop must be on screen and not under something else when it has focus. A Windows contrast theme (forced colors)
@@ -82,10 +82,10 @@ const KNOWN_HIDDEN = new Set([]);
 // measured in the browser with the app's colors. A new undecided item fails until it's judged here.
 const JUDGED = [
   [/^home: color-contrast @ (h1|\.hero-outline|.*\.home-hero-(kicker|title|welcome|text > p|actions\b.*))$/, "Pass: the hero's text and buttons sit on the navy sky: the gradient #01203d to #062e57, and over the picture's empty left quarter, faded into that same sky (its sky runs #10223f to #1b3664; the text always ends before the cape, at 27% of the picture). Worst case, on #1b3664: the title #ffffff 11.9:1, the welcome #e6ecf5 10.1:1, the kicker #f8991c 5.4:1. On the plain gradient (axe names the welcome h1 and the outline button by their short selectors when they sit over the picture): the title #ffffff 13.7:1 at worst, the welcome #e6ecf5 11.5:1, the kicker #f8991c 6.2:1, the outline button's label 13.7:1, and Continue is #0b1420 on its own #f8991c fill, 8.4:1 (axe can't read a picture)."],
-  [/^(create|workspaces|metadata|platform|optimize|academy|sourceControl|settings|settings-integrations|profile|monitor): color-contrast @ (h1|\.hero-outline|\.outline|.*\.home-hero-(title|actions\b.*))$/, "Pass: a page's header (pageHero, art/experience/heroes.js) puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture)."],
+  [/^(create|workspaces|metadata|platform|optimize|academy|sourceControl|settings|settings-integrations|profile|monitor)(\/[\w-]+)?: color-contrast @ (h1|\.hero-outline|\.outline|.*\.home-hero-(title|actions\b.*))$/, "Pass: a page's header (pageHero, art/experience/heroes.js), the same on each of its tabs, puts its h1 and buttons on the navy sky: the gradient #01203d to #062e57, and over each picture's empty left part, faded into that sky; the text always ends before the picture's sky line, which the page-heroes test checks for every picture at 12 widths. Measured in the browser under every glyph and button of all ten pages at 1920, 1440, 1251, 1101 and 961 px with the text hidden, the lightest pixel is #00396e: the title #ffffff is 11.6:1 at worst and the outline buttons' #ffffff labels 13.9:1. New notebook is #0b1420 on its own #f8991c fill, 8.4:1, and so is the Preview tag on its own #f8991c fill (axe can't read a picture)."],
   // axe names the arrow `.chev` or, when it needs more to tell it apart, `.chev[aria-hidden="true"]`.
   [/^(home|notebooks): color-contrast @ .*\.chev(\[aria-hidden="true"\])?$/, "Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic), and hidden from assistive tech (its button is named)."],
-  [/^(workspaces|powerbi): color-contrast @ .*\.star\[/, "Pass: the favorite star is #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa (3:1 needed for a control's graphic); its button is named."],
+  [/^(workspaces(\/[\w-]+)?|powerbi): color-contrast @ .*\.star\[/, "Pass: the favorite star is #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa (3:1 needed for a control's graphic); its button is named."],
   [/^notebook: color-contrast @ .*\.cell-grip/, "Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard."],
   [/^(notebook|sql): color-contrast @ .*(cm-gutterElement|cm-activeLineGutter)/, "Pass: line numbers are #616161, 5.3:1 on the active line (#edeef1) and 5.9:1 or more elsewhere."],
   [/^(notebook|sql): color-contrast @ span\[title="Fold (line|code)"\]/, "Pass: the fold marker is #616161 on white, 6.2:1."],
@@ -96,7 +96,9 @@ const JUDGED = [
   [/^entity: color-contrast @ #entity-toml$/, "Pass: the entity file's text is #242424 on #fafafa, 14.9:1 (axe sees the box as partly covered)."],
   [/^engine-choose: color-contrast @ (p:nth-child\(\d+\)( > (u|\.md-link-off):nth-child\(\d+\))?|u\[title="[\w.#-]+"\]|\.scroll > b|\.scroll > \.row > (\.tool\.small|\.muted-text(\.small)?))$/, "Pass: in both runs the decision pattern's text, links (a link that won't open is plain text with a dotted underline), headings and Copy example are #242424 on the dialog's white, 15.5:1, and the note beside Copy example is #616161, 6.2:1 (axe sees lines that scroll under the dialog's buttons as partly covered)."],
   [/^monitor: color-contrast @ (\.forge-(title|title > span|sub)|\.forge-more)$/, "Pass: on the Forge band's navy gradient (#000f22 to #0a2a4b, lightest taken), the title is #ffffff, 14.5:1, its state word at least 6.6:1 (#f8991c active, #7fd99b done 8.5:1, #ff9e9e failed 7.4:1, #c9d6ea quiet 9.9:1), the line under it #e6ecf5, 12.2:1, and the link to the table #ffcf8a, 10.1:1 (axe can't measure text on a gradient)."],
-  [/^shortcuts: color-contrast @ \.text:nth-child\(\d+\) > \.learn-more\[href="#"\]$/, "Pass: in both runs the notebook guide link is #1b3664 on the dialog's white, 12.0:1 (axe sees the list's last lines, which scroll under the dialog's buttons, as partly covered)."],
+  [/^profile-trees: color-contrast @ (h2|\.tree-sub|\.tree-lore|\.tree-pick|\.tree-achs-head > h3)$/, "Pass: the Skill trees band is a radial gradient from #12264a to #0b1730 (lightest taken): the class name, the line under it and the Class achievements heading are #eef2f8, 13.3:1, and the lore and the Class label #b4c0d4, 8.2:1 (axe can't measure text on a gradient)."],
+  [/^databricks_volumes: color-contrast @ \.small$/, "Pass: the volume's More actions button is the glyph ⋯ in #242424 on the card's white, 15.5:1 (axe can't measure a glyph it takes for an icon); its aria-label names it in words."],
+  [/^shortcuts: color-contrast @ \.text:nth-child\(\d+\)( > \.learn-more\[href="#"\])?$/, "Pass: in both runs the notebook guide link is #1b3664 on the dialog's white, 12.0:1, and the line it sits in is #616161, 6.2:1 (axe sees the list's last lines, which scroll under the dialog's buttons, as partly covered)."],
 ];
 const judged = (key) => JUDGED.find(([re]) => re.test(key))?.[1];
 
@@ -117,6 +119,9 @@ const EXTRA = [
   }), ready: "#dialog-root .dialog", scope: "#dialog-root" },
   // #1284: Preview screens and the dialogs people meet most, with the real engine where they read data.
   { id: "profile", name: "Profile", open: (p) => p.evaluate(() => { profilePage.tab = "overview"; go("profile"); }), ready: "#view .page.profile" },
+  // Profile > Skill trees (PB-134): the fantasy tree band, its talent buttons and the class achievements row, from the real engine.
+  { id: "profile-trees", name: "Profile > Skill trees", open: (p) => p.evaluate(() => { profilePage.tab = "trees"; go("profile"); }),
+    ready: "#view .tree-canvas .tree-node" },
   { id: "learn-lab", name: "Learn lab", open: (p) => p.evaluate(async () => {
     await rpc("learn_lab_start", { module_id: "LM-01" });  // the lab's data on this PC, as Start the lab makes it
     await learnOpen("LM-01");
@@ -144,6 +149,8 @@ const EXTRA = [
     ready: "#view .page" },
   { id: "lakehouse", name: "A lakehouse", open: (p) => p.evaluate((lh) => openLakehouse(lh), LH), ready: "#view .page" },
   { id: "databricks_sync", name: "Workspaces > Databricks", open: (p) => p.evaluate(() => go("databricks_sync")), ready: "#view .page" },
+  { id: "databricks_volumes", name: "Workspaces > Databricks > Volumes on this PC", open: (p) => p.evaluate(() => go("databricks_volumes")),
+    ready: "#view .dbx-vol-files" },
   { id: "powerbi", name: "Workspaces > Power BI", open: (p) => p.evaluate(() => go("powerbi")), ready: "#view .page" },
   { id: "embedstudio", name: "Embed Studio", open: (p) => p.evaluate(() => openEmbedStudio({ workspace_id: "w1", workspace_name: "Sales Dev",
     item_id: "r1", type: "Report", name: "Sales performance" })), ready: "#view .page" },
@@ -172,7 +179,7 @@ const results = [];
 before(async () => {
   if (skip) return;
   app = await openApp({
-    engine: ["app_settings", "profile_get", "learn_catalog", "learn_module", "learn_lab_start", "learn_patterns", "integrations_status",
+    engine: ["app_settings", "profile_get", "profile_mastery", "learn_catalog", "learn_module", "learn_lab_start", "learn_patterns", "integrations_status",
       "integrations_activity", "integrations_pending", "integrations_set_enabled", "editor_status",
       "pipeline_import", "pipeline_run_start", "pipeline_run_status", "pipeline_runs", "appstudio_home", "appstudio_connections",
       "databricks_sync_pairs", "engine_connections", "notebook_listing", "notebook_folders", "notebook_deleted"],
@@ -180,6 +187,12 @@ before(async () => {
       environment: () => ({ python: "Python 3 (test)", user: "ana@contoso.com", tenant: "t1" }),
       list_workspaces: () => [{ id: "w1", displayName: "Sales Dev", capacityId: "c1" }, { id: "w2", displayName: "Finance", capacityId: null }],
       list_lakehouses: () => [{ id: "l1", displayName: "LH_Bronze" }],
+      databricks_volumes: () => ({ root: "C:\\vol\\main", volumes: [{ name: "landing", catalog: "main", database: "sales", owner: "ana",
+        storage_location: "", volume_type: "MANAGED", comment: "raw drops", path: "/Volumes/main/sales/landing",
+        folder: "C:\\Users\\ana\\AppData\\Local\\FabricDesktop\\volumes\\main\\sales\\landing", items: 2, created: 1 }] }),
+      databricks_volume_files: ({ path }) => ({ path, truncated: false, entries: [
+        { path: "dbfs:/Volumes/main/sales/landing/2026-11-22", name: "2026-11-22", size: 0, modification_time: 1, is_dir: true },
+        { path: "dbfs:/Volumes/main/sales/landing/customers.csv", name: "customers.csv", size: 1800000, modification_time: 1, is_dir: false }] }),
       list_notebooks: () => [{ name: "Daily sales" }, { name: "Orders" }],
       list_tables: () => ({ dbo: ["sales", "customers"] }),
       list_files: () => [{ name: "orders.csv", path: "Files/raw/orders.csv", is_dir: false, size: 2048 }],
@@ -314,6 +327,44 @@ function forcedContrast(scope) {
   return [...new Set(low)];
 }
 
+// Runs in the page: with text spacing raised as WCAG 1.4.12 asks (line height 1.5, paragraphs 2 em apart, letters
+// 0.12 em and words 0.16 em apart), the words a box holds that it now cuts off. A box that shortens its text on
+// purpose (an ellipsis or a line clamp) is left out: those show the whole text in a tooltip or on the next screen.
+async function spacingClips(scope) {
+  const style = document.createElement("style");
+  style.nonce = document.getElementById("style-nonce")?.nonce || document.querySelector("style[nonce]")?.nonce || "";
+  style.textContent = "* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; } p { margin-bottom: 2em !important; }";
+  document.head.append(style);
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const cut = [];
+  for (const el of [...document.querySelectorAll(scope)].flatMap((r) => [...r.querySelectorAll("*")])) {
+    const cs = getComputedStyle(el);
+    if (!/hidden|clip/.test(cs.overflowX + cs.overflowY) || cs.textOverflow === "ellipsis" || cs.webkitLineClamp !== "none") continue;
+    if (!el.checkVisibility() || !el.textContent.trim() || el.closest(".cm-editor, [aria-hidden=true], svg, .sr-only")) continue;
+    // Words, not decoration (a glow drawn past the edge): a line of its text that ends outside the box.
+    const box = el.getBoundingClientRect();
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n; (n = walk.nextNode());) {
+      if (!n.textContent.trim() || n.parentElement.closest("[aria-hidden=true]") || !n.parentElement.checkVisibility()) continue;
+      let scrolls = false;  // inside a box of its own that scrolls (a list in a card): reached by scrolling
+      for (let a = n.parentElement; a && a !== el && !scrolls; a = a.parentElement) {
+        const ac = getComputedStyle(a);
+        scrolls = /auto|scroll/.test(ac.overflowX + ac.overflowY) || ac.textOverflow === "ellipsis";
+      }
+      if (scrolls) continue;
+      const range = document.createRange();
+      range.selectNodeContents(n);
+      const out = [...range.getClientRects()].find((r) => r.width && (r.right > box.right + 2 || r.bottom > box.bottom + 2 || r.left < box.left - 2));
+      if (!out) continue;
+      cut.push(`${el.id ? `#${el.id}` : el.tagName.toLowerCase() + [...el.classList].slice(0, 2).map((c) => `.${c}`).join("")} cuts off "${n.textContent.trim().replace(/\s+/g, " ").slice(0, 30)}"`);
+      break;
+    }
+  }
+  style.remove();
+  await new Promise((r) => requestAnimationFrame(r));
+  return [...new Set(cut)];
+}
+
 // Runs in the page before a Tab walk: each element's outline and box shadow with focus elsewhere, so a
 // ring counts only where focus changed it (a dialog's own shadow isn't a focus ring).
 function ringBaseline() {
@@ -423,6 +474,8 @@ async function audit(page, target, scheme) {
   if (!(await page.evaluate(() => typeof axe === "object"))) await page.addScriptTag({ content: axeSource });
   const scope = target.scope || "#view";
   const forcedLow = mode.media.forcedColors === "active" ? await page.evaluate(forcedContrast, scope) : [];
+  // Text spacing changes only sizes, never colours, so one scheme measures it for all: light, at full size.
+  const clipped = scheme === "light" ? await page.evaluate(spacingClips, scope) : [];
   const axeOut = await page.evaluate(async ([scope, tags, off]) => {
     const rules = Object.fromEntries(off.map((id) => [id, { enabled: false }]));
     const res = await axe.run({ include: [...document.querySelectorAll(scope)] }, { runOnly: { type: "tag", values: tags }, rules });
@@ -437,17 +490,46 @@ async function audit(page, target, scheme) {
     [document.scrollingElement, document.getElementById("view")].filter((e) => e && e.scrollWidth > e.clientWidth + 1)
       .map((e) => `${e.id ? `#${e.id}` : "the page"} is ${e.scrollWidth}px wide in a ${e.clientWidth}px window`)) : [];
   const view = await page.evaluate(() => state.view);
-  const result = { page: target.name, id: target.id, scheme, view, ...axeOut, unreachable, unnamed, moving, forcedLow, stops, sideways,
+  const result = { page: target.name, id: target.id, scheme, view, ...axeOut, unreachable, unnamed, moving, forcedLow, clipped, stops, sideways,
     noRing: stops.filter((s) => !s.shown).map((s) => s.key),
     hidden: mode.viewport ? stops.filter((s) => !s.visible).map((s) => s.key) : [] };
   results.push(result);
   return result;
 }
 
+// A rail page's other tabs (its first tablist's tabs that aren't open when it opens), found at run time. A tab that
+// opens another page (Data products, a tab-jump) isn't a role=tab, so it isn't here.
+const TABS = [];
+async function pageTabs(page, rail) {
+  await page.emulateMedia({ forcedColors: "none", colorScheme: "light", reducedMotion: "reduce" });
+  await page.setViewportSize(VIEWPORT);
+  for (const r of rail) {
+    await page.evaluate((v) => { closeDialog(); go("home"); go(v); }, r.view);
+    await settle(page);
+    const labels = await page.evaluate(() => {
+      const list = document.querySelector("#view [role=tablist]");
+      return list ? [...list.querySelectorAll("[role=tab]")].filter((t) => t.getAttribute("aria-selected") !== "true" && !t.disabled)
+        .map((t) => t.textContent.trim()) : [];
+    });
+    for (const label of labels) {
+      const name = label.replace(/Preview$/, "");
+      TABS.push({ id: `${r.id}/${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, name: `${r.name} > ${name}`, ready: "#view",
+        open: async (p) => {
+          await p.evaluate((v) => go(v), r.view);
+          await p.waitForSelector("#view [role=tablist] [role=tab]");
+          await p.evaluate((label) => [...document.querySelector("#view [role=tablist]").querySelectorAll("[role=tab]")]
+            .find((t) => t.textContent.trim() === label).click(), label);
+        } });
+    }
+  }
+  return TABS;
+}
+
 async function targets(page) {
   const rail = await page.evaluate(() => [...railFeatures(), ...railFeatures(true)]
     .map((f) => ({ id: f.id, name: f.rail.label || f.id, view: Object.keys(f.views || {})[0] })));
-  return [...rail.map((r) => ({ id: r.id, name: r.name, open: (p) => p.evaluate((v) => go(v), r.view), ready: "#view" })), ...EXTRA];
+  const tabs = await pageTabs(page, rail);
+  return [...rail.map((r) => ({ id: r.id, name: r.name, open: (p) => p.evaluate((v) => go(v), r.view), ready: "#view" })), ...tabs, ...EXTRA];
 }
 
 test("every page passes the WCAG A and AA rules, light, dark, at 200% and in a contrast theme, with no serious or critical violation", { skip }, async () => {
@@ -497,6 +579,12 @@ test("in a contrast theme, the colors the app keeps for itself still have enough
   assert.deepStrictEqual(hc.flatMap((r) => r.forcedLow.map((k) => `${r.id}: ${k}`)), [], "low contrast where the app keeps its own colors");
 });
 
+test("with text spacing raised (WCAG 1.4.12), no page cuts off its words", { skip }, async () => {
+  const light = results.filter((r) => r.scheme === "light");
+  assert.ok(light.length >= EXTRA.length + 5, `checked ${light.length} pages`);
+  assert.deepStrictEqual(light.flatMap((r) => r.clipped.map((k) => `${r.id}: ${k}`)), [], "words cut off with more text spacing");
+});
+
 test("with reduced motion asked for, nothing on any page moves", { skip }, async () => {
   assert.ok(results.length >= MODES.length * (EXTRA.length + 5), `checked ${results.length} page views`);
   assert.deepStrictEqual([...new Set(results.flatMap((r) => r.moving.map((k) => `${r.id}: ${k}`)))], [], "motion with reduced motion on");
@@ -511,6 +599,12 @@ test("at 200% no page scrolls sideways, and focus is never off screen or under s
   assert.deepStrictEqual(hidden, [], "Tab stops off screen or covered when they have focus, at 200%");
   const found = new Set(zoomed.flatMap((r) => [...r.sideways, ...r.hidden].map((k) => `${r.id}: ${k}`)));
   assert.deepStrictEqual([...KNOWN_SIDEWAYS, ...KNOWN_HIDDEN].filter((k) => !found.has(k)), [], "fixed: remove these from the known lists");
+});
+
+test("every tab of every rail page is audited, not only the one a page opens on", { skip }, async () => {
+  assert.ok(TABS.length >= 20, `found ${TABS.length} tabs: the rail pages' tablists weren't found`);
+  const audited = new Set(results.map((r) => r.id));
+  assert.deepStrictEqual(TABS.filter((t) => !audited.has(t.id)).map((t) => t.name), []);
 });
 
 test("every page features.js registers is audited", { skip }, async () => {
@@ -538,6 +632,8 @@ test("the audit catches a violation put into a page", { skip }, async () => {
       h("img", { src: "data:image/gif;base64,R0lGODlhAQABAAAAACw=" }),
       h("button", { class: "a11y-bare", style: "outline:none" }),
       h("button", { class: "a11y-glyph" }, "×"),  // axe takes the glyph as its name
+      // A fixed-height box that hides what doesn't fit: more text spacing pushes its last line out.
+      h("div", { class: "a11y-short", style: "height:18px;overflow:hidden;width:200px;font-size:13px;line-height:18px" }, "One line now, and more than one line once spacing grows"),
       h("button", { class: "a11y-glyph-named", "aria-label": "Close" }, "×"),
       // A button with no ring of its own inside a container that always has a shadow, as a dialog has.
       h("div", { style: "box-shadow:0 4px 16px rgba(0,0,0,.2);padding:8px" }, h("button", { class: "a11y-shadowed", style: "outline:none" }, "Shadowed")));
@@ -547,6 +643,7 @@ test("the audit catches a violation put into a page", { skip }, async () => {
   for (const id of ["image-alt", "color-contrast", "button-name"]) assert.ok(ids.includes(id), `${id} in ${ids.join(", ")}`);
   assert.ok(r.unreachable.includes("#a11y-injected"), r.unreachable.join(", "));
   assert.ok(r.moving.some((k) => k.startsWith("#a11y-injected")), `moves: ${r.moving.join(", ")}`);
+  assert.ok(r.clipped.some((k) => k.startsWith("div.a11y-short")), `cut off: ${r.clipped.join(", ")}`);
   assert.ok(r.unnamed.some((k) => k.startsWith("button.a11y-glyph")) && !r.unnamed.some((k) => k.startsWith("button.a11y-glyph-named")), r.unnamed.join(", "));
   assert.ok(r.noRing.some((k) => k.startsWith("button.a11y-bare")), r.noRing.join(", "));
   assert.ok(r.noRing.some((k) => k.startsWith("button.a11y-shadowed")), `a container's own shadow isn't a ring: ${r.noRing.join(", ")}`);
@@ -590,7 +687,7 @@ function report(rows) {
     "*Made by `app/tests/browser/a11y-audit.test.cjs` (PB-063 part 1). Do not edit by hand: run*",
     "`A11Y_REPORT=docs/ux/accessibility-audit.md node --test app/tests/browser/a11y-audit.test.cjs` *to refresh it.*",
     "",
-    `Rules: axe-core ${rowsVersion()} with the WCAG 2.1 A and AA tags (${RULES.join(", ")}), color contrast among them. ` +
+    `Rules: axe-core ${rowsVersion()} with the WCAG 2.1 A and AA and WCAG 2.2 AA tags (${RULES.join(", ")}), color contrast and target size (24 by 24 px, or spaced apart) among them. ` +
       "Keyboard: everything with a pointer cursor must be a Tab stop or inside one, and pressing Tab from the top " +
       "must reach every Tab stop without looping (Escape then Tab leaves a code editor). Focus: each Tab stop on the page " +
       "must show an outline or ring. Each page is checked in light and dark (the window's color scheme); the app has " +
@@ -603,7 +700,9 @@ function report(rows) {
       "the contrast theme. Every page is opened with reduced motion asked for, as Windows asks when Show animations is off: " +
       "nothing may still be moving once it has drawn (a loop, or an animation longer than the stylesheet's cap), and no script " +
       "may start an animation, unless the person chose motion anyway in Settings. A button or link that shows only an icon or " +
-      "a symbol must be named in words (aria-label, aria-labelledby or title). Dialogs opened from buttons are checked the " +
+      "a symbol must be named in words (aria-label, aria-labelledby or title). With text spacing raised as WCAG 1.4.12 asks " +
+      "(line height 1.5, paragraphs 2 em apart, letters 0.12 em and words 0.16 em apart), no box may cut off its words, unless " +
+      "it shortens them on purpose with an ellipsis or a line clamp. Dialogs opened from buttons are checked the " +
       "same way in `a11y-dialogs.test.cjs`.",
     "",
     "The pages are opened signed in with test data (two workspaces, one lakehouse, two notebooks), so lists show rows " +
@@ -632,6 +731,7 @@ function report(rows) {
     ...(r.forcedLow || []).map((k) => `- **${r.page}** (${r.scheme}): \`${k}\` keeps its own colors with too little contrast`),
     ...(r.moving || []).map((k) => `- **${r.page}** (${r.scheme}): ${k} with reduced motion on`),
     ...(r.unnamed || []).map((k) => `- **${r.page}** (${r.scheme}): \`${k}\` shows only an icon and isn't named in words`),
+    ...(r.clipped || []).map((k) => `- **${r.page}** (${r.scheme}): \`${k}\` with more text spacing`),
   ]);
   const looks = rows.filter((r) => r.scheme === "light").flatMap((r) => r.incomplete.map((v) => {
     const verdicts = [...new Set(v.nodes.map((n) => judged(`${r.id}: ${v.id} @ ${n}`) || "Not judged yet."))];

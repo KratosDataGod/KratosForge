@@ -14,10 +14,12 @@ when it opens, and any tables are gone. Nothing here needs a Fabric sign-in or c
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import re
+import tempfile
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -83,6 +85,13 @@ class Project:
 
     @property
     def temp_dir(self) -> Path:
+        """DuckDB's spill and dry-run copies: beside the database, unless the project is in OneDrive (made before
+        new projects were kept out of it); then in this PC's temp folder, so OneDrive isn't uploading them."""
+        from .. import known_folders
+        if known_folders.in_onedrive(self.root):
+            # named by the folder, not the id project.json gives, so an edited id can't point anywhere else
+            key = hashlib.sha256(os.path.normcase(os.path.abspath(self.root)).encode("utf-8")).hexdigest()[:16]
+            return Path(tempfile.gettempdir()) / "kratosforge-local" / key / "tmp"
         return self.root / "tmp"
 
     def source(self, path: str) -> Source | None:
@@ -203,7 +212,9 @@ class ProjectStore:
             raise KeyError(f"No local data project {pid!r}.")
         path = Path(folder) / "project.json"
         try:  # OSError (a folder that's gone or can't be opened) is raised as it is
-            return _project(json.loads(path.read_text(encoding="utf-8")), folder)
+            # jsonfile.read_text: on Windows a read just as save() swaps in the new file is refused for a
+            # moment (PermissionError); that is waited out, so a reader gets the old file or the new one.
+            return _project(json.loads(jsonfile.read_text(path)), folder)
         except (ValueError, TypeError, KeyError, AttributeError, OverflowError, RecursionError) as exc:
             # A torn write, a hand edit or another program's file: named, so the list skips it and logs why,
             # and the file is left as it is for the person to fix (nothing here writes it back).
@@ -231,6 +242,9 @@ class ProjectStore:
         while pid in index:
             pid, n = f"{base}-{n}", n + 1
         target = Path(folder).expanduser() if folder else self.root / pid
+        from .. import known_folders
+        if (refusal := known_folders.onedrive_refusal(target, "a local data project")):
+            raise ValueError(refusal)
         if (target / "project.json").exists():
             raise ValueError(f"{target} already holds a local data project. Open it instead.")
         target.mkdir(parents=True, exist_ok=True)

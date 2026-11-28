@@ -19,13 +19,16 @@ Nothing here knows about MCP or HTTP; the transports in this package all go thro
 from __future__ import annotations
 
 import logging
+import math
+import ntpath
+import os
 import re
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ..redact import describe, walk
+from ..redact import REMOVED, describe, secret_key, user_paths
 from ..redact import secrets as redact_secrets
 from ..retrying import TRANSIENT_STATUS, status_of
 
@@ -74,21 +77,118 @@ class IntegrationError(Exception):
 
 # ---- secrets out of messages
 
+MAX_RESULT_DEPTH = 200  # lists and objects a result may nest; past it, redacting and JSON would recurse too far
+
+
 def redact_result(value: Any) -> Any:
-    """Every string in a result, with secrets removed, and the text of every field named like a
-    secret (password, token, ...) blanked; counts and flags such as secrets_ignored stay. Applied to
-    every capability's result, so a token that slipped into a notebook, a log line or a receipt
-    doesn't leave through a tool."""
-    return walk(value)
+    """Every string in a result, keys included, with secrets removed, and all the text under a field
+    named like a secret (password, token, ...) blanked, in lists and objects too; counts and flags
+    such as secrets_ignored stay. Anything that isn't JSON becomes its text, as the transports would
+    write it, with secrets removed. Applied to every capability's result, so a token that slipped
+    into a notebook, a log line or a receipt doesn't leave through a tool. A result nested past
+    MAX_RESULT_DEPTH is refused as too_large."""
+    if too_deep(value, MAX_RESULT_DEPTH):
+        raise IntegrationError("too_large", f"The result is nested more than {MAX_RESULT_DEPTH} levels deep.",
+                               hint="Ask for less, or for one part at a time.")
+    return _redact(value, False)
+
+
+def _redact(value: Any, blank: bool) -> Any:
+    if isinstance(value, str):
+        return REMOVED if blank else redact_secrets(value)
+    if isinstance(value, dict):
+        # Two keys that redact to the same text keep one value: rare (a key holding a secret) and
+        # harmless, since less leaves, not more.
+        return {redact_secrets(k) if isinstance(k, str) else k: _redact(v, blank or secret_key(k)) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact(v, blank) for v in value]
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return REMOVED if blank else redact_secrets(str(value))
+
+
+def _short_os_message(exc: OSError) -> str:
+    """An OSError's text with only the last part of each path it names: "[Errno 2] No such file or
+    directory: 'C:\\Users\\ann\\AppData\\...\\x.ipynb'" names where the person's data folder is."""
+    # The user name is masked before the cut: a path that is the home folder would otherwise be cut to it.
+    names = [ntpath.basename(user_paths(os.fsdecode(f)).rstrip('\\/')) for f in (exc.filename, exc.filename2) if isinstance(f, (str, bytes, os.PathLike))]
+    return f"{exc.strerror or type(exc).__name__}: {' -> '.join(repr(n) for n in names)}"
+
+
+# An engine message can carry what a caller outside the app mustn't get or can't use: a native
+# library's backtrace (deltalake prints "  0: <unknown>" frames), terminal colour codes, and the full
+# path of a file in this PC's data folder. A path is cut to its last part, which still names the file.
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_FRAME = re.compile(r"^(\s+\d+: |\s+at \S+:\d+|\s*Stack backtrace:|Traceback \(most recent call last\))")
+_PATH = r"(?:file://)?(?:[A-Za-z]:[\\/]|\\\\|/)"
+_QUOTED_PATH = re.compile(r"""(['"])(""" + _PATH + r"""[^'"\n]*)\1""")
+# Unquoted, a path from the root needs a folder in it ("/home/x", not "/20" as in "rows 10 /20").
+_BARE_PATH = re.compile(r"""(?<![\w.:/\\%])(?:file://)?(?:[A-Za-z]:[\\/]|\\\\|/(?=[^\s/'"]+/))"""
+                        r"""[^\s'"<>|,;()\[\]{}]+""")
+
+
+def _last_part(path: str) -> str:
+    return next((p for p in reversed(re.split(r"[\\/]+", path)) if p), "")
+
+
+def _is_folder(path: Any) -> bool:
+    try:
+        return isinstance(path, (str, bytes, os.PathLike)) and os.path.isdir(path)
+    except (OSError, ValueError):
+        return False
+
+
+_MASK = "\ue000"  # a stand-in for "[user]" that the path patterns read as part of a path
+
+
+def _masked_then_cut(text: str) -> str:
+    """plain_message of ``text`` with the user name in a home folder path masked first."""
+    return plain_message(user_paths(text).replace("[user]", _MASK)).replace(_MASK, "[user]")
+
+
+def plain_message(text: str) -> str:
+    """``text`` without colour codes, a backtrace or the folders of a full path."""
+    lines = []
+    for line in _ANSI.sub("", text).splitlines():
+        if _FRAME.match(line):
+            break
+        lines.append(line.rstrip())
+    text = "\n".join(lines).strip()
+    text = _QUOTED_PATH.sub(lambda m: m.group(1) + _last_part(m.group(2)) + m.group(1), text)
+    return _BARE_PATH.sub(lambda m: _last_part(m.group(0)), text)
 
 
 def error_from(exc: BaseException) -> IntegrationError:
     """The engine's exception as an IntegrationError. The engine's messages are already written for
-    people, so they are kept, without secrets."""
+    people, so they are kept, without secrets, backtraces or the folders of a file's full path. An
+    IntegrationError is passed on with secrets removed from its message, hint and details too, since
+    a handler may have built it from the engine's text."""
     if isinstance(exc, IntegrationError):
-        return exc
-    message = redact_secrets(str(exc) or type(exc).__name__)
+        return redacted(exc)
+    if isinstance(exc, OSError) and isinstance(exc.filename, (str, bytes, os.PathLike)):
+        message = _short_os_message(exc)
+    else:
+        # str() of a KeyError is the repr of its text, with line breaks as \n, which hides a secret on
+        # the next line from the patterns; its own text is what the person should read anyway.
+        message = exc.args[0] if isinstance(exc, KeyError) and len(exc.args) == 1 and isinstance(exc.args[0], str) else str(exc)
+    # A path the cut below misses (inside other text) still mustn't say whose home folder it is.
+    # The user name is masked before paths are cut to their last part, and again after: cut first, a
+    # path that is the home folder would leave the bare name, and one with a space in it its tail.
+    message = user_paths(redact_secrets(_masked_then_cut(message or type(exc).__name__) or type(exc).__name__))
     name = type(exc).__name__
+    if any(c.__name__ == "DeltaError" for c in type(exc).__mro__):  # deltalake's, whose module is "_internal"
+        # A Delta log that can't be read: a commit missing or cut off, a checkpoint that isn't there.
+        # A Rust value printed whole (ParsedLogPath { ... }, Error: Os { ... }) is no use to a caller.
+        message = re.sub(r"(\s*Error)?:?\s*\w+ \{.*", "", message, flags=re.S).strip()
+        if name == "TableNotFoundError":
+            return IntegrationError("not_found", message)
+        return IntegrationError("failed", f"The Delta table's log can't be read: {message}",
+                                hint="The table's _delta_log may be damaged. Open the table in KratosForge to see the problem.")
+    if name == "PanicException":  # a native reader (deltalake, arrow) that gave up on a damaged file
+        return IntegrationError("failed", "A data file can't be read: it may be cut off or damaged.",
+                                hint="Open the project in KratosForge to see which file.")
+    if name == "ReceiptError":  # a receipt that was changed after it was written, or isn't one
+        return IntegrationError("failed", message)
     status = status_of(exc)
     if name == "FabricError" or status is not None or name in ("HTTPError", "ConnectionError", "Timeout"):
         if status in (401, 403) or "Unauthorized" in message or "Forbidden" in message:
@@ -100,10 +200,15 @@ def error_from(exc: BaseException) -> IntegrationError:
         return IntegrationError("upstream", message)
     if hasattr(exc, "errors"):  # a metadata gate: its message lists every reason
         return IntegrationError("failed", message, details={"reasons": [redact_secrets(str(e)) for e in exc.errors]})
+    if isinstance(exc, IsADirectoryError) or (isinstance(exc, PermissionError) and _is_folder(exc.filename)):
+        # A folder where a file should be: Linux says "Is a directory", Windows "Permission denied".
+        return IntegrationError("failed", message)
     if isinstance(exc, PermissionError):
         return IntegrationError("permission_denied", message)
     if isinstance(exc, (FileNotFoundError, LookupError)):  # LookupError covers KeyError
-        return IntegrationError("not_found", message.strip("'\""))
+        # A KeyError's str() is its repr, quoted; a file error's quotes are around the file's name.
+        quoted = len(message) > 1 and message[0] == message[-1] and message[0] in "'\""
+        return IntegrationError("not_found", message[1:-1] if quoted else message)
     if isinstance(exc, TimeoutError):
         return IntegrationError("timeout", message, retryable=True)
     if isinstance(exc, (ValueError, TypeError)):
@@ -112,10 +217,43 @@ def error_from(exc: BaseException) -> IntegrationError:
         # The engine raises RuntimeError for "something else is running" and for failed work alike.
         busy = any(word in message.lower() for word in ("is running", "is already running", "wait for it", "is using"))
         return IntegrationError("conflict" if busy else "failed", message, retryable=busy)
+    if isinstance(exc, OSError):  # a file that is a folder, a folder that is a file, a disk that failed
+        return IntegrationError("failed", message)
     return IntegrationError("internal", f"{name}: {message}")
 
 
+def redacted(err: IntegrationError) -> IntegrationError:
+    """``err`` with secrets removed from its message, hint and details (changed in place)."""
+    err.message = redact_secrets(err.message)
+    err.args = (err.message,)
+    err.hint = redact_secrets(err.hint)
+    if err.details:
+        err.details = _redact(err.details, False) if not too_deep(err.details, MAX_RESULT_DEPTH) else {}
+    return err
+
+
 # ---- arguments
+
+MAX_DEPTH = 64  # lists and objects arguments may nest, the arguments object itself being the first
+
+
+def too_deep(value: Any, limit: int) -> bool:
+    """Whether ``value`` nests lists and objects more than ``limit`` deep. Without recursion, so a
+    value nested 100,000 deep is told apart as quickly as any other."""
+    stack = [(value, 1)]
+    while stack:
+        v, level = stack.pop()
+        if isinstance(v, dict):
+            children: Any = v.values()
+        elif isinstance(v, (list, tuple)):
+            children = v
+        else:
+            continue
+        if level > limit:
+            return True
+        stack.extend((c, level + 1) for c in children)
+    return False
+
 
 _TYPES: dict[str, Callable[[Any], bool]] = {
     "object": lambda v: isinstance(v, dict),
@@ -175,6 +313,8 @@ def _problems(schema: dict[str, Any], value: Any, path: str) -> list[str]:
         if "pattern" in schema and not re.search(_end_of_text(schema["pattern"]), value):
             out.append(f"{where} isn't in the expected form")
     if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if isinstance(value, float) and not math.isfinite(value):  # NaN passes every bound; JSON has no NaN or Infinity
+            return [f"{where} must be a finite number"]
         if "minimum" in schema and value < schema["minimum"]:
             out.append(f"{where} must be at least {schema['minimum']}")
         if "maximum" in schema and value > schema["maximum"]:
@@ -208,6 +348,12 @@ def validate(schema: dict[str, Any], arguments: Any) -> dict[str, Any]:
     top-level properties. Raises invalid_input listing every problem."""
     if arguments is None:
         arguments = {}
+    if too_deep(arguments, MAX_DEPTH):
+        # Checked first: nothing past here (the schema check, the handler, the audit line) need
+        # walk a value nested deep enough to exhaust Python's recursion limit.
+        raise IntegrationError("invalid_input", f"The arguments are nested more than {MAX_DEPTH} levels deep.",
+                               hint="Send flatter arguments.",
+                               details={"problems": [f"arguments are nested more than {MAX_DEPTH} levels deep"]})
     problems = _problems(schema, arguments, "")
     if problems:
         raise IntegrationError("invalid_input", "; ".join(problems[:10]),

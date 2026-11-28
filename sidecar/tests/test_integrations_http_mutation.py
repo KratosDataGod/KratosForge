@@ -19,6 +19,8 @@ from fabric_desktop.integrations.core import IntegrationError
 from fabric_desktop.integrations.registry import Capability, Registry, schema
 from fabric_desktop.integrations.store import IntegrationStore
 
+from test_integrations_http import IN_PROCESS, this_account
+
 PORT = 47615
 
 
@@ -103,7 +105,7 @@ def test_refusals_say_why(store):
     _, token = store.add_client("Script", "http", transport="http", grants=["READ_METADATA"])
     guard = http_server.Guard(Inner(), store, PORT, limiter=http_server.RateLimiter(rate=0.0001, burst=1),
                               same_user=lambda client_port, port: True)
-    c = TestClient(guard, base_url=f"http://127.0.0.1:{PORT}")  # no lifespan: the stand-in app has none
+    c = TestClient(guard, base_url=f"http://127.0.0.1:{PORT}", client=IN_PROCESS)  # no lifespan: the stand-in app has none
     big = c.post("/api/v1/health", content=b"x" * (1024 * 1024 + 1))
     assert big.status_code == 413 and big.json()["error"]["message"] == "Requests are limited to 1024 KB."
     none = c.get("/api/v1/capabilities")
@@ -148,8 +150,8 @@ def _app(store, monkeypatch, seconds=0.5, value=None):
 
     monkeypatch.setattr(reg, "invoke", invoke)
     _, token = store.add_client("Script", "http", transport="http", grants=["READ_METADATA"])
-    app = http_server.build_app(reg, store, PORT)
-    return TestClient(app, base_url=f"http://127.0.0.1:{PORT}"), {"Authorization": f"Bearer {token}"}
+    app = http_server.build_app(reg, store, PORT, same_user=this_account)
+    return TestClient(app, base_url=f"http://127.0.0.1:{PORT}", client=IN_PROCESS), {"Authorization": f"Bearer {token}"}
 
 
 def test_a_result_of_exactly_the_limit_is_returned_and_one_byte_more_isnt(store, monkeypatch):
@@ -208,7 +210,8 @@ def test_resources_the_caller_cant_use_are_not_listed(store, monkeypatch):
                             lambda s, c: {}, needs_service=False, status="unavailable", reason="Off here.",
                             resource="fabric-desktop://shut"))
     _, token = store.add_client("Script", "http", transport="http", grants=["READ_METADATA"])
-    with TestClient(http_server.build_app(reg, store, PORT), base_url=f"http://127.0.0.1:{PORT}") as c:
+    with TestClient(http_server.build_app(reg, store, PORT, same_user=this_account),
+                    base_url=f"http://127.0.0.1:{PORT}", client=IN_PROCESS) as c:
         rows = c.get("/api/v1/resources", headers={"Authorization": f"Bearer {token}"}).json()["resources"]
     assert [r["uri"] for r in rows] == ["fabric-desktop://open"]
 

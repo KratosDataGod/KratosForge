@@ -1,4 +1,4 @@
-"""Developer classes and mastery (CM-02, CM-03): the catalog's graph rules, and mastery levels that only
+"""Developer classes and mastery (CM-02, CM-03, CM-05): the catalog's graph rules, and mastery levels that only
 verified evidence earns, the same every time, never from replaying an event."""
 
 from __future__ import annotations
@@ -11,6 +11,10 @@ import pytest
 
 from fabric_desktop import progress
 from fabric_desktop.mastery import catalog, levels
+from fabric_desktop.server import handle
+
+from test_profile import call, plain  # noqa: F401 - the signed-in service fixture
+from test_profile_learn import lab, passed
 
 CAT = catalog.load()
 WARDEN = CAT["classes"]["lakehouse-warden"]
@@ -31,6 +35,16 @@ def test_lakehouse_warden_has_three_specializations_of_ten_and_five_achievements
     assert all(any(CAT["skills"][n["skill"]]["evidence"].values()) for sp in WARDEN["specializations"] for n in sp["nodes"])
 
 
+def test_all_fourteen_classes_ship_with_full_trees():
+    assert len(CAT["classes"]) == 14
+    for c in CAT["classes"].values():
+        assert len(c["specializations"]) >= catalog.MIN_SPECIALIZATIONS, c["id"]
+        assert all(len(sp["nodes"]) >= catalog.MIN_NODES for sp in c["specializations"]), c["id"]
+        assert len(c["achievements"]) >= catalog.MIN_ACHIEVEMENTS, c["id"]
+    # Each class is a different profession, so the Professional profile never shows two the same.
+    assert len({c["professional"] for c in CAT["classes"].values()}) == 14
+
+
 def test_no_name_is_or_resembles_a_god():
     for c in CAT["classes"].values():
         names = [c["title"], c["professional"]] + [sp["title"] for sp in c["specializations"]] \
@@ -48,11 +62,13 @@ def tiny():
     tiers, req = [1, 2, 2, 3, 3, 4, 4, 5, 5, 6], [[], [0], [0], [1], [2], [3], [3, 4], [5], [6], [7, 8]]
     specs = [{"id": sp, "title": sp.title(), "professional": "P", "competency": "c",
               "nodes": [{"id": f"{sp}.{i + 1:02d}", "skill": f"s{k * 10 + i}", "tier": tiers[i],
-                         "requires": [f"{sp}.{j + 1:02d}" for j in req[i]]} for i in range(10)]}
+                         "requires": [f"{sp}.{j + 1:02d}" for j in req[i]], **({"capstone": True} if i == 9 else {})}
+                        for i in range(10)]}
              for k, sp in enumerate(("alpha", "beta", "gamma"))]
     cls = {"schema": catalog.CLASS_SCHEMA, "id": "test-class", "version": 1, "title": "Test Warden", "professional": "Tester",
            "fantasy": "F", "competency": "C", "emblem": "E", "platforms": [], "technologies": [],
-           "specializations": specs, "achievements": [{"id": f"a{i}", "name": f"Award {i}", "criteria": "x"} for i in range(5)]}
+           "specializations": specs, "achievements": [{"id": f"a{i}", "name": f"Award {i}", "criteria": "x",
+                                                  "requires": {"level": 3, "talents": ["alpha.01"]}} for i in range(5)]}
     return skills, cls
 
 
@@ -346,3 +362,242 @@ def test_a_cloud_only_skill_says_why_it_stops_at_journeyman():
     skill = {"evidence": {"academy": ["dp-700/E18"]}, "cloud": True}
     assert levels.ceiling(skill, [])[0] == 3
     assert levels.ceiling({"evidence": {}, "cloud": False})[0] == 0
+
+
+# ---------------------------------------------------------------- the Skill trees tab's engine method
+
+def test_profile_mastery_shows_every_class_and_one_tree_from_the_profile(plain):  # noqa: F811 - the fixture
+    empty = call(plain, "profile_mastery")
+    assert len(empty["classes"]) == 14 and empty["class"]["id"] == "lakehouse-warden"
+    delta = next(s for s in empty["class"]["specializations"] if s["id"] == "delta")
+    assert [n["state"] for n in delta["nodes"]][:3] == ["available", "locked", "locked"]
+    assert all(n["level"] == 0 and n["next"] for n in delta["nodes"])
+    # One pass of the Delta log lesson's exercise lifts its talent; nothing is stored by asking.
+    p = progress.empty()
+    progress.add(p, progress.from_lab(passed(lab("LM-07", "ex")), lab("LM-07", "ex", kind="module")))
+    progress.save(plain._profile_path(), p)
+    before = plain._profile_path().read_bytes()
+    seen = call(plain, "profile_mastery", class_id="lakehouse-warden")
+    root = next(s for s in seen["class"]["specializations"] if s["id"] == "delta")["nodes"][0]
+    assert root["level"] >= 1 and root["evidence"] and "LM-07" in root["learn"]
+    assert plain._profile_path().read_bytes() == before
+    out = handle(plain, json.dumps({"id": 1, "method": "profile_mastery", "params": {"class_id": "no-such-class"}}))
+    assert "isn't a developer class" in str(out["error"])
+
+
+# ---------------------------------------------------------------- class achievements, from their rule
+
+def award_cat(*rules):
+    """The tiny catalog with one skill per talent (s<i> taught by LM-<i> and LAB-<i>) and these achievements."""
+    skills, cls = tiny()
+    for i, s in enumerate(skills["skills"]):
+        s["evidence"] = {"learn": [f"LM-{i:02d}", f"LAB-{i:02d}"]}
+    cls["achievements"] = [{"id": f"a{i}", "name": f"Award {i}", "criteria": "x", "requires": r} for i, r in enumerate(rules)]
+    assert [x for x in catalog.problems(skills, [cls]) if "requires" in x] == []
+    return {"version": 1, "competencies": {"c": {"id": "c"}}, "skills": {s["id"]: s for s in skills["skills"]},
+            "classes": {cls["id"]: cls}}
+
+
+def awards(p, cat):
+    return {a["id"]: a for a in levels.evaluate(p, cat)["classes"]["test-class"]["achievements"]}
+
+
+DAY1, DAY9 = "2026-09-01T10:00:00+00:00", "2026-09-09T10:00:00+00:00"
+
+
+def test_an_achievement_is_earned_from_its_rule_not_its_text():
+    cat = award_cat({"level": 3, "talents": ["alpha.01"]},
+                    {"level": 4, "talents": ["alpha.01"], "measured": True},
+                    {"level": 2, "specialization": "alpha", "max_tier": 2},
+                    {"level": 3, "talents": ["alpha.02", "alpha.03"], "any": True},
+                    {"level": 2, "any_specialization": True})
+    assert not any(a["earned"] for a in awards(progress.empty(), cat).values())
+    one = profile(lab_pass("LM-00", DAY1))
+    a = awards(one, cat)
+    assert a["a0"]["earned"] and a["a0"]["evidence"] == [r["id"] for r in one["evidence"]] and not a["a2"]["earned"]
+    assert a["a2"]["progress"] == pytest.approx(0.33)
+    # Adept from two sources a week apart is still not the measured achievement until a run is measured.
+    adept = profile(lab_pass("LM-00", DAY1), lab_pass("LAB-00", DAY9))
+    unmeasured = awards(adept, cat)["a1"]
+    assert not unmeasured["earned"] and unmeasured["progress"] == 0.99 and unmeasured["evidence"] == []
+    assert set(a["a0"]["evidence"]) <= {r["id"] for r in adept["evidence"]}
+    assert awards(profile(lab_pass("LM-00", DAY1), lab_pass("LAB-00", DAY9, checks=("faster_than",))), cat)["a1"]["earned"]
+    # Any one of the two talents is enough; every tier-1-and-2 talent of alpha is needed for a2.
+    a = awards(profile(lab_pass("LM-00", DAY1), lab_pass("LM-02", DAY1)), cat)
+    assert a["a3"]["earned"] and not a["a2"]["earned"]
+    a = awards(profile(*(lab_pass(f"LM-{i:02d}", DAY1) for i in range(3))), cat)
+    assert a["a2"]["earned"] and not a["a4"]["earned"]
+    assert awards(profile(*(lab_pass(f"LM-{i:02d}", DAY1) for i in range(10))), cat)["a4"]["earned"]
+
+
+def test_a_locked_talents_banked_level_earns_nothing_until_it_opens():
+    cat = award_cat({"level": 3, "talents": ["alpha.02"]})
+    early = lab_pass("LM-01", DAY1)                       # alpha.02 sits behind alpha.01
+    assert not awards(profile(early), cat)["a0"]["earned"]
+    assert awards(profile(early, lab_pass("LM-00", DAY9)), cat)["a0"]["earned"]
+
+
+def test_an_achievement_is_never_granted_twice():
+    cat = award_cat({"level": 3, "talents": ["alpha.01"]}, {"level": 2, "any_specialization": True})
+    rows = [lab_pass(f"LM-{i:02d}", DAY1) for i in range(10)] + [lab_pass("LAB-00", DAY9)]
+    p = profile(*rows)
+    first = levels.evaluate(p, cat)["classes"]["test-class"]
+    for r in rows:                                        # replaying every event is refused
+        assert progress.add(p, copy.deepcopy(r)) is False
+    again = levels.evaluate(p, cat)["classes"]["test-class"]
+    assert again == first and again["earned"] == 2
+    assert [a["id"] for a in again["achievements"]] == ["a0", "a1"]
+    # Every specialization meets a1 here, and it is still one achievement.
+    assert awards(profile(*(lab_pass(f"LM-{i:02d}", DAY1) for i in range(30))), cat)["a1"]["earned"] is True
+
+
+def test_achievements_survive_a_restart(tmp_path):
+    cat = award_cat({"level": 3, "talents": ["alpha.01"]}, {"level": 4, "talents": ["alpha.01"]})
+    p = profile(lab_pass("LM-00", DAY1), lab_pass("LAB-00", DAY9))
+    before = awards(p, cat)
+    path = tmp_path / "profile.json"
+    progress.save(path, p)
+    after = awards(progress.load(path), cat)              # what the app sees the next time it starts
+    assert after == before and all(a["earned"] for a in after.values())
+    progress.save(path, progress.load(path))
+    assert awards(progress.load(path), cat) == before
+
+
+def test_achievement_rules_are_checked():
+    skills, cls = tiny()
+    cls["achievements"][0]["requires"] = {"level": 9, "talents": ["alpha.01", "alpha.01"]}
+    cls["achievements"][1]["requires"] = {"level": 3, "talents": ["nope.01"], "specialization": "alpha"}
+    cls["achievements"][2]["requires"] = {"level": 3, "specialization": "delta", "max_tier": 0, "any": True}
+    cls["achievements"][3]["requires"] = {"level": 3, "any_specialization": True, "bonus": 1}
+    del cls["achievements"][4]["requires"]
+    found = "\n".join(catalog.problems(skills, [cls]))
+    for want in ("requires.level must be 2 to 6", "each once", "exactly one of", "isn't in this class",
+                 "max_tier must be", "any must be true", "requires.bonus isn't a known rule", "a4 has no requires"):
+        assert want in found
+
+
+def test_every_shipped_achievement_names_the_talents_its_rule_checks():
+    for cls in CAT["classes"].values():
+        titles = {n["id"]: CAT["skills"][n["skill"]]["title"] for n in catalog.nodes(cls)}
+        for a in cls["achievements"]:
+            r = a["requires"]
+            assert a["criteria"].startswith(f"Reach {levels.LEVELS[r['level']]} in"), a["id"]
+            for t in r.get("talents", []):
+                assert titles[t] in a["criteria"], (cls["id"], a["id"], t)
+            if r.get("measured"):
+                assert "measured" in a["criteria"]
+
+
+def test_profile_mastery_reports_earned_achievements_and_stores_nothing(plain):  # noqa: F811 - the fixture
+    p = progress.empty()
+    progress.add(p, progress.from_lab(passed(lab("LM-07", "ex")), lab("LM-07", "ex", kind="module")))
+    progress.save(plain._profile_path(), p)
+    before = plain._profile_path().read_bytes()
+    one = call(plain, "profile_mastery", class_id="lakehouse-warden")
+    two = call(plain, "profile_mastery", class_id="lakehouse-warden")
+    assert one == two and plain._profile_path().read_bytes() == before
+    got = {a["id"]: a for a in one["class"]["achievements"]}
+    assert set(got) == {a["id"] for a in CAT["classes"]["lakehouse-warden"]["achievements"]}
+    assert all({"earned", "progress", "level_name", "criteria"} <= set(a) for a in got.values())
+    assert one["class"]["earned"] == sum(a["earned"] for a in got.values())
+
+
+def test_an_achievement_no_one_can_earn_yet_says_why():
+    cat = award_cat({"level": 3, "talents": ["alpha.01"]}, {"level": 3, "talents": ["alpha.01", "beta.01"]},
+                    {"level": 3, "talents": ["alpha.01", "beta.01"], "any": True}, {"level": 2, "any_specialization": True})
+    cat["skills"]["s10"]["evidence"] = {}                 # beta.01 is planned content: no lesson or exercise yet
+    a = awards(progress.empty(), cat)
+    assert a["a0"]["available"] and a["a0"]["unavailable_reason"] == ""
+    assert not a["a1"]["available"] and "No lesson, exercise or check" in a["a1"]["unavailable_reason"]
+    assert a["a2"]["available"] and a["a3"]["available"]  # alpha.01 alone, or alpha's tree alone, still can
+    assert awards(profile(lab_pass("LM-00", DAY1)), cat)["a2"]["earned"]
+
+
+def test_every_lakehouse_warden_achievement_can_be_earned_on_this_pc():
+    view = levels.evaluate(progress.empty(), CAT)["classes"]["lakehouse-warden"]
+    assert all(a["available"] and not a["earned"] and a["progress"] == 0 for a in view["achievements"])
+    for cls in levels.evaluate(progress.empty(), CAT)["classes"].values():
+        for a in cls["achievements"]:
+            assert a["available"] or a["unavailable_reason"], (cls["id"], a["id"])
+
+
+def test_each_specialization_has_one_capstone_alone_on_its_top_tier():
+    for change in (lambda c: c["specializations"][0]["nodes"][9].pop("capstone"),
+                   lambda c: c["specializations"][1]["nodes"][8].update(capstone=True),
+                   lambda c: c["specializations"][2]["nodes"][8].update(tier=6, requires=["gamma.07"])):
+        skills, cls = tiny()
+        change(cls)
+        assert any("one capstone talent" in x for x in catalog.problems(skills, [cls]))
+def test_each_level_says_what_the_next_one_needs():
+    assert len(levels.NEXT_STEP) == len(levels.LEVELS)
+    assert levels.NEXT_STEP[0].startswith("Finish one of its lessons")          # Not started -> Initiate
+    assert levels.NEXT_STEP[2] == "Pass a hands-on exercise on this PC."         # Apprentice -> Journeyman
+    assert "7 days apart" in levels.NEXT_STEP[3]                                 # Journeyman -> Adept
+    assert "Validate" in levels.NEXT_STEP[4]                                     # Adept -> Expert
+    assert "30 days" in levels.NEXT_STEP[5]                                      # Expert -> Master
+    assert "reviewer" in levels.NEXT_STEP[6] and levels.NEXT_STEP[7] == ""
+
+
+def test_profile_mastery_gives_each_talent_the_step_for_its_own_level(plain):  # noqa: F811 - the fixture
+    p = progress.empty()
+    progress.add(p, progress.from_lab(passed(lab("LM-07", "ex")), lab("LM-07", "ex", kind="module")))
+    progress.save(plain._profile_path(), p)
+    out = call(plain, "profile_mastery", class_id="lakehouse-warden")
+    for sp in out["class"]["specializations"]:
+        for n in sp["nodes"]:
+            want = levels.NEXT_STEP[n["level"]] if n["level"] < n["ceiling"] else n["ceiling_reason"]
+            assert n["next"] == want, n["id"]
+    assert any(n["level"] >= 1 for sp in out["class"]["specializations"] for n in sp["nodes"])
+
+
+def test_an_achievement_counts_the_talents_it_has_met_out_of_those_it_needs():
+    cat = award_cat({"level": 3, "talents": ["alpha.01", "beta.01", "gamma.01"]},
+                    {"level": 3, "talents": ["alpha.01", "beta.01"], "any": True},
+                    {"level": 2, "any_specialization": True})
+    a = awards(profile(lab_pass("LM-00", DAY1), lab_pass("LM-10", DAY1)), cat)
+    assert (a["a0"]["met"], a["a0"]["of"], a["a0"]["earned"]) == (2, 3, False)
+    assert (a["a1"]["met"], a["a1"]["of"], a["a1"]["earned"]) == (1, 1, True)
+    assert (a["a2"]["met"], a["a2"]["of"]) == (1, 10)        # the closest specialization: alpha or beta, 1 of 10
+    assert (awards(progress.empty(), cat)["a0"]["met"]) == 0
+
+
+def test_an_achievement_is_dated_the_first_day_its_rule_was_met():
+    cat = award_cat({"level": 3, "talents": ["alpha.01"]}, {"level": 4, "talents": ["alpha.01"]},
+                    {"level": 3, "talents": ["alpha.02"]})
+    cls = cat["classes"]["test-class"]
+    rows = [lab_pass("LM-00", DAY1), lab_pass("LAB-00", DAY9), lab_pass("LM-01", "2026-09-20T10:00:00+00:00")]
+    on = levels.earned_on(profile(*rows), cls, cat)
+    assert on == {"a0": "2026-09-01", "a1": "2026-09-09", "a2": "2026-09-20"}  # Adept needs a second source a week on
+    assert levels.earned_on(profile(*rows[:2]), cls, cat)["a2"] is None
+    shuffled = rows[::-1]
+    assert levels.earned_on(profile(*shuffled), cls, cat) == on
+    # A row without a date can't be placed, so the day is left out, never guessed.
+    undated = {**lab_pass("LM-00", DAY1), "at": None}
+    assert levels.earned_on(profile(undated), cls, cat)["a0"] is None
+    assert awards(profile(undated), cat)["a0"]["earned"]
+
+
+def test_profile_mastery_dates_earned_achievements_only(plain):  # noqa: F811 - the fixture
+    out = call(plain, "profile_mastery", class_id="lakehouse-warden")
+    assert all(a["earned_on"] is None and "met" in a and "of" in a for a in out["class"]["achievements"])
+
+
+def test_an_any_achievement_names_only_the_talent_that_met_it():
+    cat = award_cat({"level": 3, "talents": ["alpha.01", "beta.01"], "any": True})
+    alpha, beta = lab_pass("LM-00", DAY1), lesson("LM-10", DAY1)        # beta.01 reaches only Apprentice
+    a = awards(profile(alpha, beta), cat)["a0"]
+    assert a["earned"] and a["evidence"] == [alpha["id"]]
+
+
+@pytest.mark.skipif(not hasattr(__import__("time"), "tzset"), reason="setting the zone needs time.tzset (not on Windows)")
+def test_the_earned_day_is_the_day_on_this_pcs_clock(monkeypatch):
+    import time
+    monkeypatch.setenv("TZ", "America/Chicago")
+    time.tzset()
+    try:
+        cat = award_cat({"level": 3, "talents": ["alpha.01"]})
+        late = lab_pass("LM-00", "2026-09-02T02:30:00+00:00")       # 21:30 on Sep 1 in Chicago
+        assert levels.earned_on(profile(late), cat["classes"]["test-class"], cat) == {"a0": "2026-09-01"}
+    finally:
+        monkeypatch.undo()          # back to the process's own TZ (set or not), then apply it
+        time.tzset()

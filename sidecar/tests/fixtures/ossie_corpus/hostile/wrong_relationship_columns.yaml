@@ -1,0 +1,19 @@
+version: 0.2.0.dev0
+name: wrong_relationship_columns
+datasets:
+- name: orders
+  source: dbo.orders
+  fields:
+  - name: customer_id
+    expression: {dialects: [{dialect: ANSI_SQL, expression: customer_id}]}
+- name: customers
+  source: dbo.customers
+  fields:
+  - name: customer_id
+    expression: {dialects: [{dialect: ANSI_SQL, expression: customer_id}]}
+relationships:
+- name: orders_customers
+  from: orders
+  to: customers
+  from_columns: customer_id
+  to_columns: [customer_id]

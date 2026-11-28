@@ -8,7 +8,7 @@ refused by name below, and listed in docs/sql-compatibility.md."""
 from __future__ import annotations
 
 import pytest
-from spark_values import Refused, check, load
+from spark_values import Refused, check_part, check_still_needed, parts
 
 from fabric_desktop.notebook import Kernel
 
@@ -24,8 +24,13 @@ def spark():
     return Kernel().namespace["spark"]
 
 
-def test_spark_json_functions_answer_as_spark_3_5_or_are_refused_by_name(spark):
-    check(spark, load("json"), REFUSED)
+@pytest.mark.parametrize("cases", parts("json"))
+def test_spark_json_functions_answer_as_spark_3_5_or_are_refused_by_name(spark, cases):
+    check_part(spark, cases, REFUSED)
+
+
+def test_each_refusal_of_json_is_still_needed_and_listed(spark):
+    check_still_needed(spark, "json", REFUSED)
 
 
 def test_typeof_names_a_struct_only_when_every_field_keeps_its_name():

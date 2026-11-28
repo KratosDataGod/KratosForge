@@ -20,12 +20,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from typing import Any
 
 import polars as pl
 
 from . import access as access_mod
 from .optimize import schema
+
+_log = logging.getLogger(__name__)
+
+# Shown in place of a workspace's or lakehouse's access when its rows in the cache can't be read: its
+# access isn't shown as none, it's shown as not known.
+UNREADABLE = ("Access for this item couldn't be read, because its entry in the access cache is damaged. "
+              "Select Refresh this workspace to read this item's access again.")
 
 S, B = pl.String, pl.Boolean
 WORKSPACE, LAKEHOUSE = "workspace_roles", "data_access_roles"
@@ -131,9 +139,16 @@ def view(scans: pl.DataFrame | None, workspace_roles: pl.DataFrame | None, data_
     """Every workspace in ``visible`` the cache has seen, with its people and its lakehouses' roles
     from the last scan that could read them. ``stale`` marks one whose latest scan failed."""
     by_target: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
-    for s in sorted(_df(scans), key=lambda s: s["observed_at"]):
+    damaged: set[tuple[str, str, str]] = set()
+    for s in _df(scans):
         if s["workspace_id"] in visible:
-            by_target.setdefault((s["kind"], s["workspace_id"], s["item_id"] or ""), []).append(s)
+            target = (s["kind"], s["workspace_id"], s["item_id"] or "")
+            by_target.setdefault(target, []).append(s)
+            if not isinstance(s["observed_at"], str):
+                damaged.add(target)
+    for target, history in by_target.items():
+        if target not in damaged:
+            history.sort(key=lambda s: s["observed_at"])
     members: dict[str, list[dict[str, Any]]] = {}
     for r in _df(workspace_roles) + _df(data_access_roles):
         members.setdefault(r["snapshot_id"], []).append(r)
@@ -152,26 +167,28 @@ def view(scans: pl.DataFrame | None, workspace_roles: pl.DataFrame | None, data_
                 "rows": members.get(snap, []) if snap else []}
 
     out: dict[str, dict[str, Any]] = {}
-    for (kind, ws, item_id), history in sorted(by_target.items()):
-        st, last = state(history), history[-1]
-        if last["state"] == GONE:
-            continue
-        entry = out.setdefault(ws, {"workspace_id": ws, "workspace_name": last["workspace_name"], "people": [],
+
+    def unreadable(kind: str, ws: str, item_id: str, history: list[dict[str, Any]]) -> None:
+        _log.warning("access cache: the %s entry for workspace %s item %s can't be read", kind, ws, item_id or "-")
+        last = history[-1]
+        entry = out.setdefault(ws, {"workspace_id": ws, "workspace_name": last.get("workspace_name"), "people": [],
                                     "lakehouses": [], "checked_at": None, "stale": False, "problem": None,
                                     "known": False, "changed_at": None})
+        blank = {"checked_at": None, "changed_at": None, "stale": True, "problem": UNREADABLE, "known": False}
         if kind == WORKSPACE:
-            entry.update({k: st[k] for k in ("checked_at", "changed_at", "stale", "problem", "known")},
-                         workspace_name=last["workspace_name"] or entry["workspace_name"])
-            entry["people"] = sorted(({"id": r["principal_id"], "name": r["principal_name"], "type": r["principal_type"],
-                                       "guest": bool(r["guest"]), "role": r["role"]} for r in st["rows"]),
-                                     key=lambda p: (p["type"] != "User", str(p["name"]).lower()))
+            entry.update(blank, people=[])
         else:
-            entry["lakehouses"].append({"item_id": item_id, "item_name": last["item_name"],
-                                        **{k: st[k] for k in ("checked_at", "changed_at", "stale", "problem", "known")},
-                                        "roles": sorted(({"name": r["role_name"], "paths": json.loads(r["paths"] or "[]"),
-                                                          "entra": json.loads(r["entra"] or "[]"),
-                                                          "item_members": json.loads(r["item_members"] or "[]")}
-                                                         for r in st["rows"]), key=lambda r: str(r["name"]))})
+            entry["lakehouses"] = [lh for lh in entry["lakehouses"] if lh["item_id"] != item_id]
+            entry["lakehouses"].append({"item_id": item_id, "item_name": last.get("item_name"), **blank, "roles": []})
+
+    for (kind, ws, item_id), history in sorted(by_target.items()):
+        if (kind, ws, item_id) in damaged:
+            unreadable(kind, ws, item_id, history)
+            continue
+        try:
+            _one(kind, ws, item_id, history, state, out)
+        except (ValueError, TypeError, KeyError, AttributeError, RecursionError):
+            unreadable(kind, ws, item_id, history)
     for entry in out.values():
         people = entry["people"]
         entry["summary"] = {"people": sum(p["type"] == "User" for p in people),
@@ -179,3 +196,30 @@ def view(scans: pl.DataFrame | None, workspace_roles: pl.DataFrame | None, data_
                             "apps": sum(p["type"] not in ("User", "Group") for p in people),
                             "guests": sum(p["guest"] for p in people)}
     return sorted(out.values(), key=lambda w: str(w["workspace_name"]).lower())
+
+
+def _one(kind: str, ws: str, item_id: str, history: list[dict[str, Any]], state: Any,
+         out: dict[str, dict[str, Any]]) -> None:
+    """Add one workspace's or lakehouse's access to ``out``. Everything is read first, so when its rows
+    can't be read this raises before ``out`` changes."""
+    st, last = state(history), history[-1]
+    if last["state"] == GONE:
+        return
+    known = {k: st[k] for k in ("checked_at", "changed_at", "stale", "problem", "known")}
+    if kind == WORKSPACE:
+        people = sorted(({"id": r["principal_id"], "name": r["principal_name"], "type": r["principal_type"],
+                          "guest": bool(r["guest"]), "role": r["role"]} for r in st["rows"]),
+                        key=lambda p: (p["type"] != "User", str(p["name"]).lower()))
+    else:
+        lakehouse = {"item_id": item_id, "item_name": last["item_name"], **known,
+                     "roles": sorted(({"name": r["role_name"], "paths": json.loads(r["paths"] or "[]"),
+                                       "entra": json.loads(r["entra"] or "[]"),
+                                       "item_members": json.loads(r["item_members"] or "[]")}
+                                      for r in st["rows"]), key=lambda r: str(r["name"]))}
+    entry = out.setdefault(ws, {"workspace_id": ws, "workspace_name": last["workspace_name"], "people": [],
+                                "lakehouses": [], "checked_at": None, "stale": False, "problem": None,
+                                "known": False, "changed_at": None})
+    if kind == WORKSPACE:
+        entry.update(known, workspace_name=last["workspace_name"] or entry["workspace_name"], people=people)
+    else:
+        entry["lakehouses"].append(lakehouse)

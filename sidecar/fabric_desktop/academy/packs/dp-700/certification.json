@@ -66,7 +66,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E03"
+                "E03",
+                "E85"
               ],
               "capstones": [],
               "lessons": [],
@@ -90,7 +91,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E04"
+                "E04",
+                "E86"
               ],
               "capstones": [],
               "lessons": [
@@ -115,15 +117,17 @@
               "text": "Configure data workflow workspace settings",
               "competency": "Set the workspace settings for data workflows (Apache Airflow jobs) and know when they apply.",
               "fabric_required": true,
-              "best_local": "knowledge_only",
+              "best_local": "simulated",
               "exercises": [
-                "E05"
+                "E05",
+                "E87"
               ],
               "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
                 "assessment",
+                "config_matches",
                 "fabric_check"
               ],
               "docs": [
@@ -175,7 +179,8 @@
               "fabric_required": true,
               "best_local": "local_verified",
               "exercises": [
-                "E08"
+                "E08",
+                "E77"
               ],
               "capstones": [],
               "lessons": [
@@ -202,7 +207,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E09"
+                "E09",
+                "E88"
               ],
               "capstones": [
                 "C3"
@@ -234,7 +240,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E10"
+                "E10",
+                "E81"
               ],
               "capstones": [
                 "C3"
@@ -261,7 +268,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E11"
+                "E11",
+                "E82"
               ],
               "capstones": [
                 "C3"
@@ -324,7 +332,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E15"
+                "E15",
+                "E71"
               ],
               "capstones": [
                 "C3"
@@ -333,7 +342,8 @@
               "questions_planned": 4,
               "validation": [
                 "config_matches",
-                "fabric_check"
+                "fabric_check",
+                "result_matches"
               ],
               "docs": [
                 "https://learn.microsoft.com/fabric/data-warehouse/dynamic-data-masking"
@@ -348,15 +358,17 @@
               "text": "Apply sensitivity labels to items",
               "competency": "Apply sensitivity labels to items and know how labels flow to downstream items.",
               "fabric_required": true,
-              "best_local": "knowledge_only",
+              "best_local": "simulated",
               "exercises": [
-                "E16"
+                "E16",
+                "E76"
               ],
               "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
                 "assessment",
+                "config_matches",
                 "fabric_check"
               ],
               "docs": [
@@ -372,15 +384,17 @@
               "text": "Endorse items",
               "competency": "Promote and certify items and know who may do each.",
               "fabric_required": true,
-              "best_local": "knowledge_only",
+              "best_local": "simulated",
               "exercises": [
-                "E16"
+                "E16",
+                "E76"
               ],
               "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
                 "assessment",
+                "config_matches",
                 "fabric_check"
               ],
               "docs": [
@@ -402,9 +416,10 @@
               "text": "Choose between a pipeline and a notebook",
               "competency": "Choose between a pipeline and a notebook for a job and justify the choice.",
               "fabric_required": false,
-              "best_local": "knowledge_only",
+              "best_local": "simulated",
               "exercises": [
-                "E17"
+                "E17",
+                "E73"
               ],
               "capstones": [],
               "lessons": [
@@ -412,7 +427,8 @@
               ],
               "questions_planned": 4,
               "validation": [
-                "assessment"
+                "assessment",
+                "config_matches"
               ],
               "docs": [
                 "https://learn.microsoft.com/fabric/fundamentals/decision-guide-pipeline-dataflow-spark"
@@ -427,7 +443,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E18"
+                "E18",
+                "E83"
               ],
               "capstones": [],
               "lessons": [],
@@ -587,9 +604,10 @@
               "text": "Choose an appropriate data store",
               "competency": "Choose a lakehouse, warehouse, eventhouse or SQL database for a workload.",
               "fabric_required": false,
-              "best_local": "knowledge_only",
+              "best_local": "simulated",
               "exercises": [
-                "E27"
+                "E27",
+                "E74"
               ],
               "capstones": [],
               "lessons": [
@@ -598,7 +616,8 @@
               ],
               "questions_planned": 4,
               "validation": [
-                "assessment"
+                "assessment",
+                "config_matches"
               ],
               "docs": [
                 "https://learn.microsoft.com/fabric/fundamentals/decision-guide-data-store"
@@ -636,7 +655,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E29"
+                "E29",
+                "E84"
               ],
               "capstones": [],
               "lessons": [
@@ -684,9 +704,10 @@
               "text": "Ingest data by using pipelines",
               "competency": "Ingest data with pipeline activities, including copy settings that suit the source.",
               "fabric_required": true,
-              "best_local": "simulated",
+              "best_local": "local_verified",
               "exercises": [
-                "E31"
+                "E31",
+                "E89"
               ],
               "capstones": [],
               "lessons": [],
@@ -712,7 +733,8 @@
               "exercises": [
                 "E32",
                 "E33",
-                "E34"
+                "E34",
+                "E69"
               ],
               "capstones": [
                 "C1"
@@ -747,7 +769,8 @@
               "fabric_required": false,
               "best_local": "local_verified",
               "exercises": [
-                "E35"
+                "E35",
+                "E78"
               ],
               "capstones": [
                 "C1"
@@ -774,7 +797,8 @@
               "fabric_required": false,
               "best_local": "local_verified",
               "exercises": [
-                "E36"
+                "E36",
+                "E70"
               ],
               "capstones": [
                 "C1"
@@ -842,15 +866,17 @@
               "text": "Choose an appropriate streaming engine",
               "competency": "Choose Eventstream, Spark structured streaming or KQL for a streaming workload.",
               "fabric_required": false,
-              "best_local": "knowledge_only",
+              "best_local": "simulated",
               "exercises": [
-                "E40"
+                "E40",
+                "E75"
               ],
               "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
-                "assessment"
+                "assessment",
+                "config_matches"
               ],
               "docs": [
                 "https://learn.microsoft.com/fabric/real-time-intelligence/event-streams/overview",
@@ -944,7 +970,8 @@
               "fabric_required": true,
               "best_local": "local_verified",
               "exercises": [
-                "E43"
+                "E43",
+                "E79"
               ],
               "capstones": [
                 "C2"
@@ -990,7 +1017,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E44"
+                "E44",
+                "E72"
               ],
               "capstones": [],
               "lessons": [],
@@ -1045,7 +1073,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E45"
+                "E45",
+                "E90"
               ],
               "capstones": [],
               "lessons": [
@@ -1073,7 +1102,8 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E46"
+                "E46",
+                "E91"
               ],
               "capstones": [],
               "lessons": [],
@@ -1258,7 +1288,8 @@
               "fabric_required": true,
               "best_local": "local_verified",
               "exercises": [
-                "E56"
+                "E56",
+                "E80"
               ],
               "capstones": [],
               "lessons": [
@@ -1284,12 +1315,14 @@
               "fabric_required": true,
               "best_local": "simulated",
               "exercises": [
-                "E60"
+                "E60",
+                "E92"
               ],
               "capstones": [],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
+                "config_matches",
                 "fabric_check",
                 "pipeline_outcome"
               ],
@@ -1487,7 +1520,7 @@
       "id": "G-07",
       "title": "Data workflows (Apache Airflow jobs)",
       "why": "No local Airflow job runtime in KratosForge",
-      "closes_with": "KO; Fabric exercise later",
+      "closes_with": "SIMULATED runtime settings model locally (E87); Fabric exercise later",
       "objectives": [
         "1.1.4"
       ]

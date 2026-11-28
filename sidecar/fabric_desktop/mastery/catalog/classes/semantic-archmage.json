@@ -1,0 +1,60 @@
+{
+ "schema": "kratosforge/mastery-class@1",
+ "id": "semantic-archmage",
+ "version": 1,
+ "title": "Semantic Archmage",
+ "professional": "Semantic Modeling Engineer",
+ "fantasy": "Weaver of meaning. The Archmage binds facts and dimensions into models that answer the business in its own words.",
+ "competency": "Designs semantic models: star schemas, relationships, DAX measures, Direct Lake and import storage, row-level security and model performance.",
+ "platforms": ["Microsoft Fabric", "Power BI", "Databricks", "Snowflake"],
+ "technologies": ["Power BI", "DAX", "Direct Lake", "Tabular", "SQL"],
+ "emblem": "An open book whose pages form a star of five linked points, a wolf's eye glowing at the centre.",
+ "specializations": [
+  {"id": "star", "title": "Star Weaver", "professional": "Dimensional modeling for semantic models", "competency": "dimensional-modeling",
+   "nodes": [
+    {"id": "star.01", "skill": "business-and-surrogate-keys", "tier": 1, "requires": []},
+    {"id": "star.02", "skill": "facts-and-dimensions", "tier": 2, "requires": ["star.01"]},
+    {"id": "star.03", "skill": "relationships-and-cardinality", "tier": 2, "requires": ["star.01"]},
+    {"id": "star.04", "skill": "gold-star-schema-for-reporting", "tier": 3, "requires": ["star.02"]},
+    {"id": "star.05", "skill": "role-playing-and-date-dimensions", "tier": 3, "requires": ["star.03"]},
+    {"id": "star.06", "skill": "bridge-tables-and-many-to-many", "tier": 4, "requires": ["star.04"]},
+    {"id": "star.07", "skill": "type-2-slowly-changing-dimensions", "tier": 4, "requires": ["star.04", "star.05"]},
+    {"id": "star.08", "skill": "model-naming-and-documentation", "tier": 5, "requires": ["star.06"]},
+    {"id": "star.09", "skill": "aggregation-tables", "tier": 5, "requires": ["star.07"]},
+    {"id": "star.10", "skill": "capstone-a-model-the-business-trusts", "tier": 6, "requires": ["star.08", "star.09"], "capstone": true}
+   ]},
+  {"id": "dax", "title": "Measure Scribe", "professional": "DAX and calculation design", "competency": "semantic-modeling",
+   "nodes": [
+    {"id": "dax.01", "skill": "measures-versus-calculated-columns", "tier": 1, "requires": []},
+    {"id": "dax.02", "skill": "filter-context-and-row-context", "tier": 2, "requires": ["dax.01"]},
+    {"id": "dax.03", "skill": "calculate-and-filter-modification", "tier": 2, "requires": ["dax.01"]},
+    {"id": "dax.04", "skill": "time-intelligence", "tier": 3, "requires": ["dax.02"]},
+    {"id": "dax.05", "skill": "variables-and-readable-dax", "tier": 3, "requires": ["dax.03"]},
+    {"id": "dax.06", "skill": "iterators-and-their-cost", "tier": 4, "requires": ["dax.04"]},
+    {"id": "dax.07", "skill": "calculation-groups", "tier": 4, "requires": ["dax.04", "dax.05"]},
+    {"id": "dax.08", "skill": "measure-testing-against-sql-results", "tier": 5, "requires": ["dax.06"]},
+    {"id": "dax.09", "skill": "dax-performance-tuning", "tier": 5, "requires": ["dax.07"]},
+    {"id": "dax.10", "skill": "capstone-a-measure-library", "tier": 6, "requires": ["dax.08", "dax.09"], "capstone": true}
+   ]},
+  {"id": "directlake", "title": "Lake Conduit", "professional": "Direct Lake and model performance", "competency": "semantic-modeling",
+   "nodes": [
+    {"id": "directlake.01", "skill": "storage-modes-import-directquery-direct-lake", "tier": 1, "requires": []},
+    {"id": "directlake.02", "skill": "delta-tables-a-model-can-read", "tier": 2, "requires": ["directlake.01"]},
+    {"id": "directlake.03", "skill": "direct-lake-fallback", "tier": 2, "requires": ["directlake.01"]},
+    {"id": "directlake.04", "skill": "column-sizes-and-encoding", "tier": 3, "requires": ["directlake.02"]},
+    {"id": "directlake.05", "skill": "v-order-for-models", "tier": 3, "requires": ["directlake.03"]},
+    {"id": "directlake.06", "skill": "best-practice-analyzer-rules", "tier": 4, "requires": ["directlake.04"]},
+    {"id": "directlake.07", "skill": "row-level-security-in-a-model", "tier": 4, "requires": ["directlake.04", "directlake.05"]},
+    {"id": "directlake.08", "skill": "refresh-and-framing", "tier": 5, "requires": ["directlake.06"]},
+    {"id": "directlake.09", "skill": "model-memory-and-capacity", "tier": 5, "requires": ["directlake.07"]},
+    {"id": "directlake.10", "skill": "capstone-gold-that-stays-in-direct-lake", "tier": 6, "requires": ["directlake.08", "directlake.09"], "capstone": true}
+   ]}
+ ],
+ "achievements": [
+  {"id": "first-constellation", "name": "First Constellation", "criteria": "Reach Journeyman in Facts and dimensions and in Relationships and cardinality.", "requires": {"level": 3, "talents": ["star.02", "star.03"]}},
+  {"id": "words-of-power", "name": "Words of Power", "criteria": "Reach Adept in CALCULATE and filter modification.", "requires": {"level": 4, "talents": ["dax.03"]}},
+  {"id": "unbroken-conduit", "name": "Unbroken Conduit", "criteria": "Reach Journeyman in Capstone: Gold that stays in Direct Lake.", "requires": {"level": 3, "talents": ["directlake.10"]}},
+  {"id": "measured-truth", "name": "Measured Truth", "criteria": "Reach Adept in Measure testing against SQL results.", "requires": {"level": 4, "talents": ["dax.08"]}},
+  {"id": "archmages-circle", "name": "Archmage's Circle", "criteria": "Reach Adept in all ten talents of one Semantic Archmage specialization.", "requires": {"level": 4, "any_specialization": true}}
+ ]
+}

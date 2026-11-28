@@ -102,6 +102,22 @@ def test_a_process_that_never_says_its_ready_is_ended(tmp_path, monkeypatch):
     k.close()
 
 
+def test_a_process_that_ends_before_starting_is_finished_is_marked_gone(monkeypatch):
+    k = ProcessKernel(command=[sys.executable, "-c", "pass"])
+
+    class Thread(threading.Thread):
+        def start(self):  # the reader sees the end before _ensure goes on, as a fast exit can
+            super().start()
+            if self.name == "kernel-reader":
+                self.join(10)
+    monkeypatch.setattr(kernel_proc, "threading", SimpleNamespace(Event=threading.Event, Thread=Thread,
+                                                                  Lock=threading.Lock, local=threading.local))
+    proc = k._ensure()
+    assert proc.poll() is not None
+    assert k._proc is None  # the reader marked it gone: no ended process is kept as the kernel's
+    k.close()
+
+
 def test_starting_while_a_cell_runs_is_refused(child):
     assert child.start("while True: pass")["status"] == "running"
     with pytest.raises(RuntimeError, match="already running"):
@@ -113,8 +129,10 @@ def test_a_cell_that_ignores_the_interrupt_past_the_time_limit_is_ended(child, m
     monkeypatch.setattr(kernel_proc, "WATCH_SECONDS", 0.05)
     monkeypatch.setattr(kernel_proc, "TIME_GRACE_SECONDS", 0.3)
     child.time_limit = 0.2
+    # The process, taken before the cell's clock starts: by the time start() returns, the watcher may
+    # have ended it already and the reader cleared child._proc.
+    proc = child._ensure()
     child.start("while True: pass")
-    proc = child._proc
     proc.wait(15)  # the limit's watcher ends it; the interrupt's error didn't stop the watcher
     deadline = time.monotonic() + 10
     while child._proc is proc and time.monotonic() < deadline:
@@ -281,6 +299,34 @@ def test_on_windows_the_tree_is_the_job_and_ending_it_closes_the_job(monkeypatch
     assert tree.job is None and tree.pids() == [11]
     tree.release()
     assert len(dll.calls) == 2  # closed once
+
+
+def test_the_job_is_closed_once_when_two_threads_release_it_together(monkeypatch):
+    """The reader reaps a crashed kernel while Stop or the next start releases the same tree: closing the handle
+    twice could close a new kernel's job that got the same handle value, which ends that kernel."""
+    import threading
+    _platform(monkeypatch, "win32")
+    dll = FakeDLL()
+    inside = threading.Event()
+    go = threading.Event()
+    real = dll.TerminateJobObject
+
+    def slow_terminate(job, code):
+        inside.set()
+        go.wait(5)
+        return real(job, code)
+
+    monkeypatch.setattr(dll, "TerminateJobObject", slow_terminate)
+    monkeypatch.setattr(kernel_proc, "_kernel32", lambda: dll)
+    monkeypatch.setattr(kernel_proc, "_job_for", lambda proc: 7)
+    tree = kernel_proc._Tree(_Proc())  # type: ignore[arg-type]
+    first = threading.Thread(target=tree.reap)
+    first.start()
+    assert inside.wait(5)
+    tree.release()  # while the first is still closing it
+    go.set()
+    first.join(5)
+    assert [name for name, _ in dll.calls] == ["TerminateJobObject", "CloseHandle"]
 
 
 def test_without_a_job_or_on_another_os_the_tree_is_the_kernel_process(monkeypatch):

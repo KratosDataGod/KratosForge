@@ -1,0 +1,60 @@
+{
+ "schema": "kratosforge/mastery-class@1",
+ "id": "warehouse-architect",
+ "version": 1,
+ "title": "Warehouse Architect",
+ "professional": "Data Warehouse Engineer",
+ "fantasy": "Builder of halls that hold a company's memory. The Architect raises warehouses with sure foundations and loads that keep their shape.",
+ "competency": "Designs and builds relational data warehouses: T-SQL development, dimensional schemas, loading, security and workload performance.",
+ "platforms": ["Microsoft Fabric", "Snowflake", "Databricks SQL", "SQL Server"],
+ "technologies": ["T-SQL", "Fabric Warehouse", "SQL database projects", "Snowflake"],
+ "emblem": "A columned hall in steel lines with a wolf crest above the doorway.",
+ "specializations": [
+  {"id": "tsql", "title": "Hall Builder", "professional": "Warehouse development", "competency": "warehouse",
+   "nodes": [
+    {"id": "tsql.01", "skill": "warehouse-or-lakehouse-where-t-sql-writes", "tier": 1, "requires": []},
+    {"id": "tsql.02", "skill": "tables-schemas-and-data-types", "tier": 2, "requires": ["tsql.01"]},
+    {"id": "tsql.03", "skill": "views-and-stored-procedures", "tier": 2, "requires": ["tsql.01"]},
+    {"id": "tsql.04", "skill": "database-projects", "tier": 3, "requires": ["tsql.02"]},
+    {"id": "tsql.05", "skill": "create-table-as-select", "tier": 3, "requires": ["tsql.03"]},
+    {"id": "tsql.06", "skill": "transactions-and-error-handling", "tier": 4, "requires": ["tsql.04"]},
+    {"id": "tsql.07", "skill": "cross-database-queries", "tier": 4, "requires": ["tsql.04", "tsql.05"]},
+    {"id": "tsql.08", "skill": "porting-sql-between-engines", "tier": 5, "requires": ["tsql.06"]},
+    {"id": "tsql.09", "skill": "testing-warehouse-code", "tier": 5, "requires": ["tsql.07"]},
+    {"id": "tsql.10", "skill": "capstone-a-warehouse-built-from-a-project", "tier": 6, "requires": ["tsql.08", "tsql.09"], "capstone": true}
+   ]},
+  {"id": "schema", "title": "Schema Mason", "professional": "Dimensional warehouse design", "competency": "dimensional-modeling",
+   "nodes": [
+    {"id": "schema.01", "skill": "facts-and-dimensions", "tier": 1, "requires": []},
+    {"id": "schema.02", "skill": "business-and-surrogate-keys", "tier": 2, "requires": ["schema.01"]},
+    {"id": "schema.03", "skill": "type-2-slowly-changing-dimensions", "tier": 2, "requires": ["schema.01"]},
+    {"id": "schema.04", "skill": "late-arriving-data", "tier": 3, "requires": ["schema.02"]},
+    {"id": "schema.05", "skill": "conformed-dimensions", "tier": 3, "requires": ["schema.03"]},
+    {"id": "schema.06", "skill": "fact-grain", "tier": 4, "requires": ["schema.04"]},
+    {"id": "schema.07", "skill": "snapshot-facts", "tier": 4, "requires": ["schema.04", "schema.05"]},
+    {"id": "schema.08", "skill": "bridge-tables-and-many-to-many", "tier": 5, "requires": ["schema.06"]},
+    {"id": "schema.09", "skill": "gold-star-schema-for-reporting", "tier": 5, "requires": ["schema.07"]},
+    {"id": "schema.10", "skill": "capstone-a-bus-matrix-delivered", "tier": 6, "requires": ["schema.08", "schema.09"], "capstone": true}
+   ]},
+  {"id": "load", "title": "Load Master", "professional": "Warehouse loading and performance", "competency": "sql-performance",
+   "nodes": [
+    {"id": "load.01", "skill": "copy-into-and-bulk-loads", "tier": 1, "requires": []},
+    {"id": "load.02", "skill": "merge-upserts", "tier": 2, "requires": ["load.01"]},
+    {"id": "load.03", "skill": "idempotent-loads", "tier": 2, "requires": ["load.01"]},
+    {"id": "load.04", "skill": "statistics-and-cardinality", "tier": 3, "requires": ["load.02"]},
+    {"id": "load.05", "skill": "warehouse-optimization", "tier": 3, "requires": ["load.03"]},
+    {"id": "load.06", "skill": "result-set-caching", "tier": 4, "requires": ["load.04"]},
+    {"id": "load.07", "skill": "workload-isolation", "tier": 4, "requires": ["load.04", "load.05"]},
+    {"id": "load.08", "skill": "row-level-security", "tier": 5, "requires": ["load.06"]},
+    {"id": "load.09", "skill": "column-and-object-security", "tier": 5, "requires": ["load.07"]},
+    {"id": "load.10", "skill": "capstone-a-load-window-halved", "tier": 6, "requires": ["load.08", "load.09"], "capstone": true}
+   ]}
+ ],
+ "achievements": [
+  {"id": "cornerstone", "name": "Cornerstone", "criteria": "Reach Journeyman in Warehouse or lakehouse: where T-SQL writes.", "requires": {"level": 3, "talents": ["tsql.01"]}},
+  {"id": "history-kept", "name": "History Kept", "criteria": "Reach Adept in Type 2 slowly changing dimensions.", "requires": {"level": 4, "talents": ["schema.03"]}},
+  {"id": "sealed-doors", "name": "Sealed Doors", "criteria": "Reach Journeyman in Row-level security and in Column and object security.", "requires": {"level": 3, "talents": ["load.08", "load.09"]}},
+  {"id": "raised-from-plans", "name": "Raised From Plans", "criteria": "Reach Journeyman in Capstone: a warehouse built from a project.", "requires": {"level": 3, "talents": ["tsql.10"]}},
+  {"id": "architects-hall", "name": "Architect's Hall", "criteria": "Reach Adept in all ten talents of one Warehouse Architect specialization.", "requires": {"level": 4, "any_specialization": true}}
+ ]
+}

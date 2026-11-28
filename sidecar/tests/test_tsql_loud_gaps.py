@@ -190,7 +190,7 @@ def test_power_follows_the_bases_column_type(engine):
     assert row == [0, 1048576, 205891132094649, 0.5]  # a smallint base gives an int, as in T-SQL
     with pytest.raises(Exception, match="on the local engine.*POWER of a decimal"):
         engine.execute("SELECT POWER(d, 2) FROM dbo.bases", dialect="tsql")
-    with pytest.raises(Exception, match="INT32|out of range"):  # T-SQL: arithmetic overflow
+    with pytest.raises(Exception, match="Msg 232, Level 16: Arithmetic overflow error for type int"):  # WR-247
         engine.execute("SELECT POWER(i, 40) FROM dbo.bases", dialect="tsql")
 
 
@@ -257,6 +257,7 @@ REFUSED_IN_THE_DOCS = {
     "CREATE TABLE ... AS CLONE OF": "CREATE TABLE dbo.c AS CLONE OF dbo.t",
     "ALTER DATABASE ... SET TIMESTAMP": "ALTER DATABASE s SET TIMESTAMP = CURRENT_TIMESTAMP",
     "ISNUMERIC": "SELECT ISNUMERIC('1')",
+    "JOIN ... USING": "SELECT * FROM dbo.t JOIN dbo.u USING (s)",
     "POWER": "SELECT POWER(2.5, 2)",
     "DEGREES": "SELECT DEGREES(1.0)",
     "RADIANS": "SELECT RADIANS(-45.01)",
@@ -277,6 +278,8 @@ REFUSED_IN_THE_DOCS = {
     "REGEXP_SUBSTR": "SELECT REGEXP_SUBSTR('abc', 'b')",
     "GET_BIT": "SELECT GET_BIT(3, 0)",
     "SET_BIT": "SELECT SET_BIT(0, 1)",
+    "STRING_AGG": "SELECT STRING_AGG(CAST(id AS VARCHAR(5)), CAST(boxes AS VARCHAR(5))) FROM dbo.orders",  # WR-270
+    "ROUND": "SELECT ROUND(CAST(id AS DECIMAL(5, 2)), boxes) FROM dbo.orders",
     "DECLARE": "DECLARE @n INT = 1",
     "@x": "SELECT @x",
     "@@ROWCOUNT": "SELECT @@ROWCOUNT",

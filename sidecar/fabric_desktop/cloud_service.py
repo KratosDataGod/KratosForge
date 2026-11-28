@@ -8,7 +8,6 @@ here too: it runs locally and turns what it finds into cleaning rules and checks
 
 from __future__ import annotations
 
-import base64
 import datetime as dt
 import json
 import logging
@@ -20,12 +19,12 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
-from deltalake.exceptions import TableNotFoundError
+from deltalake.exceptions import DeltaError, TableNotFoundError
 
 from . import fabric_step, jsonfile, maintenance, notebook_files, profiling, retrying, risk, semantic
 from .auth import FABRIC_SCOPES, STORAGE_SCOPES
 from .errors import NotSetUp
-from .fabric_api import FabricClient, FabricError
+from .fabric_api import FabricClient, FabricError, definition_text
 from .fabric_compute import BUNDLE_DIR, RESULTS_DIR, RUNNER, bundle_files, bundle_hash, run_parameters, runner_ipynb
 from .fabric_run import TERMINAL, describe_schedule, fabric_ipynb, schedule_configuration, uses_local_module, uses_spark
 from .meta.engine import Engine, RunResult, apply_clean
@@ -124,7 +123,8 @@ class CloudMixin:
                 continue
             unreachable = 0
             was = r.get("status")
-            r["status"] = job.get("status", r["status"])
+            status = job.get("status")
+            r["status"] = status if isinstance(status, str) and status else r["status"]  # junk isn't a status
             r["finished_at"] = job.get("endTimeUtc") or r.get("finished_at")
             reason = job.get("failureReason") or {}
             r["message"] = one_line((reason.get("message") or "") if isinstance(reason, dict) else reason, 1000)
@@ -300,7 +300,7 @@ class CloudMixin:
                 return None  # deleted in Fabric: Publish makes it again
             raise RuntimeError(f"Couldn't check whether {name} changed in Fabric ({describe(exc)}), so it wasn't "
                                "published. Try again.") from exc
-        return notebook_files.fabric_changes(base, notebook_files.ipynb_of(definition), doc) | {"item_id": link["item_id"]}
+        return notebook_files.fabric_changes(base, notebook_files.checked(notebook_files.ipynb_of(definition)), doc) | {"item_id": link["item_id"]}
 
     def notebook_publish_check(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                                workspace: dict[str, str] | None = None,
@@ -530,6 +530,11 @@ class CloudMixin:
                 h = maintenance.health(store.uri(t["lakehouse"], t["schema"], t["table"]), store.options(), local=local)
             except LookupError as exc:  # the lakehouse isn't in this environment yet
                 h = {"exists": False, "advice": [], "status": "missing", "message": str(exc)}
+            except DeltaError as exc:  # a damaged _delta_log: this table can't be read, the others still report
+                _log.warning("Couldn't read %s.%s for table health: %s", t["schema"], t["table"], describe(exc))
+                h = {"exists": False, "advice": [], "status": "unreadable",
+                     "message": ("This table couldn't be read, because its Delta log is damaged or needs a feature "
+                                 "this app can't read. Write the table again with a run, or fix its _delta_log folder.")}
             tables.append(t | h)
         cfg = self._env_cfg(project, env)
         return {"env": env, "local": local, "optimize_after_run": self._optimize_after_run(project, env),
@@ -835,8 +840,7 @@ class CloudMixin:
         if fresh or key not in cache:
             try:
                 got = self.fabric.get_item_definition(workspace_id, model["id"], "TMDL")  # type: ignore[attr-defined]
-                cache[key] = {p["path"]: base64.b64decode(p.get("payload") or "").decode("utf-8")
-                              for p in (got.get("definition") or {}).get("parts", []) if p.get("path", "").endswith(".tmdl")}
+                cache[key] = {path: text for path, text in definition_text(got, "utf-8").items() if path.endswith(".tmdl")}
             except Exception as exc:  # guessing would rename tables that reports use
                 raise RuntimeError(f"Couldn't read {model.get('displayName') or 'the model'}'s definition "
                                    f"({type(exc).__name__}: {exc}), so its table names aren't known. Try again.") from exc

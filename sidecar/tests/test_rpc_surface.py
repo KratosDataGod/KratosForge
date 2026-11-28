@@ -26,7 +26,6 @@ _LOCAL = "local data projects: engine only, no screen yet (docs/local-data.md, Q
 _INCIDENTS = "incident history: the engine is released, its screen is stage 4 (docs/incidents.md)"
 _NOTIFY = "governance Teams notices: governance sends the events; the UI only reads and sets routes (platform_notify_service.py)"
 _LOCAL_RUNS = "sharing this PC's notebook runs with Optimize: engine only, the button waits on a mockup (docs/optimize/README.md)"
-_BPA = "best practices check of a semantic model: engine first, screens wait on the mockup (docs/semantic-model-best-practices.md)"
 _QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
 _FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item support view comes with the Deploy work (docs/git-integration-plan.md)"
@@ -38,14 +37,14 @@ _FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item
 NO_UI_CALLER: dict[str, str] = {
     # CP-011: the environment's cost, apart from savings. The approved Settings > Environment mockup has no cost panel.
     "cp_cost": "CP-011 engine call; its panel waits on a mockup (the CP-010 screen shows no cost)",
-    # OE-004: the Share button on Optimize > Assessment waits on its mockup.
-    "optimization_share": "OE-004 engine call; the Assessment tab's Share button waits on its mockup",
+    # CP-015: the service registry and inventory. Its panel isn't in an approved mockup yet.
+    "cp_inventory": "CP-015 engine call; its panel waits on a mockup",
     # SF-002: the Check button in Settings > Connections waits on its mockup.
     "snowflake_check": "SF-002 engine call; the Snowflake connection's Check button waits on its mockup",
+    # SF-007: the Snowpark API compatibility check of a cell (Preview); no screen is part of SF-007.
+    "snowpark_api_check": "SF-007 engine call; the Snowpark API compatibility check has no screen yet (docs/engines.md)",
     # Best practices check (semantic-link-labs in Fabric).
-    "model_bpa_status": _BPA,
-    "model_bpa_risk": _BPA,
-    "model_bpa_check": _BPA,
+    "model_bpa_share": "adds a model's best practices findings to Optimize > Opportunities; its button waits on a mockup",
     # Local data projects.
     "list_local_tables": _LOCAL,
     "local_add_source": _LOCAL,
@@ -71,7 +70,6 @@ NO_UI_CALLER: dict[str, str] = {
     # Engine features whose screens come later.
     "incidents_history": _INCIDENTS,
     "incidents_history_sync": _INCIDENTS,
-    "incidents_measures": _INCIDENTS,
     "platform_notify": _NOTIFY,
     "optimize_share_local_runs": _LOCAL_RUNS,
     "meta_preflight": _NO_SCREEN,  # the PB-067 run dialog (#915, after a mockup) shows its estimate
@@ -144,13 +142,12 @@ def test_methods_no_screen_called_are_refused_over_rpc(tmp_path):
 # is listed here: with the parameter its destructive step needs, or with why it has none.
 NO_SCREEN_GATE: dict[str, str] = {
     "incidents_history_sync": "approve",       # sets up the central incident tables only when approved
-    "incidents_measures": "approve",           # copies through incidents_history_sync first
     "local_change_delta": "confirm",           # UPDATE or DELETE without WHERE
     "local_drop_delta": "confirm",             # without it, only says what would be deleted
     "local_query": "confirm",                  # DROP, TRUNCATE, CREATE OR REPLACE, INSERT OVERWRITE
     "local_query_start": "confirm",
     "local_write_delta": "confirm",            # mode overwrite, like INSERT OVERWRITE
-    "optimization_share": "confirm",
+    "model_bpa_share": "confirm",
     "optimize_share_local_runs": "confirm",
 }
 NOT_DESTRUCTIVE: dict[str, str] = {
@@ -164,8 +161,6 @@ NOT_DESTRUCTIVE: dict[str, str] = {
     "local_remove_source": "drops the views over a folder; the files are never touched",
     "local_set_types": "changes how a file's columns are read; the file is untouched",
     "local_transform_run": "steps get local_query's checks with no confirm, so a destructive step is refused",
-    "model_bpa_check": ("reads a semantic model in Fabric; the risk check runs first, a blocked one stops it "
-                        "and a warning needs the risk_id the person acknowledged"),
     "platform_notify": "posts notices only to routes an admin saved, once per dedupe key; changes no data",
 }
 

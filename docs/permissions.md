@@ -34,6 +34,7 @@ With Microsoft's sign-in, KratosForge asks each Microsoft API for its default ac
 | Capacities (creating a workspace, the cost view) | Fabric | Yes |
 | OneLake shortcuts and data access roles, cloud connections | Fabric | Yes |
 | [Shortcut command center](shortcuts.md) health checks (listing one entry through each shortcut) | OneLake (Azure Storage) | Yes. Nothing new is asked |
+| [Excellence assessment](optimize/excellence-assessment.md#table-layout) table layout (the folders under Tables and each Delta table's log, read only) | OneLake (Azure Storage) | Yes. Nothing new is asked |
 | Giving someone a workspace role by email | Power BI | Yes. No directory permission is needed |
 | Adding someone to a data access role who has no role in the workspace yet | Microsoft Graph | Possibly not. Give them a workspace role first, or paste their object ID |
 | The [platform](platform.md): creating its SQL database and user data functions, and calling the functions for keys and the catalog | Fabric | Expected, not yet tried. Calls use the same run access as Run in Fabric |
@@ -83,7 +84,7 @@ With your own app, KratosForge signs in with the browser (not Windows sign-in) a
 | Power BI Service | `Report.Read.All` | Opening a report or paginated report in Embed Studio (Preview): its embed address, pages and semantic model, and the token Power BI's embed frame uses. The calls only read; the token is the same one as for `Dashboard.Read.All` above | On first use |
 | Power BI Service | `Tenant.Read.All` | Importing Fabric's domains and subdomains (**Import from Fabric** on **Data mesh > Domains**), reading tenant settings for the tenant settings history, and, when chosen, each capacity's tenant setting overrides for the capacity settings history; and Power BI's admin tenant scan for a data product's endorsement (**Scan now**, Preview), asked for Power BI's address (`https://analysis.windows.net/powerbi/api/Tenant.Read.All`, the same permission). Only works for a Fabric administrator; leave it out if no Fabric administrator uses KratosForge | Optional, when a Fabric administrator imports domains, reads tenant settings or scans endorsement |
 | Power BI Service | `Tenant.ReadWrite.All` | Creating a domain or subdomain in Fabric (**New domain** on **Data mesh > Domains**, with **Also create it in Fabric** ticked). Only works for a Fabric administrator; leave it out if no Fabric administrator creates domains from KratosForge | Optional, when a Fabric administrator creates a domain in Fabric |
-| Power BI Service | `Workspace.GitUpdate.All` | Which items differ between a workspace and its Git branch, and which conflict, on Source control's Fabric workspace tab (Fabric's Get Status, Preview). Microsoft has no read-only permission for it: this one also allows Update from Git, which KratosForge runs only after a preview, a fresh status check and a typed confirm | On first use |
+| Power BI Service | `Workspace.GitUpdate.All` | Which items differ between a workspace and its Git branch, and which conflict, on Source control's Fabric workspace tab (Fabric's Get Status, Preview). Microsoft has no read-only permission for it, and this one also allows Update from Git, which KratosForge runs only after a preview, a fresh status check and a typed confirm. The Excellence assessment uses it only when it was granted already, to read Get Status, and never asks for it | On first use |
 | Power BI Service | `Workspace.ReadWrite.All` | Listing and creating workspaces, putting one on a capacity, workspace roles (also by email), including when approving a workspace or workspace access request | At first sign-in |
 
 This table is every delegated permission the app can ask for: a test fails the build when the code asks for one it doesn't list, or the table lists one no code asks for.
@@ -137,7 +138,7 @@ Leave all of them empty to use Microsoft's sign-in.
 
 Every key is optional; leave out `client_id` to keep Microsoft's sign-in. `channel` is `stable` or `preview`; `support_url` is an `https://` link (a Teams channel, a ticket form) or a `mailto:` address.
 
-Five more keys are for control rather than convenience:
+Seven more keys are for control rather than convenience:
 
 | Key | Effect |
 | --- | --- |

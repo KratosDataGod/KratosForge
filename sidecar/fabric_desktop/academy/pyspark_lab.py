@@ -64,6 +64,17 @@ Runner = Callable[[Path, str], dict[str, Any]]
 # a stopped thread left behind. C1's reference crashed that way on Windows CI three times (access
 # violation 0xC0000005 with faulthandler's frame on the os._exit line, after the answer had finished);
 # sql_worker._end_now ends the same way for the same reason. Nothing is lost: output is flushed first.
+# END_NOW is that ending, for any ``python -I`` process that loads kf_learner (the tests' probes use it too).
+END_NOW = """
+sys.stdout.flush(); sys.stderr.flush()
+if sys.platform == "win32":
+    import ctypes
+    k = ctypes.windll.kernel32
+    k.GetCurrentProcess.restype = ctypes.c_void_p
+    k.TerminateProcess.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+    k.TerminateProcess(k.GetCurrentProcess(), rc)
+os._exit(rc)   # elsewhere, or if TerminateProcess returned
+"""
 BOOTSTRAP = """
 import faulthandler, os, sys, traceback
 faulthandler.enable()   # a crash in native code (DuckDB, delta-rs) still leaves a trace on stderr
@@ -79,15 +90,7 @@ except pyspark_shim.NotebookExit:   # notebookutils.notebook.exit ends the noteb
 except BaseException:
     traceback.print_exc(limit=3)
     rc = 1
-sys.stdout.flush(); sys.stderr.flush()
-if sys.platform == "win32":
-    import ctypes
-    k = ctypes.windll.kernel32
-    k.GetCurrentProcess.restype = ctypes.c_void_p
-    k.TerminateProcess.argtypes = (ctypes.c_void_p, ctypes.c_uint)
-    k.TerminateProcess(k.GetCurrentProcess(), rc)
-os._exit(rc)   # elsewhere, or if TerminateProcess returned
-"""
+""" + END_NOW
 
 
 def prepare(work: Path, setup_sql: str, assets: dict[str, bytes] | None = None) -> list[str]:
@@ -181,8 +184,7 @@ except pyspark_shim.NotebookExit:   # notebookutils.notebook.exit ends the noteb
 except BaseException:
     traceback.print_exc(limit=3)
     rc = 1
-sys.stdout.flush(); sys.stderr.flush()
-os._exit(rc)
+kf_end_now(rc)   # the learner process's own ending (academy/_bootstrap.py _ender): on Windows not os._exit
 """
 LEARNER_FILE = "kf_run.py"
 

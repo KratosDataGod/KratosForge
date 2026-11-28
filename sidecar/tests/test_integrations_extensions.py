@@ -5,11 +5,13 @@ import json
 import os
 import sys
 from dataclasses import replace
+from pathlib import Path
 
 import anyio
 import pytest
 from mcp import Client, StdioServerParameters
 
+import fabric_desktop
 from fabric_desktop.integrations import extensions
 from fabric_desktop.integrations.audit import IntegrationAudit
 from fabric_desktop.integrations.capabilities import register_core
@@ -20,6 +22,10 @@ from fabric_desktop.integrations.permissions import PermissionAuthorizer
 from fabric_desktop.integrations.registry import Capability, Registry, schema
 from fabric_desktop.integrations.store import IntegrationStore
 from fabric_desktop.service import Service
+
+# The engine's own folder, for a child process. Not all of sys.path: other tests add project folders
+# to it, and on Windows a variable longer than 32,767 characters stops the child starting.
+ENGINE = str(Path(fabric_desktop.__file__).resolve().parent.parent)
 
 OUTLINE = "notebook_outline_get"
 
@@ -278,7 +284,7 @@ def test_the_stdio_server_process_follows_the_switch_in_the_app(env):
     """The real ``fabric-desktop mcp`` process: the person turns the extension on in the app (here,
     the store), and the connected tool is told and sees the new tool."""
     process_env = dict(os.environ, LOCALAPPDATA=str(env["tmp"]), HOME=str(env["tmp"]),
-                       ProgramData=str(env["tmp"] / "programdata"), PYTHONPATH=os.pathsep.join(sys.path))
+                       ProgramData=str(env["tmp"] / "programdata"), PYTHONPATH=ENGINE)
     params = StdioServerParameters(command=sys.executable, env=process_env,
                                    args=["-m", "fabric_desktop.cli", "mcp", "--client", env["client"]["id"]])
     seen = []

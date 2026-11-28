@@ -9,7 +9,6 @@ import copy
 import json
 import re
 import logging
-import time
 
 import pytest
 import yaml
@@ -463,19 +462,46 @@ def test_property_a_random_hostile_model_compared_with_itself_is_never_different
             assert report["summary"] in (sp.COMPATIBLE, sp.UNSUPPORTED), seed
 
 
-def test_4000_columns_compare_in_under_two_seconds():
+def test_4000_columns_compare_with_work_that_grows_with_the_objects(monkeypatch):
+    """Comparing 4,000 columns pairs each object once, claims each candidate once and numbers ids with a few
+    lookups each. It counts that work rather than timing it: a busy Windows runner missed a 2-second budget that
+    takes about 0.3 s here, and a quadratic match (each object against every candidate) would be 16 million steps."""
+    paired, claimed, looked = [0], [0], [0]
+    real_pair, real_claim = sp._pair, sp._claim
+
+    def pair(*args):
+        paired[0] += 1
+        return real_pair(*args)
+
+    def claim(queue, used):
+        claimed[0] += 1
+        return real_claim(queue, used)
+
+    class Counted(dict):
+        def __contains__(self, key):
+            looked[0] += 1
+            return super().__contains__(key)
+
+    class Objects(model_ossie._Objects):
+        def __init__(self):
+            super().__init__()
+            self.ids = Counted()
     tables = [{"name": f"t{i}", "columns": [{"name": f"c{j}", "dataType": "int64"} for j in range(100)],
                "measures": [{"name": f"m{i}", "expression": "1"}]} for i in range(40)]
     bim = {"name": "big", "compatibilityLevel": 1604, "model": {"tables": tables, "relationships": [
         {"name": f"r{i}", "fromTable": f"t{i}", "fromColumn": "c0", "toTable": f"t{i + 1}", "toColumn": "c1"}
         for i in range(39)]}}
     files, _ = tmdl.from_bim(bim)
-    start = time.perf_counter()
+    monkeypatch.setattr(sp, "_pair", pair)
+    monkeypatch.setattr(sp, "_claim", claim)
+    monkeypatch.setattr(model_ossie, "_Objects", Objects)
     report = sp.parity_l1(bim, files)
-    elapsed = time.perf_counter() - start
     assert report["summary"] == sp.COMPATIBLE
+    rows = len(report["objects"])
     assert sum(o["kind"] == "column" for o in report["objects"]) == 4000
-    assert elapsed < 2.0, elapsed
+    assert paired[0] == rows  # one pairing per row
+    assert claimed[0] <= 2 * rows  # each left object claims once by key, a relationship once more by name
+    assert looked[0] < 10 * 3 * rows, looked[0]  # ids numbered on both sides and in the report, a few lookups each
 
 
 # ---- review follow-ups: TMSL text, detection order, redaction
@@ -542,7 +568,7 @@ def test_redacted_keeps_member_principals_and_filter_text_out_and_shows_counts()
     changed = (f"the filter on table 'dim_customer' changed from {sp._fingerprint(secret_filter)} to "
                f"{sp._fingerprint(new_filter)}")
     assert role["changes"] == [changed, "1 member(s) gone", "1 member(s) added"]
-    assert re.search(r"23 characters, sha256 [0-9a-f]{12}", role["changes"][0])
+    assert re.search(r"23 characters, fingerprint [0-9a-f]{12}", role["changes"][0])
     assert safe["redacted"] is True and "redacted" not in report  # the original is unchanged
     assert _obj(report, "role 'EU only'")["changes"][0].startswith("the filter on table 'dim_customer' changed from '")
 

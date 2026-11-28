@@ -40,14 +40,15 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .. import __version__, jsonfile
+from .. import __version__, app_settings, jsonfile
 from . import peer
-from .core import CallContext, Caller, IntegrationError, error_from
+from .core import CallContext, Caller, IntegrationError, error_from, redacted
 from .registry import Registry
 from .store import IntegrationStore
 
 MAX_BODY_BYTES = 1024 * 1024
 REFUSED_EVERY = 10.0  # seconds between audit lines for the same refused request
+PRUNE_AT = 256        # entries in a per-tool map before what it no longer needs is let go
 MAX_RESULT_BYTES = 1_000_000
 RATE_PER_SECOND = 5.0      # sustained requests per tool
 RATE_BURST = 30
@@ -66,7 +67,8 @@ STATUS = {"invalid_input": 400, "not_found": 404, "permission_denied": 403, "app
 
 
 def error_response(err: IntegrationError, headers: dict[str, str] | None = None, status: int | None = None) -> JSONResponse:
-    return JSONResponse({"ok": False, "error": err.to_dict()}, status_code=status or STATUS.get(err.code, 500), headers=headers)
+    # Redacted here too: some refusals echo what the caller sent (an unknown resource's URI).
+    return JSONResponse({"ok": False, "error": redacted(err).to_dict()}, status_code=status or STATUS.get(err.code, 500), headers=headers)
 
 
 class RateLimiter:
@@ -76,6 +78,7 @@ class RateLimiter:
         self.rate, self.burst, self.clock = rate, burst, clock
         self._buckets: dict[str, tuple[float, float]] = {}
         self._lock = threading.Lock()
+        self._kept = 0  # entries after the last prune
 
     def allow(self, key: str) -> bool:
         with self._lock:
@@ -86,7 +89,16 @@ class RateLimiter:
                 self._buckets[key] = (tokens, now)
                 return False
             self._buckets[key] = (tokens - 1, now)
+            if len(self._buckets) > max(PRUNE_AT, 2 * self._kept):
+                self._prune(now)
             return True
+
+    def _prune(self, now: float) -> None:
+        """Forget buckets that have filled up again: a full bucket is the same as none. Otherwise the
+        map would keep one for every tool this server has ever heard from (revoked ones included)."""
+        self._buckets = {k: (tokens, last) for k, (tokens, last) in self._buckets.items()
+                         if tokens + (now - last) * self.rate < self.burst}
+        self._kept = len(self._buckets)
 
 
 class Guard:
@@ -101,6 +113,7 @@ class Guard:
         self.hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
         self.registry = registry
         self._refused: dict[tuple[str, str], tuple[float, int]] = {}  # (reason, client) -> (last line, not written since)
+        self._kept = 0  # entries after the last prune
 
     async def _refuse(self, scope: Scope, receive: Receive, send: Send, err: IntegrationError,
                       headers: dict[str, str] | None = None, status: int | None = None,
@@ -115,6 +128,11 @@ class Guard:
         if audit is None:
             return
         key, now = (err.message, (client or {}).get("id", "")), time.monotonic()
+        if len(self._refused) > max(PRUNE_AT, 2 * self._kept):
+            # Let go of refusals past their window with nothing left to count: the next one would be
+            # written anyway. One that still counts skipped refusals stays until its line reports them.
+            self._refused = {k: v for k, v in self._refused.items() if v[1] or now - v[0] < REFUSED_EVERY}
+            self._kept = len(self._refused)
         last, skipped = self._refused.get(key, (0.0, 0))
         if last and now - last < REFUSED_EVERY:
             self._refused[key] = (last, skipped + 1)
@@ -138,12 +156,10 @@ class Guard:
             return
         headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
         client, client_port = (scope.get("client") or ("", 0))[:2]
-        if client not in ("127.0.0.1", "::1", "localhost", "testclient"):
+        if client not in ("127.0.0.1", "::1", "localhost"):
             await self._refuse(scope, receive, send, IntegrationError("permission_denied", "Only this PC can use the local API."))
             return
-        # "testclient" is Starlette's in-process test client: no socket, so no program to ask about.
-        if (self.same_user is not None and client != "testclient"
-                and not await anyio.to_thread.run_sync(self.same_user, int(client_port or 0), self.port)):
+        if self.same_user is not None and not await anyio.to_thread.run_sync(self.same_user, int(client_port or 0), self.port):
             await self._refuse(scope, receive, send, IntegrationError(
                 "permission_denied", "Only programs running as the Windows account KratosForge runs as can use the local API.",
                 hint="Start the tool signed in to Windows as the same person as KratosForge."))
@@ -225,6 +241,31 @@ def _limit_body(receive: Receive) -> Receive:
     return limited
 
 
+def _not_json(constant: str) -> Any:
+    raise ValueError(f"{constant} isn't JSON")
+
+
+def _strict_json(raw: bytes) -> Any:
+    """A body as JSON, held to what JSON is: no NaN or Infinity (Python's parser takes them), and no
+    lone surrogate (an escaped half of a UTF-16 pair), which can't be written back out as UTF-8.
+    Raises ValueError (UnicodeEncodeError is one) or RecursionError."""
+    body = json.loads(raw, parse_constant=_not_json)
+    json.dumps(body, ensure_ascii=False).encode("utf-8")
+    return body
+
+
+async def _http_error(request: Request, exc: Exception) -> Response:
+    """No such path, or the wrong method for it: the API's error shape, not Starlette's plain text."""
+    status = getattr(exc, "status_code", 500)
+    if status == 404:
+        err = IntegrationError("not_found", "There is no such endpoint.", hint="See /api/v1/openapi.json.")
+    elif status == 405:
+        err = IntegrationError("invalid_input", f"{request.method} isn't allowed here.", hint="See /api/v1/openapi.json.")
+    else:
+        err = IntegrationError("internal", "KratosForge hit an unexpected problem.")
+    return error_response(err, status=status if status in (404, 405) else 500)
+
+
 def openapi(registry: Registry, port: int) -> dict[str, Any]:
     """The OpenAPI 3.1 document, generated from the registry: one path per capability."""
     error = {"type": "object", "properties": {"ok": {"const": False}, "error": {"$ref": "#/components/schemas/Error"}},
@@ -272,7 +313,8 @@ def openapi(registry: Registry, port: int) -> dict[str, Any]:
 
 
 def build_app(registry: Registry, store: IntegrationStore, port: int, service_factory: Callable[[], Any] | None = None,
-              limiter: RateLimiter | None = None, refresh: Callable[[], Any] | None = None) -> ASGIApp:
+              limiter: RateLimiter | None = None, refresh: Callable[[], Any] | None = None,
+              same_user: Callable[[int, int], bool] | None = None) -> ASGIApp:
     from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
     from mcp.server.transport_security import TransportSecuritySettings
 
@@ -302,24 +344,34 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
                 for cap in registry.resources() if registry.availability(cap, ctx)[0] != "unavailable"]
         return JSONResponse({"ok": True, "resources": rows})
 
+    def refuse(request: Request, cap_id: str, arguments: Any, err: IntegrationError,
+               headers: dict[str, str] | None = None) -> Response:
+        """A call refused before Registry.invoke, recorded like one it refuses (PR-AI-010)."""
+        registry.refused(CallContext(caller_of(request)), cap_id, arguments, err)
+        return error_response(err, headers)
+
     async def read(request: Request) -> Response:
+        uri = request.query_params.get("uri", "")
         try:
-            cap, args = registry.resolve(request.query_params.get("uri", ""))
+            cap, args = registry.resolve(uri)
         except IntegrationError as err:
-            return error_response(err)
+            return refuse(request, "resources/read", {"uri": uri}, err)
         return await _run(request, cap.id, args)
 
     async def invoke(request: Request) -> Response:
         cap_id = request.path_params["cap_id"]
         try:
             raw = await request.body()
-            body = json.loads(raw) if raw.strip() else {}
+            body = _strict_json(raw) if raw.strip() else {}
         except IntegrationError as err:
-            return error_response(err)
+            return refuse(request, cap_id, None, err)
+        except RecursionError:  # json.loads gives up on JSON nested past Python's recursion limit
+            return refuse(request, cap_id, None, IntegrationError("invalid_input", "The body is nested too deeply.",
+                                                                  hint="Send flatter arguments."))
         except ValueError:
-            return error_response(IntegrationError("invalid_input", "The body must be JSON: {\"arguments\": {...}}."))
+            return refuse(request, cap_id, None, IntegrationError("invalid_input", "The body must be JSON: {\"arguments\": {...}}."))
         if not isinstance(body, dict) or not isinstance(body.get("arguments", {}), dict) or set(body) - {"arguments"}:
-            return error_response(IntegrationError("invalid_input", "The body must be {\"arguments\": {...}}."))
+            return refuse(request, cap_id, None, IntegrationError("invalid_input", "The body must be {\"arguments\": {...}}."))
         return await _run(request, cap_id, body.get("arguments") or {})
 
     async def _run(request: Request, cap_id: str, arguments: dict[str, Any]) -> Response:
@@ -333,8 +385,9 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
         with anyio.move_on_after(QUEUE_WAIT_SECONDS) as waiting:
             await slots.acquire()
         if waiting.cancelled_caught:
-            return error_response(IntegrationError("rate_limited", "KratosForge is busy with other calls.",
-                                                   retryable=True, hint="Try again shortly."), {"Retry-After": "5"})
+            return refuse(request, cap_id, arguments, IntegrationError(
+                "rate_limited", "KratosForge is busy with other calls.", retryable=True, hint="Try again shortly."),
+                {"Retry-After": "5"})
         result: dict[str, Any] = {}
         try:
             async with anyio.create_task_group() as tg:
@@ -385,8 +438,9 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
                             Route("/api/v1/capabilities/{cap_id}/invoke", invoke, methods=["POST"]),
                             Route("/api/v1/resources", resources), Route("/api/v1/resources/read", read),
                             Route("/mcp", MCPEndpoint(), methods=["GET", "POST", "DELETE"])],
+                    exception_handlers={404: _http_error, 405: _http_error, 500: _http_error},
                     lifespan=lambda _app: manager.run())
-    return Guard(app, store, port, limiter, registry)
+    return Guard(app, store, port, limiter, registry, same_user)
 
 
 # ---- running it
@@ -443,11 +497,15 @@ def _protocol() -> type:
 
 
 def server_config(app: ASGIApp, port: int) -> Any:
-    """The local API's uvicorn settings: loopback only, a cap on open connections, and deadlines."""
+    """The local API's uvicorn settings: loopback only, a cap on open connections, and deadlines.
+
+    No proxy headers: the caller's address and port come from the socket, and request headers
+    never decide who is calling.
+    """
     import uvicorn
 
     return uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", access_log=False,
-                          timeout_graceful_shutdown=10, server_header=False, http=_protocol(),
+                          timeout_graceful_shutdown=10, server_header=False, http=_protocol(), proxy_headers=False,
                           # uvicorn counts the new connection too, and refuses at the limit
                           limit_concurrency=MAX_CONNECTIONS + 1, timeout_keep_alive=IDLE_SECONDS)
 
@@ -487,7 +545,8 @@ def serve(port: int, parent_pid: int = 0) -> int:
     store = IntegrationStore.at(root)
     rules, settings = policy.current(), store.settings()
     if rules["enabled"] is False or not rules["http"]:
-        print("Your organization doesn't allow the local API on this PC.", file=sys.stderr)
+        key = "integrations" if rules["enabled"] is False else "integrations_http"
+        print("Your organization doesn't allow the local API on this PC. " + app_settings.ask_it(key), file=sys.stderr)
         return 2
     if not settings["enabled"] or not settings["http_enabled"]:
         print("The local API is turned off in Settings > Integrations.", file=sys.stderr)

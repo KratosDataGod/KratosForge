@@ -1,0 +1,4241 @@
+{
+ "spark": "3.5.3",
+ "delta": "3.2.0",
+ "time_zone": "UTC",
+ "ansi": false,
+ "cases": [
+  {
+   "id": "merge_update_set_star",
+   "title": "WHEN MATCHED THEN UPDATE SET * copies every column",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(2, 'B', 25.0), (3, 'C', 35.0), (4, 'd', 40.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.id = s.id WHEN MATCHED THEN UPDATE SET *')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 2,
+     "num_updated_rows": 2,
+     "num_deleted_rows": 0,
+     "num_inserted_rows": 0
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "B",
+      "amount": 25.0
+     },
+     {
+      "id": 3,
+      "name": "C",
+      "amount": 35.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_update_explicit_columns",
+   "title": "WHEN MATCHED THEN UPDATE SET named columns, one an expression",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(2, 'B', 25.0), (3, 'C', 35.0), (4, 'd', 40.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.id = s.id WHEN MATCHED THEN UPDATE SET t.amount = t.amount + s.amount, name = s.name')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 2,
+     "num_updated_rows": 2,
+     "num_deleted_rows": 0,
+     "num_inserted_rows": 0
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "B",
+      "amount": 45.0
+     },
+     {
+      "id": 3,
+      "name": "C",
+      "amount": 65.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_matched_and_delete",
+   "title": "WHEN MATCHED AND a condition THEN DELETE",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(1, 'A', 11.0, True), (2, 'B', 25.0, False), (4, 'd', 40.0, False), (5, 'e', 50.0, True)], 'id INT, name STRING, amount DOUBLE, gone BOOLEAN').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.id = s.id WHEN MATCHED AND s.gone THEN DELETE')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 1,
+     "num_updated_rows": 0,
+     "num_deleted_rows": 1,
+     "num_inserted_rows": 0
+    },
+    "rows": [
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_matched_delete_then_update",
+   "title": "A conditional DELETE before an UPDATE of the other matches",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(1, 'A', 11.0, True), (2, 'B', 25.0, False), (4, 'd', 40.0, False), (5, 'e', 50.0, True)], 'id INT, name STRING, amount DOUBLE, gone BOOLEAN').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.id = s.id WHEN MATCHED AND s.gone THEN DELETE WHEN MATCHED THEN UPDATE SET amount = s.amount')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 2,
+     "num_updated_rows": 1,
+     "num_deleted_rows": 1,
+     "num_inserted_rows": 0
+    },
+    "rows": [
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 25.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_matched_clauses_in_order",
+   "title": "Several WHEN MATCHED clauses: the first that holds wins",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ],
+      [
+       4,
+       "d",
+       40.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(1, -5.0), (2, 500.0), (3, -1000.0), (4, 7.0)], 'id INT, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql(\"MERGE INTO sales t USING upd s ON t.id = s.id WHEN MATCHED AND s.amount < 0 AND t.amount > 20 THEN DELETE WHEN MATCHED AND s.amount < 0 THEN UPDATE SET amount = 0 WHEN MATCHED AND s.amount > 100 THEN UPDATE SET amount = 100, name = 'capped' WHEN MATCHED THEN UPDATE SET amount = s.amount\")\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 4,
+     "num_updated_rows": 3,
+     "num_deleted_rows": 1,
+     "num_inserted_rows": 0
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 0.0
+     },
+     {
+      "id": 2,
+      "name": "capped",
+      "amount": 100.0
+     },
+     {
+      "id": 4,
+      "name": "d",
+      "amount": 7.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_insert_star",
+   "title": "WHEN NOT MATCHED THEN INSERT *",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(2, 'B', 25.0), (3, 'C', 35.0), (4, 'd', 40.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.id = s.id WHEN NOT MATCHED THEN INSERT *')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 1,
+     "num_updated_rows": 0,
+     "num_deleted_rows": 0,
+     "num_inserted_rows": 1
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     },
+     {
+      "id": 4,
+      "name": "d",
+      "amount": 40.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_insert_explicit_columns",
+   "title": "WHEN NOT MATCHED THEN INSERT named columns: the rest are NULL",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(2, 'B', 25.0), (3, 'C', 35.0), (4, 'd', 40.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.id = s.id WHEN NOT MATCHED THEN INSERT (id, amount) VALUES (s.id, s.amount * 2)')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 1,
+     "num_updated_rows": 0,
+     "num_deleted_rows": 0,
+     "num_inserted_rows": 1
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     },
+     {
+      "id": 4,
+      "name": null,
+      "amount": 80.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_insert_conditional",
+   "title": "WHEN NOT MATCHED AND a condition, twice, in order",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(4, 'd', 40.0), (5, 'e', -1.0), (6, 'f', 0.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql(\"MERGE INTO sales t USING upd s ON t.id = s.id WHEN NOT MATCHED AND s.amount > 0 THEN INSERT * WHEN NOT MATCHED AND s.amount < 0 THEN INSERT (id, name, amount) VALUES (s.id, 'negative', 0)\")\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 2,
+     "num_updated_rows": 0,
+     "num_deleted_rows": 0,
+     "num_inserted_rows": 2
+    },
+    "rows": [
+     {
+      "id": 4,
+      "name": "d",
+      "amount": 40.0
+     },
+     {
+      "id": 5,
+      "name": "negative",
+      "amount": 0.0
+     },
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_upsert",
+   "title": "Update the matches, insert the rest (the upsert)",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(2, 'B', 25.0), (3, 'C', 35.0), (4, 'd', 40.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.id = s.id WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 3,
+     "num_updated_rows": 2,
+     "num_deleted_rows": 0,
+     "num_inserted_rows": 1
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "B",
+      "amount": 25.0
+     },
+     {
+      "id": 3,
+      "name": "C",
+      "amount": 35.0
+     },
+     {
+      "id": 4,
+      "name": "d",
+      "amount": 40.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_all_three_kinds",
+   "title": "DELETE, UPDATE and INSERT in one MERGE",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(1, 'A', 11.0, True), (2, 'B', 25.0, False), (4, 'd', 40.0, False), (5, 'e', 50.0, True)], 'id INT, name STRING, amount DOUBLE, gone BOOLEAN').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.id = s.id WHEN MATCHED AND s.gone THEN DELETE WHEN MATCHED THEN UPDATE SET amount = s.amount WHEN NOT MATCHED AND NOT s.gone THEN INSERT (id, name, amount) VALUES (s.id, s.name, s.amount)')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 3,
+     "num_updated_rows": 1,
+     "num_deleted_rows": 1,
+     "num_inserted_rows": 1
+    },
+    "rows": [
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 25.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     },
+     {
+      "id": 4,
+      "name": "d",
+      "amount": 40.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_not_matched_by_source",
+   "title": "WHEN NOT MATCHED BY SOURCE: update one, delete another",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ],
+      [
+       4,
+       "d",
+       40.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(1, 'A', 11.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql(\"MERGE INTO sales t USING upd s ON t.id = s.id WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED BY SOURCE AND t.id = 2 THEN UPDATE SET name = 'stale' WHEN NOT MATCHED BY SOURCE AND t.amount > 25 THEN DELETE\")\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 4,
+     "num_updated_rows": 2,
+     "num_deleted_rows": 2,
+     "num_inserted_rows": 0
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "A",
+      "amount": 11.0
+     },
+     {
+      "id": 2,
+      "name": "stale",
+      "amount": 20.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_source_subquery",
+   "title": "The source is a subquery that aggregates",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(1, 1.0), (1, 2.0), (3, 5.0), (9, 9.0)], 'id INT, amount DOUBLE').createOrReplaceTempView('raw')\nresult = spark.sql(\"MERGE INTO sales t USING (SELECT id, sum(amount) AS total FROM raw GROUP BY id) s ON t.id = s.id WHEN MATCHED THEN UPDATE SET amount = t.amount + s.total WHEN NOT MATCHED THEN INSERT (id, name, amount) VALUES (s.id, 'new', s.total)\")\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 3,
+     "num_updated_rows": 2,
+     "num_deleted_rows": 0,
+     "num_inserted_rows": 1
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 13.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 35.0
+     },
+     {
+      "id": 9,
+      "name": "new",
+      "amount": 9.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_source_temp_view_of_a_query",
+   "title": "The source is a temp view made with a query",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(2, 'B', 25.0), (3, 'C', 35.0), (4, 'd', 40.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nspark.sql('SELECT id, name, amount FROM upd WHERE id > 2').createOrReplaceTempView('later')\nresult = spark.sql('MERGE INTO sales AS target USING later AS source ON target.id = source.id WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 2,
+     "num_updated_rows": 1,
+     "num_deleted_rows": 0,
+     "num_inserted_rows": 1
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "C",
+      "amount": 35.0
+     },
+     {
+      "id": 4,
+      "name": "d",
+      "amount": 40.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_source_another_table",
+   "title": "The source is another Delta table",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    },
+    "prices": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       2,
+       99.0
+      ],
+      [
+       7,
+       70.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql('MERGE INTO sales t USING prices p ON t.id = p.id WHEN MATCHED THEN UPDATE SET amount = p.amount WHEN NOT MATCHED THEN INSERT (id, amount) VALUES (p.id, p.amount)')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 2,
+     "num_updated_rows": 1,
+     "num_deleted_rows": 0,
+     "num_inserted_rows": 1
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 99.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     },
+     {
+      "id": 7,
+      "name": null,
+      "amount": 70.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_null_keys_never_match",
+   "title": "A NULL key matches nothing, not even another NULL",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       null,
+       "n",
+       0.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(None, 'm', 5.0), (1, 'A', 11.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.id = s.id WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 2,
+     "num_updated_rows": 1,
+     "num_deleted_rows": 0,
+     "num_inserted_rows": 1
+    },
+    "rows": [
+     {
+      "id": null,
+      "name": "m",
+      "amount": 5.0
+     },
+     {
+      "id": null,
+      "name": "n",
+      "amount": 0.0
+     },
+     {
+      "id": 1,
+      "name": "A",
+      "amount": 11.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_null_safe_key",
+   "title": "ON with <=> does match a NULL key to a NULL key",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       null,
+       "n",
+       0.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(None, 'm', 5.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.id <=> s.id WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 1,
+     "num_updated_rows": 1,
+     "num_deleted_rows": 0,
+     "num_inserted_rows": 0
+    },
+    "rows": [
+     {
+      "id": null,
+      "name": "m",
+      "amount": 5.0
+     },
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_on_with_a_filter",
+   "title": "ON with a key and a filter on the table",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(2, 'B', 25.0), (3, 'C', 35.0), (4, 'd', 40.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.id = s.id AND t.amount > 25 WHEN MATCHED THEN UPDATE SET amount = s.amount WHEN NOT MATCHED THEN INSERT *')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 3,
+     "num_updated_rows": 1,
+     "num_deleted_rows": 0,
+     "num_inserted_rows": 2
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "B",
+      "amount": 25.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 35.0
+     },
+     {
+      "id": 4,
+      "name": "d",
+      "amount": 40.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_two_key_columns",
+   "title": "A key of two columns",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "region",
+       "string"
+      ],
+      [
+       "id",
+       "int"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       "EU",
+       1,
+       1.0
+      ],
+      [
+       "US",
+       1,
+       2.0
+      ],
+      [
+       "EU",
+       2,
+       3.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([('US', 1, 20.0), ('US', 2, 30.0)], 'region STRING, id INT, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.region = s.region AND t.id = s.id WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 2,
+     "num_updated_rows": 1,
+     "num_deleted_rows": 0,
+     "num_inserted_rows": 1
+    },
+    "rows": [
+     {
+      "region": "EU",
+      "id": 1,
+      "amount": 1.0
+     },
+     {
+      "region": "EU",
+      "id": 2,
+      "amount": 3.0
+     },
+     {
+      "region": "US",
+      "id": 1,
+      "amount": 20.0
+     },
+     {
+      "region": "US",
+      "id": 2,
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_duplicate_source_rows_all_delete",
+   "title": "Two source rows may match one row when the only clause deletes it",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(1,), (1,)], 'id INT').createOrReplaceTempView('dup')\nresult = spark.sql('MERGE INTO sales t USING dup s ON t.id = s.id WHEN MATCHED THEN DELETE')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 1,
+     "num_updated_rows": 0,
+     "num_deleted_rows": 1,
+     "num_inserted_rows": 0
+    },
+    "rows": [
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_duplicate_source_rows_insert_only",
+   "title": "Duplicate source rows that only insert are all inserted",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(8, 'x', 1.0), (8, 'y', 2.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('dup')\nresult = spark.sql('MERGE INTO sales t USING dup s ON t.id = s.id WHEN NOT MATCHED THEN INSERT *')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 2,
+     "num_updated_rows": 0,
+     "num_deleted_rows": 0,
+     "num_inserted_rows": 2
+    },
+    "rows": [
+     {
+      "id": 8,
+      "name": "x",
+      "amount": 1.0
+     },
+     {
+      "id": 8,
+      "name": "y",
+      "amount": 2.0
+     },
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_case_insensitive_columns",
+   "title": "Column names match the table's without regard to case",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(2, 'B', 25.0), (4, 'd', 40.0)], 'ID INT, Name STRING, AMOUNT DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.ID = s.id WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 2,
+     "num_updated_rows": 1,
+     "num_deleted_rows": 0,
+     "num_inserted_rows": 1
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "B",
+      "amount": 25.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     },
+     {
+      "id": 4,
+      "name": "d",
+      "amount": 40.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_no_rows_match",
+   "title": "A MERGE that matches nothing changes nothing",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(9, 'z', 1.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.id = s.id WHEN MATCHED THEN DELETE')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 0,
+     "num_updated_rows": 0,
+     "num_deleted_rows": 0,
+     "num_inserted_rows": 0
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_two_source_rows_one_target_row",
+   "title": "Two source rows that update one table row: Delta refuses",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(1, 5.0), (1, 6.0)], 'id INT, amount DOUBLE').createOrReplaceTempView('dup')\nresult = spark.sql('MERGE INTO sales t USING dup s ON t.id = s.id WHEN MATCHED THEN UPDATE SET amount = s.amount')\n",
+   "spark": {
+    "error": "UnsupportedOperationException",
+    "error_class": "DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE",
+    "message": "[DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE] Cannot perform Merge as multiple source rows matched and attempted to modify the same",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_two_source_rows_conditional_delete",
+   "title": "Two source rows and a conditional DELETE: Delta refuses",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(2,), (2,)], 'id INT').createOrReplaceTempView('dup')\nresult = spark.sql('MERGE INTO sales t USING dup s ON t.id = s.id WHEN MATCHED AND t.id > 0 THEN DELETE')\n",
+   "spark": {
+    "error": "UnsupportedOperationException",
+    "error_class": "DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE",
+    "message": "[DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE] Cannot perform Merge as multiple source rows matched and attempted to modify the same",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_duplicates_a_condition_leaves_out",
+   "title": "Two source rows for one table row that the clause's condition leaves out: Delta still refuses",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(1, False), (1, False)], 'id INT, x BOOLEAN').createOrReplaceTempView('dup')\nresult = spark.sql('MERGE INTO sales t USING dup s ON t.id = s.id WHEN MATCHED AND s.x THEN UPDATE SET amount = 1')\n",
+   "spark": {
+    "error": "UnsupportedOperationException",
+    "error_class": "DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE",
+    "message": "[DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE] Cannot perform Merge as multiple source rows matched and attempted to modify the same",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_duplicates_by_source_only",
+   "title": "Two source rows for one table row with only WHEN NOT MATCHED BY SOURCE",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(1,), (1,)], 'id INT').createOrReplaceTempView('dup')\nresult = spark.sql('MERGE INTO sales t USING dup s ON t.id = s.id WHEN NOT MATCHED BY SOURCE THEN DELETE')\n",
+   "spark": {
+    "error": "UnsupportedOperationException",
+    "error_class": "DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE",
+    "message": "[DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE] Cannot perform Merge as multiple source rows matched and attempted to modify the same",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_duplicates_on_an_expression",
+   "title": "Two source rows for one table row, ON not a plain key",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(1,), (1,)], 'id INT').createOrReplaceTempView('dup')\nresult = spark.sql('MERGE INTO sales t USING dup s ON t.id = s.id + 0 WHEN MATCHED THEN UPDATE SET amount = 1')\n",
+   "spark": {
+    "error": "UnsupportedOperationException",
+    "error_class": "DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE",
+    "message": "[DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE] Cannot perform Merge as multiple source rows matched and attempted to modify the same",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_without_when",
+   "title": "A MERGE with no WHEN clause",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(2, 'B', 25.0), (3, 'C', 35.0), (4, 'd', 40.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.id = s.id')\n",
+   "spark": {
+    "error": "ParseException",
+    "error_class": "_LEGACY_ERROR_TEMP_0008",
+    "message": "There must be at least one WHEN clause in a MERGE statement.(line 1, pos 0)",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_insert_star_missing_source_column",
+   "title": "INSERT * with a table column the source hasn't got",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(9,)], 'id INT').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.id = s.id WHEN NOT MATCHED THEN INSERT *')\n",
+   "spark": {
+    "error": "AnalysisException",
+    "error_class": "DELTA_MERGE_UNRESOLVED_EXPRESSION",
+    "message": "[DELTA_MERGE_UNRESOLVED_EXPRESSION] Cannot resolve name in INSERT clause given columns s.id; line 1 pos 0",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_not_matched_then_delete",
+   "title": "WHEN NOT MATCHED THEN DELETE: there is no table row to delete",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(2, 'B', 25.0), (3, 'C', 35.0), (4, 'd', 40.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.id = s.id WHEN NOT MATCHED THEN DELETE')\n",
+   "spark": {
+    "error": "ParseException",
+    "error_class": "PARSE_SYNTAX_ERROR",
+    "message": "[PARSE_SYNTAX_ERROR] Syntax error at or near 'DELETE'.(line 1, pos 68)",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_by_source_update_star",
+   "title": "WHEN NOT MATCHED BY SOURCE THEN UPDATE SET *: there is no source row",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(2, 'B', 25.0), (3, 'C', 35.0), (4, 'd', 40.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.id = s.id WHEN NOT MATCHED BY SOURCE THEN UPDATE SET *')\n",
+   "spark": {
+    "error": "ParseException",
+    "error_class": "PARSE_SYNTAX_ERROR",
+    "message": "[PARSE_SYNTAX_ERROR] Syntax error at or near '*'.(line 1, pos 89)",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_by_source_insert",
+   "title": "WHEN NOT MATCHED BY SOURCE THEN INSERT: there is no source row",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(2, 'B', 25.0), (3, 'C', 35.0), (4, 'd', 40.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO sales t USING upd s ON t.id = s.id WHEN NOT MATCHED BY SOURCE THEN INSERT *')\n",
+   "spark": {
+    "error": "ParseException",
+    "error_class": "PARSE_SYNTAX_ERROR",
+    "message": "[PARSE_SYNTAX_ERROR] Syntax error at or near 'INSERT'.(line 1, pos 78)",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_value_changes_to_fit_the_column",
+   "title": "A source DOUBLE into an INT column",
+   "tables": {
+    "counts": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "n",
+       "int"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       1
+      ]
+     ]
+    }
+   },
+   "check": "counts",
+   "code": "spark.createDataFrame([(1, 2.75)], 'id INT, n DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO counts t USING upd s ON t.id = s.id WHEN MATCHED THEN UPDATE SET n = s.n')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 1,
+     "num_updated_rows": 1,
+     "num_deleted_rows": 0,
+     "num_inserted_rows": 0
+    },
+    "rows": [
+     {
+      "id": 1,
+      "n": 2
+     }
+    ]
+   }
+  },
+  {
+   "id": "merge_target_missing",
+   "title": "MERGE INTO a table that doesn't exist",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(2, 'B', 25.0), (3, 'C', 35.0), (4, 'd', 40.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nresult = spark.sql('MERGE INTO nope t USING upd s ON t.id = s.id WHEN MATCHED THEN DELETE')\n",
+   "spark": {
+    "error": "AnalysisException",
+    "error_class": "TABLE_OR_VIEW_NOT_FOUND",
+    "message": "[TABLE_OR_VIEW_NOT_FOUND] The table or view `nope` cannot be found. Verify the spelling and correctness of the schema and catalog.",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "update_with_where",
+   "title": "UPDATE with WHERE",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql('UPDATE sales SET amount = amount * 2 WHERE id >= 2')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 2
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 40.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 60.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "update_without_where",
+   "title": "UPDATE without WHERE changes every row",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql(\"UPDATE sales SET name = 'all'\")\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 3
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "all",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "all",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "all",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "update_same_column_expression",
+   "title": "UPDATE with an expression on the column it sets",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql(\"UPDATE sales SET amount = amount * 1.5 + 1 WHERE name <> 'b'\")\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 2
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 16.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 46.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "update_assignments_read_old_values",
+   "title": "UPDATE's assignments all read the row as it was",
+   "tables": {
+    "pairs": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "a",
+       "int"
+      ],
+      [
+       "b",
+       "int"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       1,
+       2
+      ],
+      [
+       2,
+       3,
+       4
+      ]
+     ]
+    }
+   },
+   "check": "pairs",
+   "code": "result = spark.sql('UPDATE pairs SET a = b, b = a')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 2
+    },
+    "rows": [
+     {
+      "id": 1,
+      "a": 2,
+      "b": 1
+     },
+     {
+      "id": 2,
+      "a": 4,
+      "b": 3
+     }
+    ]
+   }
+  },
+  {
+   "id": "update_where_skips_nulls",
+   "title": "UPDATE's WHERE takes no row where it is NULL",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       null
+      ],
+      [
+       3,
+       null,
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql(\"UPDATE sales SET amount = 0 WHERE amount > 5 OR name = 'b'\")\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 3
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 0.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 0.0
+     },
+     {
+      "id": 3,
+      "name": null,
+      "amount": 0.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "update_with_alias",
+   "title": "UPDATE with an alias and a CASE",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql(\"UPDATE sales AS s SET s.name = CASE WHEN s.amount > 15 THEN 'big' ELSE 'small' END\")\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 3
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "small",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "big",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "big",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "update_to_null",
+   "title": "UPDATE a column to NULL",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql('UPDATE sales SET name = NULL WHERE id = 1')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 1
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": null,
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "update_value_changes_to_fit_the_column",
+   "title": "UPDATE sets an INT column to 2.5",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql('UPDATE sales SET id = 2.5 WHERE id = 1')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 1
+    },
+    "rows": [
+     {
+      "id": 2,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "update_set_star",
+   "title": "UPDATE SET *, which only MERGE has",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql('UPDATE sales SET *')\n",
+   "spark": {
+    "error": "ParseException",
+    "error_class": "PARSE_SYNTAX_ERROR",
+    "message": "[PARSE_SYNTAX_ERROR] Syntax error at or near '*'.(line 1, pos 17)",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "update_partition_column",
+   "title": "UPDATE of a partition column moves the rows",
+   "tables": {
+    "parts": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "region",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "EU",
+       1.0
+      ],
+      [
+       2,
+       "US",
+       2.0
+      ],
+      [
+       3,
+       "EU",
+       3.0
+      ]
+     ],
+     "partition_by": [
+      "region"
+     ]
+    }
+   },
+   "check": "parts",
+   "code": "result = spark.sql(\"UPDATE parts SET region = 'APAC' WHERE region = 'EU' AND id = 3\")\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 1
+    },
+    "rows": [
+     {
+      "id": 3,
+      "region": "APAC",
+      "amount": 3.0
+     },
+     {
+      "id": 1,
+      "region": "EU",
+      "amount": 1.0
+     },
+     {
+      "id": 2,
+      "region": "US",
+      "amount": 2.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "update_where_subquery",
+   "title": "UPDATE with WHERE ... IN (SELECT ...)",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    },
+    "keep": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ]
+     ],
+     "rows": [
+      [
+       1
+      ],
+      [
+       3
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql('UPDATE sales SET amount = 0 WHERE id IN (SELECT id FROM keep)')\n",
+   "spark": {
+    "error": "AnalysisException",
+    "error_class": "DELTA_UNSUPPORTED_SUBQUERY",
+    "message": "[DELTA_UNSUPPORTED_SUBQUERY] Subqueries are not supported in the UPDATE (condition = (spark_catalog.dbo.sales.id IN (listquery()))).",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "update_from",
+   "title": "UPDATE ... FROM, which Spark SQL hasn't got",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    },
+    "prices": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       2,
+       99.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql('UPDATE sales SET amount = p.amount FROM prices p WHERE sales.id = p.id')\n",
+   "spark": {
+    "error": "ParseException",
+    "error_class": "PARSE_SYNTAX_ERROR",
+    "message": "[PARSE_SYNTAX_ERROR] Syntax error at or near 'FROM'.(line 1, pos 35)",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "update_missing_column",
+   "title": "UPDATE of a column the table hasn't got",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql('UPDATE sales SET price = 1')\n",
+   "spark": {
+    "error": "AnalysisException",
+    "error_class": "UNRESOLVED_COLUMN.WITH_SUGGESTION",
+    "message": "[UNRESOLVED_COLUMN.WITH_SUGGESTION] A column or function parameter with name `price` cannot be resolved. Did you mean one of the following? [`id`, `name`, `amount`].; line 1 pos 17;",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "delete_with_where",
+   "title": "DELETE with WHERE",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql('DELETE FROM sales WHERE amount > 15')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 2
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "delete_where_subquery_in",
+   "title": "DELETE with WHERE ... IN (SELECT ...)",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    },
+    "gone": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ]
+     ],
+     "rows": [
+      [
+       1
+      ],
+      [
+       3
+      ],
+      [
+       9
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql('DELETE FROM sales WHERE id IN (SELECT id FROM gone)')\n",
+   "spark": {
+    "error": "AnalysisException",
+    "error_class": "DELTA_UNSUPPORTED_SUBQUERY",
+    "message": "[DELTA_UNSUPPORTED_SUBQUERY] Subqueries are not supported in the DELETE (condition = (spark_catalog.dbo.sales.id IN (listquery()))).",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "delete_without_where",
+   "title": "DELETE without WHERE empties the table",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql('DELETE FROM sales')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 3
+    },
+    "rows": []
+   }
+  },
+  {
+   "id": "delete_where_null",
+   "title": "DELETE's WHERE takes no row where it is NULL",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       null
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql('DELETE FROM sales WHERE amount < 100')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 1
+    },
+    "rows": [
+     {
+      "id": 2,
+      "name": "b",
+      "amount": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "delete_using",
+   "title": "DELETE ... USING, which Spark SQL hasn't got",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    },
+    "gone": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ]
+     ],
+     "rows": [
+      [
+       1
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql('DELETE FROM sales USING gone WHERE sales.id = gone.id')\n",
+   "spark": {
+    "error": "ParseException",
+    "error_class": "PARSE_SYNTAX_ERROR",
+    "message": "[PARSE_SYNTAX_ERROR] Syntax error at or near 'USING'.(line 1, pos 18)",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "delete_nothing",
+   "title": "DELETE whose WHERE takes no row",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "result = spark.sql('DELETE FROM sales WHERE id > 100')\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 0
+    },
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "delete_partition",
+   "title": "DELETE a whole partition",
+   "tables": {
+    "parts": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "region",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "EU",
+       1.0
+      ],
+      [
+       2,
+       "US",
+       2.0
+      ],
+      [
+       3,
+       "EU",
+       3.0
+      ]
+     ],
+     "partition_by": [
+      "region"
+     ]
+    }
+   },
+   "check": "parts",
+   "code": "result = spark.sql(\"DELETE FROM parts WHERE region = 'EU'\")\n",
+   "spark": {
+    "result": {
+     "num_affected_rows": 2
+    },
+    "rows": [
+     {
+      "id": 2,
+      "region": "US",
+      "amount": 2.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "api_merge_update_insert_expressions",
+   "title": "DeltaTable.merge with whenMatchedUpdate and whenNotMatchedInsert",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(2, 'B', 25.0), (3, 'C', 35.0), (4, 'd', 40.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nfrom delta.tables import DeltaTable\nresult = (DeltaTable.forName(spark, 'sales').alias('t').merge(spark.table('upd').alias('s'), 't.id = s.id')\n    .whenMatchedUpdate(set={'amount': 't.amount + s.amount'})\n    .whenNotMatchedInsert(values={'id': 's.id', 'name': 's.name', 'amount': 's.amount'})\n    .execute())\n",
+   "spark": {
+    "result": null,
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 45.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 65.0
+     },
+     {
+      "id": 4,
+      "name": "d",
+      "amount": 40.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "api_merge_columns",
+   "title": "DeltaTable.merge with Column conditions and values",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(1, 'A', 11.0, True), (2, 'B', 25.0, False), (4, 'd', 40.0, False), (5, 'e', 50.0, True)], 'id INT, name STRING, amount DOUBLE, gone BOOLEAN').createOrReplaceTempView('upd')\nfrom delta.tables import DeltaTable\nfrom pyspark.sql import functions as F\nresult = (DeltaTable.forName(spark, 'sales').alias('t').merge(spark.table('upd').alias('s'), F.col('t.id') == F.col('s.id'))\n    .whenMatchedDelete(condition=F.col('s.gone'))\n    .whenMatchedUpdate(set={'amount': F.col('s.amount') * 2})\n    .whenNotMatchedInsert(condition=~F.col('s.gone'), values={'id': F.col('s.id'), 'amount': F.lit(0.0)})\n    .execute())\n",
+   "spark": {
+    "result": null,
+    "rows": [
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 50.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     },
+     {
+      "id": 4,
+      "name": null,
+      "amount": 0.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "api_merge_all",
+   "title": "DeltaTable.merge with whenMatchedUpdateAll and whenNotMatchedInsertAll",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(2, 'B', 25.0), (3, 'C', 35.0), (4, 'd', 40.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nfrom delta.tables import DeltaTable\nresult = (DeltaTable.forName(spark, 'sales').alias('t').merge(spark.table('upd').alias('s'), 't.id = s.id')\n    .whenMatchedUpdateAll(condition='s.amount > 30').whenNotMatchedInsertAll().execute())\n",
+   "spark": {
+    "result": null,
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "C",
+      "amount": 35.0
+     },
+     {
+      "id": 4,
+      "name": "d",
+      "amount": 40.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "api_merge_not_matched_by_source",
+   "title": "DeltaTable.merge with whenNotMatchedBySource clauses",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "spark.createDataFrame([(1, 'A', 11.0)], 'id INT, name STRING, amount DOUBLE').createOrReplaceTempView('upd')\nfrom delta.tables import DeltaTable\nresult = (DeltaTable.forName(spark, 'sales').alias('t').merge(spark.table('upd').alias('s'), 't.id = s.id')\n    .whenMatchedUpdateAll()\n    .whenNotMatchedBySourceUpdate(condition='t.id = 2', set={'name': \"'stale'\"})\n    .whenNotMatchedBySourceDelete()\n    .execute())\n",
+   "spark": {
+    "result": null,
+    "rows": [
+     {
+      "id": 1,
+      "name": "A",
+      "amount": 11.0
+     },
+     {
+      "id": 2,
+      "name": "stale",
+      "amount": 20.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "api_merge_default_alias",
+   "title": "DeltaTable.merge without aliases: the table by its name, the source as source",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "from delta.tables import DeltaTable\nsrc = spark.createDataFrame([(1, 'A', 1.0)], 'id INT, name STRING, amount DOUBLE')\nresult = DeltaTable.forName(spark, 'sales').merge(src, 'sales.id = source.id').whenMatchedUpdateAll().execute()\n",
+   "spark": {
+    "error": "AnalysisException",
+    "error_class": "DELTA_MERGE_UNRESOLVED_EXPRESSION",
+    "message": "[DELTA_MERGE_UNRESOLVED_EXPRESSION] Cannot resolve source.id in search condition given columns spark_catalog.dbo.sales.id, spark_catalog.dbo.sales.name, spark_catalog.dbo.sales.amount, id, name, amount; line 1 pos 11",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "api_merge_duplicate_source_rows",
+   "title": "DeltaTable.merge with two source rows for one table row: Delta refuses",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "from delta.tables import DeltaTable\nsrc = spark.createDataFrame([(1, 5.0), (1, 6.0)], 'id INT, amount DOUBLE')\nresult = (DeltaTable.forName(spark, 'sales').alias('t').merge(src.alias('s'), 't.id = s.id')\n    .whenMatchedUpdate(set={'amount': 's.amount'}).execute())\n",
+   "spark": {
+    "error": "UnsupportedOperationException",
+    "error_class": "DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE",
+    "message": "[DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE] Cannot perform Merge as multiple source rows matched and attempted to modify the same",
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "api_update",
+   "title": "DeltaTable.update with a condition and Column values",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "from delta.tables import DeltaTable\nfrom pyspark.sql import functions as F\nresult = DeltaTable.forName(spark, 'sales').update(F.col('id') > 1, {'amount': F.col('amount') + 1})\n",
+   "spark": {
+    "result": null,
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 21.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 31.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "api_update_sql_text",
+   "title": "DeltaTable.update with SQL text for the condition and the values",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "from delta.tables import DeltaTable\nresult = DeltaTable.forName(spark, 'sales').update('id = 3', {'name': \"'z'\", 'amount': 'amount - 1'})\n",
+   "spark": {
+    "result": null,
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 20.0
+     },
+     {
+      "id": 3,
+      "name": "z",
+      "amount": 29.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "api_update_every_row",
+   "title": "DeltaTable.update without a condition",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "from delta.tables import DeltaTable\nresult = DeltaTable.forName(spark, 'sales').update(set={'amount': '0'})\n",
+   "spark": {
+    "result": null,
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 0.0
+     },
+     {
+      "id": 2,
+      "name": "b",
+      "amount": 0.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 0.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "api_delete",
+   "title": "DeltaTable.delete with a condition",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "from delta.tables import DeltaTable\nresult = DeltaTable.forName(spark, 'sales').delete(\"name = 'b' OR amount > 25\")\n",
+   "spark": {
+    "result": null,
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "api_delete_column_condition",
+   "title": "DeltaTable.delete with a Column condition",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "from delta.tables import DeltaTable\nfrom pyspark.sql import functions as F\nresult = DeltaTable.forName(spark, 'sales').delete(F.col('id') == 2)\n",
+   "spark": {
+    "result": null,
+    "rows": [
+     {
+      "id": 1,
+      "name": "a",
+      "amount": 10.0
+     },
+     {
+      "id": 3,
+      "name": "c",
+      "amount": 30.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "api_delete_every_row",
+   "title": "DeltaTable.delete without a condition",
+   "tables": {
+    "sales": {
+     "columns": [
+      [
+       "id",
+       "int"
+      ],
+      [
+       "name",
+       "string"
+      ],
+      [
+       "amount",
+       "double"
+      ]
+     ],
+     "rows": [
+      [
+       1,
+       "a",
+       10.0
+      ],
+      [
+       2,
+       "b",
+       20.0
+      ],
+      [
+       3,
+       "c",
+       30.0
+      ]
+     ]
+    }
+   },
+   "check": "sales",
+   "code": "from delta.tables import DeltaTable\nresult = DeltaTable.forName(spark, 'sales').delete()\n",
+   "spark": {
+    "result": null,
+    "rows": []
+   }
+  }
+ ]
+}

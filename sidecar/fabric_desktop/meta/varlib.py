@@ -93,26 +93,36 @@ _TYPES: dict[str, Callable[[Any], Any]] = {"Integer": _integer, "Number": float,
 def _json(path: str, text: str) -> dict[str, Any]:
     try:
         data = json.loads(text)
-    except ValueError:
+    except (ValueError, RecursionError):
         raise ValueError(f"The library's {path} isn't valid JSON.") from None
     if not isinstance(data, dict):
         raise ValueError(f"The library's {path} isn't a JSON object.")
     return data
 
 
+def _entries(data: dict[str, Any], key: str, path: str) -> list[dict[str, Any]]:
+    """``data[key]``: a list of objects whose names, where given, are text; ValueError otherwise."""
+    got = data.get(key) or []
+    if not isinstance(got, list) or not all(isinstance(e, dict) and isinstance(e.get("name", ""), (str, type(None))) for e in got):
+        raise ValueError(f"The library's {path} can't be read, because its {key} isn't a list of objects with a "
+                         "text name. Fix the library in Fabric and run the cell again.")
+    return got
+
+
 def read(parts: dict[str, str], value_set: str | None) -> dict[str, Any]:
     """Any variable library's values from its definition files, with ``value_set``'s overrides:
     what ``getLibrary`` gives in Fabric. Integer, Number and Boolean variables keep their type;
     the rest (String, DateTime, Guid, item references) read as text."""
-    variables = _json("variables.json", parts.get("variables.json") or "{}").get("variables") or []
+    variables = _entries(_json("variables.json", parts.get("variables.json") or "{}"), "variables", "variables.json")
     out: dict[str, Any] = {v["name"]: v.get("value") for v in variables if v.get("name")}
     kinds = {v["name"]: v.get("type", "String") for v in variables if v.get("name")}
     if value_set and value_set != DEFAULT_SET:
-        sets = (_json(path, text) for path, text in sorted(parts.items()) if path.startswith("valueSets/"))
-        overrides = next((v for v in sets if v.get("name") == value_set), None)
-        if overrides is None:
+        sets = ((path, _json(path, text)) for path, text in sorted(parts.items()) if path.startswith("valueSets/"))
+        found = next(((path, v) for path, v in sets if v.get("name") == value_set), None)
+        if found is None:
             raise LookupError(f"The active value set {value_set} isn't in the library's definition")
-        out.update({o["name"]: o.get("value") for o in overrides.get("variableOverrides") or [] if o.get("name") in out})
+        overrides = _entries(found[1], "variableOverrides", found[0])
+        out.update({o["name"]: o.get("value") for o in overrides if o.get("name") in out})
     typed: dict[str, Any] = {}
     for k, v in out.items():
         try:

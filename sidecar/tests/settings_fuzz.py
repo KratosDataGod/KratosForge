@@ -83,3 +83,41 @@ def mutations(valid: dict[str, Any], seed: int, n: int) -> Iterator[tuple[str, b
 
 def _dumps(data: Any) -> bytes:
     return json.dumps(data, allow_nan=True).encode("utf-8")
+
+
+def deep_mutations(valid: Any, seed: int, n: int) -> Iterator[tuple[str, bytes]]:
+    """``n`` (label, file bytes) cases that each change one value anywhere in ``valid``, however deep: a
+    value of another type, a key or list entry taken out, or an extra key or entry. ``mutations`` changes
+    only the top level; a reader's checks of nested objects need this."""
+    rnd = random.Random(seed)
+
+    def places(node: Any, at: tuple[Any, ...] = ()) -> Iterator[tuple[Any, ...]]:
+        if at:
+            yield at
+        if isinstance(node, dict):
+            for k, v in node.items():
+                yield from places(v, at + (k,))
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                yield from places(v, at + (i,))
+
+    for i in range(n):
+        data = json.loads(json.dumps(valid))
+        at = rnd.choice(list(places(data)))
+        parent = data
+        for step in at[:-1]:
+            parent = parent[step]
+        roll = rnd.random()
+        if roll < 0.6:
+            parent[at[-1]] = rnd.choice(ODD_VALUES)
+            kind = "swap"
+        elif roll < 0.8:
+            del parent[at[-1]]
+            kind = "drop"
+        elif isinstance(parent, dict):
+            parent[rnd.choice(("zz_new", "id", "type", "name", ""))] = rnd.choice(ODD_VALUES)
+            kind = "extra"
+        else:
+            parent.append(rnd.choice(ODD_VALUES))
+            kind = "extra"
+        yield f"{i} {kind} {'.'.join(map(str, at))}", _dumps(data)

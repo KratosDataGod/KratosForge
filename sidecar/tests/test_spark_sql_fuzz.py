@@ -138,19 +138,39 @@ DEEP = [
 ]
 
 
-@pytest.mark.parametrize("query", DEEP)
-def test_a_query_nested_too_deeply_is_refused_by_name_and_quickly(query):
-    start = time.monotonic()
+def _cpu_seconds(read) -> float:
+    """CPU time for one call, with the garbage collector off. Not wall-clock time: other test workers on a busy
+    machine stretched a 1 s refusal to 5.6 s of wall-clock time. The slow reads these tests guard against took
+    over a minute of CPU time."""
+    collecting = gc.isenabled()
+    gc.disable()
+    try:
+        start = time.process_time()
+        read()
+        return time.process_time() - start
+    finally:
+        if collecting:
+            gc.enable()
+
+
+def _refused_as_too_deep(query: str) -> None:
     with pytest.raises(ValueError, match="nested too deeply"):
         _translate(query)
-    assert time.monotonic() - start < SLOW
+
+
+@pytest.mark.parametrize("query", DEEP)
+def test_a_query_nested_too_deeply_is_refused_by_name_and_quickly(query):
+    spent = _cpu_seconds(lambda: _refused_as_too_deep(query))
+    assert spent < SLOW, f"took {spent:.1f}s of CPU time"
 
 
 def test_type_calls_nested_up_to_the_limit_still_read():
     depth = sql_dialects.TYPE_CALL_DEPTH
-    start = time.monotonic()
-    assert sql.run("SELECT " + "string(" * depth + "1" + ")" * depth + " AS s", "spark").to_pylist() == [{"s": "1"}]
-    assert time.monotonic() - start < SLOW
+    rows = []
+    spent = _cpu_seconds(lambda: rows.extend(
+        sql.run("SELECT " + "string(" * depth + "1" + ")" * depth + " AS s", "spark").to_pylist()))
+    assert rows == [{"s": "1"}]
+    assert spent < SLOW, f"took {spent:.1f}s of CPU time"
 
 
 def _best_time(text: str) -> float:

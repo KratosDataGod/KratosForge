@@ -707,15 +707,26 @@ def _named_anywhere(uri: str, table: DeltaTable | None) -> set[str]:
     with os.scandir(log) as it:
         commits = [e.path for e in it if _COMMIT.fullmatch(e.name) and not _is_link(e)]
     for path in commits:
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                if '"add"' not in line and '"remove"' not in line:
-                    continue
-                action = json.loads(line)
-                for kind in ("add", "remove"):
-                    if isinstance(action.get(kind), dict) and action[kind].get("path"):
-                        named |= {str(action[kind]["path"]), unquote(str(action[kind]["path"]))}
+        # A line that can't be read may name a file, so none can be told from the table's (another tool's
+        # commit, torn or not UTF-8, or a number past Python's 4300-digit limit).
+        try:
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    if '"add"' not in line and '"remove"' not in line:
+                        continue
+                    action = json.loads(line)
+                    if not isinstance(action, dict):
+                        raise ValueError("not an action")
+                    for kind in ("add", "remove"):
+                        if isinstance(action.get(kind), dict) and action[kind].get("path"):
+                            named |= {str(action[kind]["path"]), unquote(str(action[kind]["path"]))}
+        except (ValueError, RecursionError):
+            raise _Unreadable(Path(path).name) from None
     return {path_key(p) for p in named}
+
+
+class _Unreadable(ValueError):
+    """A commit file in _delta_log that isn't Delta JSON, so the files it names can't be known."""
 
 
 def stopped_run_leftovers(uri: str, since: float) -> dict[str, Any]:
@@ -754,7 +765,12 @@ def stopped_run_leftovers(uri: str, since: float) -> dict[str, Any]:
             return {"files": [], "bytes": 0,
                     "refused": "a commit was made to the table after the stopped run started, so its files "
                                "can't be told from another writer's: they're left for Compact"}
-    named = _named_anywhere(uri, table)
+    try:
+        named = _named_anywhere(uri, table)
+    except _Unreadable as exc:
+        return {"files": [], "bytes": 0,
+                "refused": f"its files can't be told from the table's own, because commit {exc} in _delta_log "
+                           "isn't valid Delta JSON, so they're left for Compact"}
     if any(_FOREIGN.match(p) for p in named):
         return {"files": [], "bytes": 0,
                 "refused": "a version of the table names a file by its full path, so which files it names "

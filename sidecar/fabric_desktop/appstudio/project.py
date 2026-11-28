@@ -101,9 +101,16 @@ def text_problems(text: str, where: str) -> list[str]:
     return out
 
 
+_TOO_DEEP = ("The specification can't be used because it nests too deeply. Keep each value a few levels "
+             "deep, as App Studio writes them.")
+
+
 def _guard(spec: dict[str, Any]) -> dict[str, Any]:
     specs.check(spec)
-    leaks = secret_problems(spec)
+    try:
+        leaks = secret_problems(spec)
+    except RecursionError:
+        raise SpecError([_TOO_DEEP]) from None
     if leaks:
         raise SpecError(leaks)
     if len(json.dumps(spec)) > MAX_SPEC_BYTES:
@@ -195,7 +202,10 @@ def open_project(path: str | os.PathLike[str]) -> dict[str, Any]:
     folder = _dir(path)
     meta = _meta(folder)
     spec = read_json(_file(folder, SPEC), None)
-    problems = specs.validate(spec) + (secret_problems(spec) if isinstance(spec, dict) else [])
+    try:
+        problems = specs.validate(spec) + (secret_problems(spec) if isinstance(spec, dict) else [])
+    except RecursionError:
+        problems = [_TOO_DEEP]
     return {"path": str(folder), "meta": meta, "spec": spec, "valid": not problems, "problems": problems,
             "can_undo": bool(meta["undo"]), "can_redo": bool(meta["redo"])}
 
@@ -413,6 +423,9 @@ def import_(data: bytes, parent: str | os.PathLike[str], name: str = "") -> Path
         spec = json.loads(files[SPEC].decode("utf-8"))
     except ValueError:
         raise ProjectError("app.json in the zip isn't valid JSON.") from None
+    except RecursionError:
+        raise ProjectError("app.json in the zip can't be read because it nests too deeply to be a specification. "
+                           "Export the project from App Studio again.") from None
     _guard(spec)
     history = files[HISTORY].decode("utf-8", "replace") if HISTORY in files else ""
     leaks = text_problems(history, HISTORY)
@@ -429,7 +442,7 @@ def import_(data: bytes, parent: str | os.PathLike[str], name: str = "") -> Path
                 _guard(doc["spec"])
                 if secret_problems({k: v for k, v in doc.items() if k != "spec"}):
                     continue
-            except (ValueError, KeyError, TypeError):
+            except (ValueError, KeyError, TypeError, RecursionError):
                 continue  # a damaged or unsafe version is left behind; the current specification is what matters
             write_json(dest / VERSIONS / PurePosixPath(fname).name, doc)
             taken += 1

@@ -703,8 +703,8 @@ Status: **Built** (a test exists on main or a reviewed branch), **Planned**, **N
 | 12 | Precision | 006c, 006d | `test_scenario_12_*` in `test_semantic_parity_l3.py` | Built (SQL side); Needs live tenant |
 | 13 | Security metadata | 004a | `test_update_keeps_roles_hierarchies_lineage_tags_and_fabric_only_measures` | Built (kept); Planned (never silent) |
 | 14 | Git compare | 002b | `test_ossie_compare.py` (`ossie_compare.compare_versions`) | Built (engine); Planned (Git `HEAD` and screen) |
-| 15 | Fabric deploy (authorized test resources) | 015b, 005c | `test_import_previews_then_writes_only_when_confirmed` (fake API) | Needs live tenant |
-| 16 | Deploy failure and recovery | 015b | `test_a_model_that_cant_be_read_is_not_imported_over` (fake API) | Built (fake); Needs live tenant |
+| 15 | Fabric deploy (authorized test resources) | 015b, 005c | `test_import_previews_then_writes_only_when_confirmed` (fake API), `test_ossie_deployments.py` (deployment record, dry run) | Built (fake, record); Needs live tenant |
+| 16 | Deploy failure and recovery | 015b | `test_a_model_that_cant_be_read_is_not_imported_over` (fake API), `test_fabric_raising_is_recorded_failed_and_leaves_the_model_as_it_was` | Built (fake, record); Needs live tenant |
 | 17 | Malicious imports | 003a, 012a | `test_files_that_arent_ossie_are_refused_with_a_reason`, `test_links_and_junctions_on_the_way_are_refused_and_never_followed`, `test_a_hostile_model_reads_back_with_the_same_objects_and_nothing_extra`, `test_tmdl_fuzz.py` (branch), D1 test (branch), `test_ossie_corpus.py` (012a corpus) | Built |
 | 18 | Large-model performance | 012b | `test_too_many_tables_or_too_much_text_is_refused` (limits), `test_ossie_large.py` (work grows linearly), `tools/ossie_large_timing.py` (baseline in semantic-model-ossie.md) | Built (engine); CI lane proposed |
 | 19 | Offline | 002a, 003a | `test_a_model_kept_in_git_exports_offline` | Built |

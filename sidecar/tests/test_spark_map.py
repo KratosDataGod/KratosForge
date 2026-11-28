@@ -82,6 +82,24 @@ print(df.filter("k > 5").mapInPandas(lambda it: it, "k long, s string, v double"
     assert out.splitlines() == ["[Row(n=3)]", "[]"]
 
 
+def test_a_ddl_schema_with_sql_reserved_words_as_names(kernel):
+    # Spark takes left, right, order... as column names in the schema string.
+    out = run(kernel, SETUP + """
+by_name = df.mapInPandas(lambda it: (p.rename(columns={"k": "left", "v": "order"})[["left", "order"]] for p in it),
+                         "left long, order double")
+print(by_name.dtypes, [tuple(r) for r in by_name.orderBy("left", "order").collect()])
+by_position = df.mapInPandas(lambda it: (p[["k", "s"]] for p in it), "right long, select string")
+print([tuple(r) for r in by_position.orderBy("select").collect()])
+def total(pdf):
+    return pd.DataFrame({"group": [pdf.k.iloc[0]], "from": [pdf.v.sum()]})
+print([tuple(r) for r in df.groupBy("k").applyInPandas(total, "group long, from double").orderBy("group").collect()])
+print(df.filter("k > 5").mapInPandas(lambda it: it, "table long, where string, by double").columns)
+""")
+    assert out.splitlines() == ["[('left', 'bigint'), ('order', 'double')] [(1, 2.0), (1, 4.0), (2, None)]",
+                                "[(1, 'a'), (2, 'b'), (1, 'c')]", "[(1, 6.0), (2, 0.0)]",
+                                "['table', 'where', 'by']"]
+
+
 def test_foreach_and_foreach_partition_see_every_row(kernel):
     out = run(kernel, SETUP + """
 seen = []

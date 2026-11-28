@@ -193,10 +193,6 @@ def test_the_dataframe_api_leaves_columns_it_cant_read_as_they_were():
     assert spark_text_comparison_columns(["s = 1, n + 2"], FRAME) == [None]
 
 
-@pytest.mark.xfail(strict=True, reason="Bug: spark_text_comparison_columns only reads an expression with =, <, >, "
-                   "' IN ', BETWEEN or CASE in it, and DuckDB writes <=> (eqNullSafe) as IS NOT DISTINCT FROM, so "
-                   "the DataFrame API's text <=> number isn't rewritten and '' <=> 1 stops the query instead of "
-                   "giving Spark's false")
 def test_the_dataframe_api_rewrites_a_null_safe_comparison():
     out = spark_text_comparison_columns(["(s IS NOT DISTINCT FROM 1)"], FRAME)
     assert out[0] is not None

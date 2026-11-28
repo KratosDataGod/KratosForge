@@ -186,7 +186,7 @@ with their defaults (unused at L1). A Different results summary can hide Unsuppo
 
 The report can name role members and quote row-level security filters. Anything that shows it
 outside the local pane (a log, a support bundle, a CI artifact, GitHub text) must use
-`semantic_parity.redacted(report)`, which gives counts of members and a length and hash of each
+`semantic_parity.redacted(report)`, which gives counts of members and a length and keyed fingerprint of each
 filter instead. A TMDL line the reader can't read is reported by its first 80 characters, so
 `redacted()` also withholds such a warning when it names a role, comes from a `roles/` file, or sits
 inside a role block in any file. The reader takes a role declared in `model.tmdl` or
@@ -581,7 +581,7 @@ can't resolve the columns a view metric's SQL names, and a measure the view keep
 view row's notes count these measures, and they aren't listed as dropped.
 
 `semantic_matrix.redacted(matrix)` gives a copy that's safe outside the local pane. Each parity report goes
-through `semantic_parity.redacted`, and the free text on a dropped or changed role is a length and hash instead.
+through `semantic_parity.redacted`, and the free text on a dropped or changed role is a length and keyed fingerprint instead.
 
 ## Fixture corpus
 
@@ -611,13 +611,25 @@ path in `error` and in that side's `sides[...]["error"]`. And a fourth: the Sema
 left a wrong-typed part of an Ossie file out under `excluded` and the view could still be Valid. It
 now refuses that file by path, and a view whose datasets were all excluded is never Valid.
 
-The manifest also records what the corpus shows that may be worth changing, without changing it:
+Two more, recorded first and then fixed (rolefid; the manifest says so):
 
-- A Semantic View converted to TMDL loses its relationships: a view has no fields, so the converter
-  finds no column for either end. Each one is reported as lost.
-- On Import, a role that travels in the Power BI section comes back Fully preserved, with no security
-  warning, although only Power BI could read it in the file. On Export the same role is Preserved
-  through extensions, with a security warning.
+- **Roles on Import.** A role, or a calculation group, that the Ossie file keeps only in its Power BI
+  section used to come back Fully preserved on Import, with no security warning, although only Power BI
+  could read it in the file. Import now classes it Preserved through extensions, as Export does. The
+  role gets the same security warning Export gives ("This security role is only in the POWER_BI
+  extension: a tool other than Power BI that reads the file won't apply it"), and the remediation says
+  that it reached the model but a tool that reads the file won't apply it. A role that comes through
+  changed is still Partially converted, and a lost one Unsupported. The compatibility matrix reads the
+  class by direction: for the Power BI model target the role is kept, since the model applies it; for
+  the Ossie file it is extension only. Other objects restored from the Power BI section (perspectives,
+  cultures, expressions, plain tables) are still Fully preserved on Import.
+- **A Semantic View's relationships.** A view lists no fields, so the converter found no column for
+  either end of a relationship and dropped it. Now, when a dataset lists no fields, each end column a
+  one-column relationship names is declared on its table as a lakehouse source column of the same name,
+  with no data type, and the relationship is kept. Nothing is guessed: each declared column has a report
+  row (kind kept) saying its data type wasn't known and should be set to match the lakehouse table before
+  deploying, and the relationship's fidelity row has the same note. A dataset that lists fields but not
+  the column still loses the relationship, as before, and so does a composite relationship.
 
 ### Large models
 
@@ -789,7 +801,7 @@ expressions, sourceColumn and summarizeBy. Bad input never raises: `status` is "
 can't understand is left out of the comparison, so the summary and `notes` count it and each
 side's `warnings` name it.
 The report can quote a role's filter and name its members. Anything shown outside the local pane
-must use `ossie_compare.redacted(report)`, which gives a length and hash of each filter, counts of
+must use `ossie_compare.redacted(report)`, which gives a length and keyed fingerprint of each filter, counts of
 members and permissions, and no expression or format text.
 
 ## How this works
@@ -862,6 +874,17 @@ models (`fabric_desktop_list_semantic_models`), export one as Ossie YAML
 (`fabric_desktop_preview_ossie_import`). All three only read, and a tool limited to some workspaces
 reaches only environments in them. Importing writes the model, so it stays on this tab, where you
 see the preview and confirm.
+
+Export and the import preview withhold security roles from an AI tool: each role filter expression and
+each member's name and id comes back as its length and a keyed fingerprint, in the YAML and in the
+fidelity report, because they say who may see which rows and an agent has no need to read them. Role names, model
+permissions and which tables have a filter are kept, the result's `note` says what was withheld, and
+this tab still shows them in full.
+
+A keyed fingerprint is a short HMAC-SHA256 under a random key kept in this PC's data folder and never
+returned. Two fingerprints match when their text does, so a tool can still see that two filters are the
+same, but it can't confirm a guessed name or filter by hashing it. The redacted reports from
+`semantic_parity.redacted` and `ossie_compare.redacted` use the same fingerprints.
 
 ## Engine methods
 

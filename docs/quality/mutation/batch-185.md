@@ -11,6 +11,8 @@ Before the "after" run, the new tests were run in a copy of `sidecar/` on its ow
 
 A mutant whose run times out counts as killed. Four timed out in the first run, as in batch 15: two make `_new_id`'s loop never end (line 110), and two make the loop that picks a free connection id never end (line 496). One more times out in the "after" run: `n += 1` to `+= 0` in that loop (line 498), which a third connection from the same CLI profile now reaches.
 
+**Rechecked on 2026-11-24.** On a machine this loaded a mutant can time out without hanging, so all five were applied again, alone, to `sidecar/` as it was at the batch's commit and the set (for mutant 232, the "after" set) run with a 1,500-second limit instead of 120. All five really never end, and the numbers don't change: each was stopped by the test suite's own 300-second limit for one test, with the stack in `_new_id` (12 and 106) or in the loop for a free connection id (59, 152 and 232). Mutant 232 passes with the first set, which never reaches a third connection from one CLI profile, and is counted only in the "after" run, as above.
+
 ## Results
 
 | Module | Test files run | Mutants (point + boundary) | Before: killed / survived | Before | Point before → after | Boundary before → after | After: killed / survived | After | Left |

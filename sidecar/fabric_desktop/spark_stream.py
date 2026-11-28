@@ -238,6 +238,10 @@ class StreamReader:
         return self
 
     def schema(self, schema: Any) -> StreamReader:
+        """A StructType or a DDL string such as ``"a INT, b STRING"``, as in Spark."""
+        if isinstance(schema, str):
+            from .spark_local import ddl_schema
+            schema = ddl_schema(schema)
         self._reader.schema(schema)
         return self
 

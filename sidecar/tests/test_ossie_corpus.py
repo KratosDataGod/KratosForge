@@ -230,7 +230,7 @@ def test_aliases_and_repeated_keys_are_refused_with_the_line():
         mo.parse(oc.load(oc.entry("hostile/duplicate_key.yaml")))
 
 
-# ---- findings: those fixed (in typed-errors, then in harden), then the ones recorded, not fixed (each still holds)
+# ---- findings: those fixed in typed-errors, then in harden, then in rolefid
 
 def test_conversion_keeps_the_depth_limit_validate_uses():  # fixed in typed-errors
     text = oc.load(oc.entry("hostile/deep_ai_context.yaml"))
@@ -254,27 +254,29 @@ def test_a_model_bim_nested_past_the_limit_is_refused_but_l1_still_reads_it():  
     assert semantic_parity.parity_l1(bim, bim)["summary"] == semantic_parity.CEILING
 
 
-def test_a_semantic_view_converted_to_tmdl_drops_its_relationships_and_says_so():
+def test_a_semantic_view_converted_to_tmdl_keeps_its_relationships_and_says_the_types_werent_known():  # rolefid
     files, report = mo.ossie_to_tmdl(oc.load(oc.entry("view/sales_view.yaml")))
-    assert "definition/relationships.tmdl" not in files
-    skipped = [r for r in report if r["object"] == "relationship 'orders_customers'"]
-    assert skipped and skipped[0]["kind"] == "lost" and "relationship skipped" in skipped[0]["message"]
+    assert "relationship orders_customers" in files["definition/relationships.tmdl"]
+    rows = [r for r in report if r["object"] == "relationship 'orders_customers'"]
+    assert [r["kind"] for r in rows] == ["kept", "kept"]
+    assert all("data type wasn't known" in r["message"] for r in rows)
+    assert "dataType" not in files["definition/tables/orders.tmdl"]
 
 
-def test_l1_of_a_view_and_its_tmdl_is_not_a_match():
+def test_l1_of_a_view_and_its_tmdl_matches_the_relationship():  # rolefid
     text = oc.load(oc.entry("view/sales_view.yaml"))
     files, _ = mo.ossie_to_tmdl(text)
     report = semantic_parity.parity_l1(text, files, left_kind="semantic_view", right_kind="tmdl")
-    assert report["summary"] in (semantic_parity.DIFFERENT, semantic_parity.UNSUPPORTED)
-    assert any(o["kind"] == "relationship" and o["result"] != semantic_parity.CEILING for o in report["objects"])
+    rels = [o for o in report["objects"] if o["kind"] == "relationship"]
+    assert rels and all(o["ids"]["right"] is not None and o["result"] == semantic_parity.CEILING for o in rels)
 
 
-def test_roles_come_back_fully_preserved_on_import_with_no_security_warning():
+def test_roles_come_back_preserved_through_extensions_on_import_with_a_security_warning():  # rolefid
     doc = mo.parse(oc.load(oc.entry("ossie/v02_04_powerbi.yaml")))
     bim, report = mo.to_tmsl(doc)
     fid = mo.fidelity(doc, bim, report)
-    assert fid["flagged"]["roles"] == [{"object": "role 'EU readers'", "class": "fully_preserved"}]
-    assert not [w for w in fid["warnings"] if w["severity"] == "security"]
+    assert fid["flagged"]["roles"] == [{"object": "role 'EU readers'", "class": "preserved_through_extensions"}]
+    assert [w["object"] for w in fid["warnings"] if w["severity"] == "security"] == ["role 'EU readers'"]
 
 
 def test_roles_export_only_in_the_extension_with_a_security_warning(results):
@@ -334,8 +336,9 @@ def test_the_manifest_is_valid_json_with_findings_as_plain_sentences():
     findings = {f for e in doc["files"] for f in e.get("findings", [])}
     assert len(findings) == 6
     fixed = {f for f in findings if f.startswith(("Fixed in typed-errors: ", "Fixed in harden: "))}
-    assert len(fixed) == 4
-    for e in doc["files"]:  # a fixed finding is expected as a refusal, never as an error
+    assert len(fixed) == 4 and len(findings - fixed) == 2
+    assert all(f.startswith("Fixed in rolefid: ") for f in findings - fixed)
+    for e in doc["files"]:  # a hardening fix is expected as a refusal, never as an error
         if fixed & set(e.get("findings", [])):
             assert oc.REFUSED in e["expect"].values() and not any(w.startswith("error:") for w in e["expect"].values())
     assert all(re.fullmatch(r"\S.{40,400}\.", f) for f in findings)

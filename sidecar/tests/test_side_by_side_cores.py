@@ -5,16 +5,22 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pyarrow as pa
 import pytest
 
+import fabric_desktop
 from fabric_desktop import cpu_cap
 from fabric_desktop import side_by_side as sbs
 from fabric_desktop.kernel_proc import ProcessKernel
 from fabric_desktop.notebook import Kernel
 
 from test_side_by_side import CELLS, FakeFabric, call, payload, svc, tables, wait  # noqa: F401 - fixtures
+
+# The engine's own folder, for a child process. Not all of sys.path: other tests add project folders
+# to it, and on Windows a variable longer than 32,767 characters stops the child starting.
+ENGINE = str(Path(fabric_desktop.__file__).resolve().parent.parent)
 
 AFFINITY = sys.platform == "win32" or hasattr(os, "sched_setaffinity")
 
@@ -62,7 +68,7 @@ def test_a_capped_process_and_the_processes_it_starts_get_only_those_cores():
               "print(cpu_cap.from_env(), cpu_cap.allowed(), os.cpu_count())\n"
               "print(subprocess.run([sys.executable, '-c', 'from fabric_desktop import cpu_cap; print(cpu_cap.allowed())'],\n"
               "                     capture_output=True, text=True).stdout.strip())\n")
-    env = dict(os.environ, **cpu_cap.env(1), PYTHONPATH=os.pathsep.join(sys.path))
+    env = dict(os.environ, **cpu_cap.env(1), PYTHONPATH=ENGINE)
     out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, env=env, timeout=60)
     assert out.returncode == 0, out.stderr
     assert out.stdout.split() == ["1", "1", "1", "1"]

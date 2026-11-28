@@ -251,11 +251,28 @@ AREAS: tuple[Area, ...] = (
        local=Cell("partial", ("test_snowflake_sql.py", "test_snowflake_sql_parity.py", "test_snowflake_coverage.py"),
                   note="Validation and translation only: Snowflake SQL runs on DuckDB with a label per statement. Not a Snowflake runtime. "
                        "docs/snowflake-functions.md says for every function whether it runs, differs, is refused or fails.")),
-    _skinned("snowflake", "objects", "Databases, schemas and object browser"),
-    _skinned("snowflake", "snowpark", "Snowpark", local=MISSING),
+    _skinned("snowflake", "objects", "Databases, schemas and object browser",
+       cloud_api=Cell("partial", ("test_snowflake_objects.py",),
+                      note="The engine lists databases, schemas, tables and views, and a table's or view's columns, "
+                           "with SHOW as the connection's role and without a warehouse, a capped page at a time "
+                           "(Preview). No screen shows them yet. Against fakes, no live run yet.")),
+    _skinned("snowflake", "snowpark", "Snowpark",
+       local=Cell("partial", ("test_snowpark_api.py", "test_snowpark_local.py"),
+                  note="Compatibility checks only (Preview). The Snowpark engine on this PC executes cells simulated by "
+                       "Snowflake's local testing framework (Snowpark Python 1.58, its own runtime folder, no network, "
+                       "telemetry off); session.sql and calls the framework doesn't implement are refused. The API "
+                       "compatibility check reads a cell's Snowpark calls, methods and keywords against 1.58.0's signatures "
+                       "and flags Cortex, external access, stages and pandas on Snowflake. Tested against a fake of "
+                       "Snowpark; no result has been compared with Snowflake. Not a Snowflake runtime.")),
     _skinned("snowflake", "loading", "Stages and data loading"),
     _skinned("snowflake", "tasks", "Streams, tasks and dynamic tables"),
-    _skinned("snowflake", "history", "Query history, profiling and credits"),
+    _skinned("snowflake", "history", "Query history, profiling and credits",
+       cloud_api=Cell("partial", ("test_snowflake_history.py", "test_snowflake_credits.py"),
+                      note="The engine reads your own recent queries (QUERY_HISTORY_BY_USER) with their status, run "
+                           "time, warehouse and rows, and credits used per warehouse per day from ACCOUNT_USAGE's "
+                           "WAREHOUSE_METERING_HISTORY (up to 3 hours behind), each after a confirm, because each "
+                           "runs on a warehouse (Preview). Credits only, never money. No screen or query profile "
+                           "yet. Against fakes, no live run yet.")),
 )
 
 
@@ -288,11 +305,11 @@ PLANS: dict[tuple[str, str], Plan] = {
     ("databricks", "cost"): _p("G", "P1", "cloud", "DBX-006", owner="Optimization engine"),
     ("snowflake", "connect"): _p("A", "P0", "cloud", "SF-001", "SF-002", "PAR-003", owner="Platform parity"),
     ("snowflake", "worksheets"): _p("B", "P0", "hybrid", "SF-003", "PAR-002", owner="Platform parity"),
-    ("snowflake", "objects"): _p("D", "P1", "none", "SF-004", owner="Platform parity"),
-    ("snowflake", "snowpark"): _p("C", "P2", "none", "SF-007"),
+    ("snowflake", "objects"): _p("D", "P1", "cloud", "SF-004", owner="Platform parity"),
+    ("snowflake", "snowpark"): _p("C", "P2", "simulated", "SF-007"),
     ("snowflake", "loading"): _p("D", "P2", "none", "SF-009"),
     ("snowflake", "tasks"): _p("E", "P2", "none", "SF-008"),
-    ("snowflake", "history"): _p("G", "P1", "none", "SF-005", "SF-006", owner="Platform parity"),
+    ("snowflake", "history"): _p("G", "P1", "cloud", "SF-005", "SF-006", owner="Platform parity"),
 }
 
 

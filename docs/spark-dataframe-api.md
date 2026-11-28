@@ -20,9 +20,9 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 
 | Status | Methods |
 | --- | ---: |
-| Runs | 152 |
+| Runs | 153 |
 | Differs | 10 |
-| Refused | 25 |
+| Refused | 24 |
 | Fails | 0 |
 | Not checked | 0 |
 | **All** | **187** |
@@ -205,7 +205,7 @@ input. [Spark functions](spark-functions.md) lists the SQL functions the same wa
 | `options` | Runs |  |
 | `orc` | Refused | `with tempfile.TemporaryDirectory() as d: # Write a DataFr...`: NotImplementedError: ORC files are written in Fabric; DuckDB on this PC can't write ORC. Write Parquet here (df.write.parquet), or run the cell in Fabric. |
 | `parquet` | Runs |  |
-| `schema` | Refused | `spark.read.schema("col0 INT, col1 DOUBLE")`: NotImplementedError: On this PC, give read.schema() a StructType. A DDL string isn't supported. |
+| `schema` | Runs |  |
 | `table` | Runs |  |
 | `text` | Runs |  |
 

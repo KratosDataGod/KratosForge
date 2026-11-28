@@ -1,5 +1,5 @@
 {
- "about": "OSSIE-012a fixture corpus: what each file is and what each entry point does with it. Synthetic data only. tests/ossie_corpus.py reads it; tests/test_ossie_corpus.py checks it; tools/ossie_upgrade_diff.py compares two converters over it. findings are recorded, not fixed.",
+ "about": "OSSIE-012a fixture corpus: what each file is and what each entry point does with it. Synthetic data only. tests/ossie_corpus.py reads it; tests/test_ossie_corpus.py checks it; tools/ossie_upgrade_diff.py compares two converters over it. findings are recorded; those fixed since say so.",
  "files": [
   {
    "path": "ossie/v02_01_minimal.yaml",
@@ -53,7 +53,7 @@
     "parity_l1": "Structurally compatible but behavior unverified"
    },
    "findings": [
-    "Roles come back Fully preserved on Import: the role reaches the model from the POWER_BI extension, so the fidelity report of Ossie to TMSL classes it Fully preserved with no security warning, although in the file only Power BI could read it."
+    "Fixed in rolefid: a role (and a calculation group) that the file keeps only in its POWER_BI extension used to come back Fully preserved on Import with no security warning; Ossie to TMSL now classes it Preserved through extensions, and the role carries the security warning Export gives."
    ]
   },
   {
@@ -82,7 +82,7 @@
     "parity_l1": "Structurally compatible but behavior unverified"
    },
    "findings": [
-    "A Semantic View converted to TMDL drops its relationships: a view has no fields, so the converter finds no column for either end and skips each relationship, reported as lost (relationship 'orders_customers')."
+    "Fixed in rolefid: a Semantic View converted to TMDL used to drop its relationships, as a view has no fields; each end column is now declared as a lakehouse source column with no data type, and a report row says its data type wasn't known."
    ]
   },
   {

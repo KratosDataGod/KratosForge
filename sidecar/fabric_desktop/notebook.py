@@ -2741,7 +2741,7 @@ COMPUTE = ("default", "local", "fabric")
 
 def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
     """A cell's settings as Jupyter and Fabric store them: the parameters tag, hidden input or
-    output, and frozen (can't be edited or run); a collapsed heading section as JupyterLab stores it,
+    output, and frozen (can't be edited or run); a collapsed heading section and scrolled output as JupyterLab stores them,
     and a cell title where Databricks keeps it, so both read them back. KratosForge's own settings
     (a chart, the Fabric step, breakpoints, a slide start) go under fabric_desktop."""
     md: dict[str, Any] = {}
@@ -2755,6 +2755,8 @@ def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
         md.update(editable=False, deletable=False, run_control={"frozen": True})
     if meta.get("heading_collapsed"):
         md[_HEADING_COLLAPSED] = True
+    if meta.get("scrolled"):  # Scroll output, where JupyterLab keeps it
+        md["scrolled"] = True
     title = meta.get("title")
     if isinstance(title, str) and title.strip():
         md[_DATABRICKS_CELL] = {"title": title.strip()[:200]}
@@ -2824,6 +2826,8 @@ def _cell_meta(md: Any) -> dict[str, Any]:
         meta["frozen"] = True
     if md.get(_HEADING_COLLAPSED) is True:
         meta["heading_collapsed"] = True
+    if md.get("scrolled") is True:  # JupyterLab's false and "auto" stay in the file as they are
+        meta["scrolled"] = True
     title = (md.get(_DATABRICKS_CELL) or {}).get("title") if isinstance(md.get(_DATABRICKS_CELL), dict) else None
     if isinstance(title, str) and title.strip():
         meta["title"] = title.strip()
@@ -2903,6 +2907,8 @@ def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[s
             del keep[k]
     if keep.get(_HEADING_COLLAPSED) is True:
         del keep[_HEADING_COLLAPSED]
+    if keep.get("scrolled") is True:
+        del keep["scrolled"]
     owned = {_DATABRICKS_CELL: ("title",), "jupyter": ("source_hidden", "outputs_hidden"), "run_control": ("frozen",)}
     for key, names in owned.items():
         if isinstance(keep.get(key), dict) and keep[key]:

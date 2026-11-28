@@ -246,11 +246,14 @@ def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[st
     on = " AND ".join(f"{x} IS NOT DISTINCT FROM {y}" for x, y in keys)
     checks = []
     metrics: list[tuple[Any, str | None, str | None]] = []  # None: the column has no number difference
+    # Whole numbers compare exactly unless a tolerance is given for that column (Compare data offers one for any
+    # number column); with no tolerance of its own, the default relative tolerance never applies to them.
+    tolerated = {c.lower() for c in r["columns"] or {}}
     for name_a, name_b, ka, kb in cols["common"]:
         qa, qb = _q(name_a), _q(name_b)
         if qa in key_names:
             continue
-        if ka == kb == "number":  # widened integer/decimal pairs arrive as number
+        if ka == kb == "number" or (ka == kb == "integer" and name_a.lower() in tolerated):  # widened pairs are number
             ab, rl = _tolerance(r, name_a)
             x, y = f"CAST(a.{qa} AS DOUBLE)", f"CAST(b.{qb} AS DOUBLE)"
             if ab == rl == 0 and name_a.lower() in cols["exact"]:
@@ -344,7 +347,7 @@ def _whole_rows(con: Any, cols: dict[str, Any], r: dict[str, Any], offset: int, 
     if not pairs:
         na, nb = _count(con, "SELECT count(*) FROM a"), _count(con, "SELECT count(*) FROM b")
         return {"level": "complete", "method": "whole rows", "counts": {"only_pc": max(na - nb, 0), "only_fabric": max(nb - na, 0)},
-                "examples": [], "offset": int(offset)}
+                "distinct": {"only_pc": 0, "only_fabric": 0}, "examples": [], "offset": int(offset)}
     # A tolerance per column can't apply to whole rows: the default relative tolerance sets the digits.
     ea = ", ".join(f"{_norm(_q(x), ka if ka == kb else 'other', r, exact=x.lower() in cols['exact'])} AS c{i}"
                    for i, (x, _y, ka, kb) in enumerate(pairs))
@@ -360,6 +363,8 @@ def _whole_rows(con: Any, cols: dict[str, Any], r: dict[str, Any], offset: int, 
         FROM ga FULL OUTER JOIN gb ON {on}""")
     only_pc = _count(con, "SELECT coalesce(sum(na - nb), 0) FROM w WHERE na > nb")
     only_fabric = _count(con, "SELECT coalesce(sum(nb - na), 0) FROM w WHERE nb > na")
+    # The examples list each distinct row once, with how many more times one side has it: what pages count.
+    distinct = one_row(con.execute("SELECT count(*) FILTER (WHERE na > nb), count(*) FILTER (WHERE nb > na) FROM w"))
     if export is not None:
         _export(con, f"""SELECT CASE WHEN na > nb THEN 'only_pc' ELSE 'only_fabric' END AS "status", abs(na - nb) AS "times",
             {', '.join(f'c{i} AS {_q(x)}' for i, (x, *_y) in enumerate(pairs))} FROM w WHERE na <> nb ORDER BY {names} NULLS FIRST""",
@@ -371,7 +376,8 @@ def _whole_rows(con: Any, cols: dict[str, Any], r: dict[str, Any], offset: int, 
                  "status": "only_pc" if row[-2] > row[-1] else "only_fabric", "times": abs(row[-2] - row[-1])}
                 for row in rows]
     out = {"level": "complete", "method": "whole rows", "counts": {"only_pc": only_pc, "only_fabric": only_fabric},
-           "examples": examples, "offset": int(offset)}
+           "distinct": {"only_pc": int(distinct[0]), "only_fabric": int(distinct[1])}, "examples": examples,
+           "offset": int(offset)}
     if any(k == "number" for _x, _y, k, _k2 in pairs):
         out["note"] = (f"Rows matched as whole rows, numbers rounded to {_sig_digits(float(r['rel']))} significant digits. "
                        "Add key columns to see which values changed.")

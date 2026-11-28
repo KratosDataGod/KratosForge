@@ -133,8 +133,10 @@ def _shape(out: dict[str, Any], ta: pa.Table, tb: pa.Table, sa: dict[str, Any], 
     shaped["counts"] = {"same": max(0, ta.num_rows - counts["only_pc"] - changed), "only_a": counts["only_pc"],
                         "only_b": counts["only_fabric"], "changed": changed if out.get("method") == "keyed" else None}
     shaped["changed_columns"] = [n for n, d in (out.get("column_diffs") or {}).items() if d.get("rows")]
-    shaped["listed"] = (sum(v or 0 for k, v in shaped["counts"].items() if k != "same") if status is None
-                        else shaped["counts"][status] or 0)
+    # What the pages hold: keyed, a line per row; whole rows, a line per distinct row with its times (×3).
+    listed = {_BACK[k]: v for k, v in out["distinct"].items()} if "distinct" in out else shaped["counts"]
+    shaped["listed"] = (sum(v or 0 for k, v in listed.items() if k != "same") if status is None
+                        else listed.get(status) or 0)
     if out.get("note"):
         shaped["note"] = out["note"].replace("Add key columns", "Match rows on key columns")
     shaped["examples"] = [_example(e) for e in out.get("examples") or []]

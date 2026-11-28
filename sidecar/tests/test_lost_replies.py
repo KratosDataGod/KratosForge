@@ -232,7 +232,7 @@ def test_a_file_upload_whose_connection_stays_down_keeps_the_old_file_and_says_s
         fs.upload(WS, LH, "Files/config.json", b'{"v": 2}')
     assert str(err.value) == (
         "Uploading Files/config.json to OneLake stopped because the connection dropped (Wi-Fi, a VPN or a proxy), "
-        "even after trying again. Files/config.json wasn't changed: it still has its old content, or isn't there "
+        "even after trying again. Files/config.json wasn't changed. It still has its old content, or isn't there "
         "if it's new. Upload it again once you're connected.")
     assert isinstance(err.value, requests.ConnectionError)  # callers that catch requests' errors still do
     assert fake.appends == 1 + onelake.UPLOAD_STEP_ATTEMPTS

@@ -39,10 +39,9 @@ def test_an_insert_with_a_held_file_names_the_file_and_says_nothing_was_committe
     with pytest.raises(ValueError) as caught:
         engine.execute("INSERT INTO s SELECT 2")
     assert str(caught.value) == (
-        "Writing dbo.s stopped because another program has one of the table's files open "
-        "(00000000000000000001.json), such as OneDrive, a virus scanner or the search indexer. Nothing was "
-        "committed. Wait a moment and run it again; if the project is in a folder OneDrive syncs, pause syncing "
-        "while you work.")
+        "Writing dbo.s stopped because another program, such as OneDrive, a virus scanner or the search indexer, "
+        "has one of the table's files open (00000000000000000001.json). Nothing was committed. Wait a moment and "
+        "run it again. If the project is in a folder OneDrive syncs, pause syncing while you work.")
     assert DeltaTable(str(engine.tables_dir / "dbo" / "s")).version() == 0
 
 

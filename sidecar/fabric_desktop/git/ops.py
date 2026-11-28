@@ -76,7 +76,7 @@ class Operations:
         # Windows drops a trailing dot from a folder's name, so the clone would land beside the folder the app
         # keeps, and CON or nul.git is a device, not a folder (filenames.WINDOWS_DEVICES).
         if name.endswith("."):
-            raise GitError(f"{name} can't be a folder name on Windows: it ends with a dot. Pick another name.",
+            raise GitError(f"{name} can't be a folder name on Windows, because it ends with a dot. Pick another name.",
                            kind="invalid")
         if name.split(".")[0].strip().upper() in WINDOWS_DEVICES:
             raise GitError(f"{name} is a name Windows keeps for devices, so it can't be a folder name. "

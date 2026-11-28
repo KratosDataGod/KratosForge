@@ -249,10 +249,9 @@ def held_write_message(what: str, exc: BaseException) -> str | None:
     if found:
         return (f"{what} stopped because {file}, one of the table's files, is open in {', '.join(found)}. Nothing "
                 "was committed. Close it there, or wait for it to finish, and run it again.")
-    return (f"{what} stopped because another program has one of the table's files open"
-            f"{f' ({file})' if file else ''}, such as OneDrive, a virus scanner or the search indexer. Nothing was "
-            "committed. Wait a moment and run it again; if the project is in a folder OneDrive syncs, pause syncing "
-            "while you work.")
+    return (f"{what} stopped because another program, such as OneDrive, a virus scanner or the search indexer, "
+            f"has one of the table's files open{f' ({file})' if file else ''}. Nothing was committed. Wait a moment "
+            "and run it again. If the project is in a folder OneDrive syncs, pause syncing while you work.")
 
 
 def held_file_message(what: str) -> str:

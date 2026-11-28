@@ -296,9 +296,9 @@ def _upload_dropped(path: str, step: str) -> UploadDropped:
     if step == "replace":
         return UploadDropped(f"Uploading {path} to OneLake: the connection dropped just as the new file was being put "
                              f"in place, so {path} may have its old content or its new one. Upload it again once "
-                             "you're connected: that replaces it once, and never makes a second copy.")
+                             "you're connected. That replaces the file, and never makes a second copy.")
     return UploadDropped(f"Uploading {path} to OneLake stopped because the connection dropped (Wi-Fi, a VPN or a "
-                         f"proxy), even after trying again. {path} wasn't changed: it still has its old content, or "
+                         f"proxy), even after trying again. {path} wasn't changed. It still has its old content, or "
                          "isn't there if it's new. Upload it again once you're connected.")
 
 

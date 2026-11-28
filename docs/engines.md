@@ -815,6 +815,8 @@ Fabric, on Databricks and on Snowflake, side by side.
   assumptions. A figure that wasn't recorded shows as not known, never as zero.
 - **Money only under a pricing scenario.** One scenario version holds the Fabric CU hour rate, the
   per-DBU rates by SKU and the per-credit rate. Without one, the cards show native units only.
+- **Known limits:** saved pricing scenarios can't be deleted yet, this PC keeps at most 50 (saving
+  a new name past that is refused), and saving one with the same name replaces it.
 
 ## Databricks Connect (Preview)
 

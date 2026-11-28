@@ -10,6 +10,18 @@ const path = require("node:path");
 const { playwright, openApp, axeSource, axeFindings, settleForAxe } = require("./harness.cjs");
 const FIXTURES = require("./platform-compare-fixtures.json");
 
+// The per-run query failed but the totals stood: databricks_billing keeps the totals and records
+// runs_error with runs None, and savings/compare.py then gives the not_known card with this reason
+// (its card is otherwise the same as not_known's: checked against compare.py).
+const RUNS_ERROR = "The query for the linked jobs' runs didn't finish: [TABLE_OR_VIEW_NOT_FOUND] system.lakeflow.job_run_timeline.";
+const NO_PER_RUN = "The last billing read has no per-run figures. Read Databricks billing again.";
+FIXTURES.runs_failed = JSON.parse(JSON.stringify(FIXTURES.not_known));
+FIXTURES.runs_failed.comparison.cards.find((x) => x.platform === "databricks").figure.reason = NO_PER_RUN;
+FIXTURES.runs_failed.databricks_read = { ...FIXTURES.runs_failed.databricks_read, runs_error: RUNS_ERROR };
+const HOST = "https://adb-1234567890123456.7.azuredatabricks.net";
+const TOTALS = { ok: true, schema: "databricks-billing@1", days: 30, warehouse_id: "wh-reporting", read_at: new Date().toISOString(),
+  total_dbu: 61.4, rows: [{ kind: "job", id: "8841", sku: "JOBS_COMPUTE", dbu: 42.6 }, { kind: "warehouse", id: "wh-reporting", sku: "PREMIUM_SQL_PRO", dbu: 18.8 }] };
+
 const skip = !playwright && "Playwright is not installed";
 const noAxe = skip || (!axeSource && "axe-core is not installed");
 const SHOTS = process.env.SCREENSHOT_DIR;
@@ -18,6 +30,8 @@ let app;
 let which = "three";
 let saved = null;
 let unread = false;   // the cards as before their first read: no read_at
+let runsFail = false; // a confirmed billing read keeps the totals but its per-run query fails
+let totalsKept = null; // what databricks_billing_last answers for the Databricks DBUs section
 const page = () => app.page;
 const calls = (method) => app.calls.filter((c) => c.method === method).map((c) => c.params);
 
@@ -42,13 +56,20 @@ before(async () => {
     mocks: {
       readiness_check: () => [],
       engine_profiles: () => ({ profiles: [], active: "" }),
-      engine_connections: () => ({ connections: [] }),
+      engine_connections: () => ({ connections: runsFail ? [{ key: "cli:prod", label: "prod (Databricks CLI)", source: "cli", host: HOST,
+        warehouse_id: "wh-reporting", cluster_id: "", catalog: "", schema: "", remote_compute: "ask" }] : [] }),
+      databricks_billing_last: () => totalsKept || {},
       compare_platforms: answer,
       compare_link: (p) => ({ links: { databricks: [{ job_id: p.ref, name: p.name }], snowflake: [] } }),
       compare_unlink: () => ({ links: { databricks: [], snowflake: [] } }),
       compare_pricing_save: (p) => { saved = { ...p, pricing_version: "pv-0123456789abcdef", confidence: "assumption" }; return saved; },
-      databricks_billing: (p) => (p.confirmed ? { ok: true, runs: [] }
-        : { needs_confirm: true, warehouse: { id: "wh-reporting", name: "Reporting", state: "STOPPED" } }),
+      databricks_billing: (p) => {
+        if (!p.confirmed) return { needs_confirm: true, warehouse: { id: "wh-reporting", name: "Reporting", state: "STOPPED" } };
+        if (!runsFail) return { ok: true, runs: [] };
+        totalsKept = TOTALS;
+        which = "runs_failed";
+        return { ...TOTALS, runs: null, run_jobs: ["8841"], runs_error: RUNS_ERROR };
+      },
       snowflake_query_credits: (p) => (p.confirmed ? { ok: true, queries: [] }
         : { needs_confirm: true, warehouse: { name: "REPORTING_XS", account: "myorg-acct" } }),
     },
@@ -252,6 +273,73 @@ test("Prices keeps a scenario with a DBU and a credit rate, and the section uses
 test("the section has no serious axe findings", { skip: noAxe }, async () => {
   await show("three");
   assert.deepStrictEqual(await axeFindings(page(), "#view .xcmp"), []);
+});
+
+test("the per-run read fails and the totals stay: Unknown with the reason, no figure, the read still offered", { skip }, async () => {
+  runsFail = true;
+  try {
+    await show("three");
+    await card("databricks").getByRole("button", { name: "Read again…" }).click();
+    await page().locator("#dialog-root .dialog").getByRole("button", { name: "Run the query" }).click();
+    await page().locator("#toast", { hasText: "runs didn't finish" }).waitFor({ timeout: 5000 });
+    assert.strictEqual((await page().locator("#toast").textContent()).startsWith(RUNS_ERROR), true, "the toast says the per-run query failed");
+    await card("databricks").locator(".why.notknown", { hasText: NO_PER_RUN }).waitFor({ timeout: 5000 });
+    // Open the Cost tab again: both sections draw from what this PC kept.
+    await show("runs_failed");
+    await page().locator("#view .dbx-cost .dbx-cost-result").waitFor({ timeout: 10000 });
+    const dbx = card("databricks");
+    const text = await dbx.textContent();
+    assert.match(text, /Not known\s*Unknown/);
+    assert.strictEqual(await dbx.locator(".why.notknown").textContent(), NO_PER_RUN);
+    assert.strictEqual(await dbx.locator(".fig .v").textContent(), "Not known");
+    assert.ok(await dbx.locator(".fig .v.unknown").count(), "the figure is drawn as unknown");
+    assert.doesNotMatch(await dbx.locator(".fig").textContent(), /\d/, "no figure");
+    assert.doesNotMatch(text, /\b0(\.0+)? DBU|\$0\.00|\b0 runs/, "no 0");
+    assert.doesNotMatch(text, /61\.4|42\.6/, "the totals aren't taken as a per-run figure");
+    assert.match(await dbx.locator(".money").textContent(), /Not known\s*Unknown\s*There's no DBU figure to price\./);
+    const read = dbx.locator(".xcmp-read button");
+    assert.strictEqual(await read.textContent(), "Read again…");
+    assert.ok(await read.isEnabled(), "the read is still offered");
+    assert.match(await section().locator(".xcmp-line").textContent(), /Databricks isn't compared because its figure isn't known\.$/);
+    const totals = page().locator("#view .dbx-cost .dbx-cost-result");
+    assert.match(await totals.textContent(), /61\.4 DBU in the last 30 days · read .* on wh-reporting/);
+    assert.deepStrictEqual(await totals.locator(".dbx-dbu tbody tr").allTextContents(),
+      ["Job 8841JOBS_COMPUTE42.6", "SQL warehouse wh-reportingPREMIUM_SQL_PRO18.8"]);
+    await shot("6-runs-failed.png");
+  } finally { runsFail = false; totalsKept = null; }
+});
+
+test("a narrow window (390 px): the four cards stack, the page doesn't scroll sideways and no figure is clipped", { skip }, async () => {
+  const wide = page().viewportSize();
+  await page().setViewportSize({ width: 390, height: 844 });
+  try {
+    await show("three");
+    await page().waitForFunction(() => document.querySelectorAll(".xcmp .plat").length === 4);
+    const m = await page().evaluate(() => {
+      const se = document.scrollingElement;
+      const box = (el) => el.getBoundingClientRect();
+      const cards = [...document.querySelectorAll(".xcmp .plat")].map((c) => {
+        const r = box(c);
+        const inner = [...c.querySelectorAll(".fig .v, .fig .measure-fig, .money .v, .ph, .ph b, .ph .unit")].map((el) => {
+          const e = box(el);
+          return { cls: el.className, text: el.textContent, clipped: el.scrollWidth > el.clientWidth + 1 || e.left < r.left - 1 || e.right > r.right + 1 };
+        });
+        return { platform: c.dataset.platform, left: r.left, top: r.top, bottom: r.bottom, right: r.right, inner };
+      });
+      return { scrollWidth: se.scrollWidth, clientWidth: se.clientWidth, viewport: innerWidth, cards };
+    });
+    assert.ok(m.scrollWidth <= m.clientWidth, `no horizontal page scroll (${m.scrollWidth} > ${m.clientWidth})`);
+    assert.deepStrictEqual(m.cards.map((c) => c.platform), ["pc", "fabric", "databricks", "snowflake"]);
+    for (let i = 1; i < m.cards.length; i++) {
+      assert.ok(Math.abs(m.cards[i].left - m.cards[0].left) < 1, `${m.cards[i].platform} lines up under the first card`);
+      assert.ok(m.cards[i].top >= m.cards[i - 1].bottom, `${m.cards[i].platform} is below ${m.cards[i - 1].platform}`);
+    }
+    for (const c of m.cards) {
+      assert.ok(c.right <= m.viewport, `${c.platform} fits the window`);
+      assert.deepStrictEqual(c.inner.filter((x) => x.clipped), [], `${c.platform} has no clipped figure text`);
+    }
+    await shot("7-narrow.png");
+  } finally { await page().setViewportSize(wide); }
 });
 
 test("hidden when preview features are hidden", { skip }, async () => {

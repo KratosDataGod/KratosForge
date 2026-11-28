@@ -497,6 +497,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .output { padding: 8px 16px 12px; border-top: 1px solid var(--border-soft); overflow-x: auto; }
 .output pre { margin: 0; font-family: var(--mono); font-size: 12.5px; line-height: 18px; white-space: pre-wrap; word-break: break-word; }
 .output.error { background: var(--danger-soft); }
+/* Scroll output (a cell's ... menu): the cell's outputs keep to a fixed height and scroll. */
+.out-scroll { max-height: 400px; overflow: auto; }
+.out-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .output.error .ename { color: var(--danger); font-weight: 600; font-family: var(--mono); font-size: 13px; }
 .output.error details { margin-top: 6px; }
 .output.limit-stop { display: flex; flex-direction: column; gap: 4px; }

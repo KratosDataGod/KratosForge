@@ -181,6 +181,36 @@ def test_a_slide_start_mark_is_saved_under_fabric_desktop_and_other_metadata_sta
     assert json.loads(_save(store, again))["cells"][1]["metadata"] == before["cells"][1]["metadata"]
 
 
+def test_scroll_output_is_saved_as_jupyterlabs_scrolled_and_other_metadata_stays(tmp_path):
+    # Scroll output (a cell's ... menu) is metadata.scrolled, where JupyterLab keeps it, so the file
+    # opens scrolled there too; the cell's other metadata is kept, and turning it off removes only it.
+    store, nb, raw = _open(tmp_path, "fabric_export")
+    before = json.loads(raw)
+    nb["cells"][1].setdefault("meta", {})["scrolled"] = True
+    after = json.loads(_save(store, nb))
+    md = after["cells"][1]["metadata"]
+    assert md["scrolled"] is True
+    assert {k: v for k, v in md.items() if k != "scrolled"} == before["cells"][1]["metadata"]
+    assert [_without_ids(c) for i, c in enumerate(after["cells"]) if i != 1] == \
+        [_without_ids(c) for i, c in enumerate(before["cells"]) if i != 1]
+    again = store.load("nb")
+    assert again["cells"][1]["meta"]["scrolled"] is True
+    assert not any(c.get("meta", {}).get("scrolled") for i, c in enumerate(again["cells"]) if i != 1)
+    del again["cells"][1]["meta"]["scrolled"]
+    assert json.loads(_save(store, again))["cells"][1]["metadata"] == before["cells"][1]["metadata"]
+
+
+def test_jupyterlabs_scrolled_false_or_auto_stays_as_the_file_has_it(tmp_path):
+    raw = json.loads((FIXTURES / "fabric_export.ipynb").read_bytes())
+    raw["cells"][1]["metadata"]["scrolled"] = "auto"
+    (tmp_path / "nb.ipynb").write_text(json.dumps(raw), encoding="utf-8")
+    store = NotebookStore(tmp_path)
+    nb = store.load("nb")
+    assert "scrolled" not in nb["cells"][1].get("meta", {})
+    nb["cells"][1]["source"] += "\n"
+    assert json.loads(_save(store, nb))["cells"][1]["metadata"]["scrolled"] == "auto"
+
+
 def test_settings_kept_in_the_file_by_the_app_keep_its_format(tmp_path):
     store, _nb, raw = _open(tmp_path, "vscode_windows")
     store.set_extra("nb", "inputs", {"parameters": {"x": "1"}})

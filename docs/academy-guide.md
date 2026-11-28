@@ -12,7 +12,7 @@ starts a Fabric job and never publishes anything to Fabric.
 
 | Tab | What it shows |
 | --- | --- |
-| Home | Your next exercise, each exam domain's progress, where Learn's lessons and your rank went, and what's recommended next |
+| Home | Your next exercise, each exam domain's progress, where Learn's lessons and your rank went, and what's recommended next. **Take a diagnostic** opens the diagnostic screen in Assessments |
 | Path | Every objective of the study guide, word for word, by domain: the best evidence you have, its status and its exercises. **Certification** picks DP-700 or the Databricks Certified Data Engineer Associate, whose exercises are still drafts. **Show only what's left** hides the objectives you've proved |
 | Practice | The published exercises, and Learn's lessons and labs with your progress kept |
 | Assessments | A practice exam, a domain diagnostic and objective drills, from KratosForge's own questions ([Assessments](academy/assessments.md)) |

@@ -74,7 +74,7 @@ def test_a_module_with_the_same_functions_exits_0(tool, tmp_path):
 def test_a_candidate_that_loses_roles_and_relationships_exits_1_naming_them(tool, tmp_path, capsys):
     assert tool.main([str(_candidate(tmp_path, LOSES_ROLES))]) == tool.REGRESSION
     out = capsys.readouterr().out
-    assert "worse   ossie/v02_04_powerbi.yaml  to_tmsl fidelity role 'EU readers': fully_preserved -> unsupported" in out
+    assert "worse   ossie/v02_04_powerbi.yaml  to_tmsl fidelity role 'EU readers': preserved_through_extensions -> unsupported" in out
     assert "to_tmsl fidelity relationship 'orders_customers': fully_preserved -> unsupported" in out
 
 

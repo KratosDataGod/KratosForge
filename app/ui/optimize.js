@@ -41,7 +41,9 @@ async function renderOptimize() {
     h("div", { class: "row mesh-view-row" }, h("span", { class: "spacer" }), btn("Refresh", "sync", () => render(), "tool outline")),
     body));
   // Cost and savings doesn't need the shared lakehouse: it reads this PC's runs.
-  if (optimizePage.tab === "cost") body.append(costPanel(), previewShown() ? databricksCostSection() : "");
+  if (optimizePage.tab === "cost") {
+    body.append(costPanel(), previewShown() ? databricksCostSection() : "", previewShown() ? platformCompareSection() : "");
+  }
   // Settings history reads the central lakehouse's fdcap_ and fdten_ tables itself.
   if (optimizePage.tab === "settings") body.append(settingsHistoryPanel());
   // Assessment reads straight from Fabric, no lakehouse needed: Excellence (optimize-excellence.js) first,

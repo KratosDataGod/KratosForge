@@ -11,6 +11,7 @@
     cp_disconnect     forget an environment on this PC (nothing in it changes)
     cp_check          reachability, compatibility and the one status the app shows
     cp_cost           what the environment itself costs, apart from savings (CP-011; reads only)
+    cp_inventory      the service registry and the active environment's tables, family by family (CP-015; reads only)
     cp_upgrade_plan   what upgrading the active environment's shared tables would do (reads only), with a token
     cp_upgrade        run that plan, by its token, after the person confirms (CP-010)
 
@@ -37,6 +38,7 @@ from typing import Any
 from . import app_settings
 from .controlplane import cost as cpcost
 from .controlplane import health
+from .controlplane import inventory as cpinv
 from .controlplane import manifest as mf
 from .controlplane import providers as pv
 from .controlplane import store as cps
@@ -47,8 +49,8 @@ from .optimize.shared import Shared
 from .redact import describe
 
 METHODS = {"cp_status", "cp_discover", "cp_plan", "cp_create", "cp_adopt_preview", "cp_adopt",
-           "cp_connect", "cp_switch", "cp_disconnect", "cp_check", "cp_cost", "cp_upgrade_plan",
-           "cp_upgrade"}
+           "cp_connect", "cp_switch", "cp_disconnect", "cp_check", "cp_cost", "cp_inventory",
+           "cp_upgrade_plan", "cp_upgrade"}
 PREVIEW_SECONDS = 15 * 60
 MAX_PREVIEWS = 20
 OFF = "Your organization has turned off KratosForge Environments."  # then app_settings.ask_it("allow_central_environment")
@@ -141,6 +143,25 @@ class ControlPlaneMixin:
         lake = self._optimize_lake(workspace_id, lakehouse_id, schemas)  # type: ignore[attr-defined]
         return [dict(setup.inspect(lake, fam), family=fam.prefix) for fam in schema.FAMILIES.values()]
 
+    def _cp_platform_links(self) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        """The Prod Platform (its database is the environment's operational store, CP-ADR-005) and the
+        shared Keys workspace this PC uses, by ids only; None for each one that isn't in Fabric."""
+        prod = self._platform_config().get("prod") or {}  # type: ignore[attr-defined]
+        platform = ({k: prod[k] for k in ("workspace_id", "functions_id", "sql_id") if prod.get(k)}
+                    if prod.get("workspace_id") and prod.get("functions_id") else None)
+        keys_cfg = self._keys_config()  # type: ignore[attr-defined]
+        keys = ({"workspace_id": keys_cfg["workspace_id"]}
+                if keys_cfg.get("shared") and keys_cfg.get("workspace_id") and keys_cfg.get("functions_id") else None)
+        return platform, keys
+
+    @staticmethod
+    def _cp_adopt_seen(conn: dict[str, Any], inspections: list[dict[str, Any]], platform: dict[str, Any] | None,
+                       keys: dict[str, Any] | None) -> str:
+        """What an adopt preview was made from: confirm refuses when any of it changed meanwhile."""
+        return _digest({"connection": {k: conn.get(k) for k in ("workspace_id", "lakehouse_id", "schemas")},
+                        "inspections": [(i["family"], i["state"], i.get("schema_version")) for i in inspections],
+                        "platform": platform, "keys": keys})
+
     # ---- reads
 
     def cp_status(self) -> dict[str, Any]:
@@ -184,7 +205,9 @@ class ControlPlaneMixin:
         return out | self._cp_keep("create", request=plan.request, digest=_digest({"request": plan.request, **view}))
 
     def cp_adopt_preview(self, name: str) -> dict[str, Any]:
-        """The manifest adopting this PC's central lakehouse would write: ids only. Nothing is written."""
+        """The manifest adopting this PC's central lakehouse would write: ids only. Nothing is written.
+        When this PC uses a Platform in Fabric, its Prod database is linked as the operational store
+        (CP-ADR-005), and a shared Keys workspace is recorded beside it."""
         self._cp_allowed()
         conn = self.optimize_registry.active()  # type: ignore[attr-defined]
         if not conn:
@@ -194,11 +217,14 @@ class ControlPlaneMixin:
         if self._cp_store(ws, lh).read() is not None:
             raise ValueError("This lakehouse already holds a KratosForge Environment. Connect to it instead.")
         inspections = self._cp_inspections(ws, lh, conn.get("schemas", True))
-        manifest = health.adopt_preview(name=(name or "").strip(), lake_connection=conn, inspections=inspections)
-        seen = _digest({"connection": {k: conn.get(k) for k in ("workspace_id", "lakehouse_id", "schemas")},
-                        "inspections": [(i["family"], i["state"], i.get("schema_version")) for i in inspections]})
+        platform, keys = self._cp_platform_links()
+        manifest = health.adopt_preview(name=(name or "").strip(), lake_connection=conn, inspections=inspections,
+                                        platform=platform, keys=keys)
+        seen = self._cp_adopt_seen(conn, inspections, platform, keys)
         prod = self._prod_marked(ws)  # type: ignore[attr-defined]
+        # The linked operational store is always the Prod Platform's: the confirm says so plainly.
         return {"manifest": manifest, "environment": mf.summary(manifest),
+                "operational_prod": bool(manifest.get("operational_store")),
                 "typed_name": self._cp_workspace_name(ws) if prod else ""} | \
             self._cp_keep("adopt", manifest=manifest, seen=seen)
 
@@ -249,6 +275,38 @@ class ControlPlaneMixin:
         rows = Shared(lake, self.optimize_installation, access="read").rows("measurements")  # type: ignore[attr-defined]
         return cpcost.summary(rows.to_dicts(), days=days,
                               installation_id=self.optimize_installation.id) | {"environment": active}  # type: ignore[attr-defined]
+
+    def cp_inventory(self) -> dict[str, Any]:
+        """The service registry (every registered table family and its tables) and the active environment's
+        lakehouse: each family's state, tables no family claims, and how many other tables there are.
+        Reads only. A lakehouse that can't be read, or whose manifest isn't this environment's any more,
+        gives its status and reason, like cp_check."""
+        self._cp_allowed()
+        active = self.cp_cache.active()
+        if not active:
+            raise ValueError("Connect this PC to a KratosForge Environment first.")
+        out = {"registry": cpinv.registry(), "environment": active}
+        try:
+            got = self._cp_store(active["workspace_id"], active["lakehouse_id"]).read()
+        except mf.ManifestError as exc:
+            return out | health.failed(f"Its manifest is damaged: {exc}") | {"inventory": None}
+        except Exception as exc:  # noqa: BLE001 - shown as offline or refused, with the reason
+            denied = setup.denied(exc)
+            return out | health.status(connected=True, reachable=denied, denied=denied) | {
+                "inventory": None, "error": describe(exc)}
+        if got is None or got.manifest.get("environment_id") != active["environment_id"]:
+            # Like cp_check: a lakehouse whose manifest is gone or names another environment isn't this one.
+            return out | health.failed("The environment's manifest isn't in its lakehouse any more.") | {
+                "inventory": None}
+        try:
+            lake = self._optimize_lake(active["workspace_id"], active["lakehouse_id"])  # type: ignore[attr-defined]
+            names = lake.table_names()
+            inspections = [dict(setup.inspect(lake, fam), family=fam.prefix) for fam in schema.FAMILIES.values()]
+        except Exception as exc:  # noqa: BLE001 - shown as offline or refused, with the reason
+            denied = setup.denied(exc)
+            return out | health.status(connected=True, reachable=denied, denied=denied) | {
+                "inventory": None, "error": describe(exc)}
+        return out | health.status(connected=True, reachable=True) | {"inventory": cpinv.inventory(names, inspections)}
 
     def cp_upgrade_plan(self) -> dict[str, Any]:
         """What upgrading the active environment's shared tables would do. Nothing changes; the token
@@ -307,9 +365,7 @@ class ControlPlaneMixin:
         if not conn or (conn["workspace_id"], conn["lakehouse_id"]) != (ws, lh):
             raise PermissionError(CHANGED)
         inspections = self._cp_inspections(ws, lh, conn.get("schemas", True))
-        seen = _digest({"connection": {k: conn.get(k) for k in ("workspace_id", "lakehouse_id", "schemas")},
-                        "inspections": [(i["family"], i["state"], i.get("schema_version")) for i in inspections]})
-        if seen != entry["seen"]:
+        if self._cp_adopt_seen(conn, inspections, *self._cp_platform_links()) != entry["seen"]:
             raise PermissionError(CHANGED)
         try:
             made = self._cp_store(ws, lh).create(manifest)

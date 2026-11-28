@@ -206,16 +206,32 @@ def _scalar_kind(node: exp.Expression | None) -> str:
     return "other"
 
 
-def _mixed_array(node: object) -> bool:
-    """SFN-025: an array written in the query with both text and numbers in it (ARRAY_CONSTRUCT,
-    ARRAY_CONSTRUCT_COMPACT, or an ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one)."""
+def _array_values(node: object) -> list[Any] | None:
     if isinstance(node, (exp.Array, exp.ArrayConstructCompact)):
-        values = list(node.expressions)
-    elif isinstance(node, (exp.ArrayInsert, exp.ArrayPrepend, exp.ArrayAppend)) and isinstance(node.this, exp.Array):
-        values = [*node.this.expressions, node.args.get("expression")]
-    else:
+        return list(node.expressions)
+    if isinstance(node, (exp.ArrayInsert, exp.ArrayPrepend, exp.ArrayAppend)) and isinstance(node.this, exp.Array):
+        return [*node.this.expressions, node.args.get("expression")]
+    return None
+
+
+def _mixed_array(node: object) -> bool:
+    """SFX-075: an array written in the query with both text and numbers in it (ARRAY_CONSTRUCT,
+    ARRAY_CONSTRUCT_COMPACT, or an ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one).
+    So is one that holds such an array (made a list of VARIANT values first) beside any other value, which
+    a DuckDB list can't hold either: ARRAY_CONSTRUCT(1, ARRAY_CONSTRUCT('a', 2))."""
+    values = _array_values(node)
+    if values is None:
         return False
-    return {_scalar_kind(v) for v in values} - {"null"} == {"text", "number"}
+    if {_scalar_kind(v) for v in values} - {"null"} == {"text", "number"}:
+        return True
+    lists = [_is_variant_list(v) for v in values if _scalar_kind(v) != "null"]
+    return any(lists) and not all(lists)
+
+
+def _is_variant_list(node: object) -> bool:
+    """A VARIANT[] cast, as _variant_arrays writes an array of text and numbers."""
+    return (isinstance(node, exp.Cast) and node.to.this == exp.DataType.Type.ARRAY
+            and bool(node.to.expressions) and node.to.expressions[0].this == exp.DataType.Type.VARIANT)
 
 
 def _set_leaves(node: exp.Expr) -> list[exp.Select]:
@@ -564,12 +580,6 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
                 isinstance(node, exp.DataType) and node.this == exp.DataType.Type.DECFLOAT):
             return _refuse("SFN-018", "DECFLOAT", "DuckDB has no decimal floating-point type to hold Snowflake's "
                            "DECFLOAT (38 significant digits with an exponent).", f"{_DOCS}/functions/to_decfloat")
-        if _mixed_array(node) and isinstance(node, exp.Func):
-            name = "ARRAY_CONSTRUCT" if isinstance(node, exp.Array) else _function_name(node)
-            return _refuse("SFN-025", f"{name}: text and numbers in one array",
-                           "A DuckDB list holds values of one type, so an array written with both text and numbers "
-                           "can't be made here. Cast them to one type (for example each value ::VARCHAR), or "
-                           "build the array from a column.", f"{_DOCS}/functions/array_construct")
         if _mixed_set_column(node):
             return _refuse("SFN-032", "Text and numbers in one column of a UNION, INTERSECT or MINUS",
                            "Snowflake converts the text to a number (and stops on text that isn't one), and DuckDB "
@@ -585,6 +595,21 @@ def _not_translatable(statement: exp.Expression) -> Note | None:
                            "can't make or read. HLL, DATASKETCHES_HLL, APPROX_COUNT_DISTINCT and APPROX_PERCENTILE "
                            "run here; COUNT(DISTINCT ...) gives what BITMAP_COUNT(BITMAP_CONSTRUCT_AGG(...)) "
                            "counts.", f"{_DOCS}/functions-aggregation")
+        if isinstance(node, exp.CurrentVersion):
+            return _refuse("SFN-074", "CURRENT_VERSION", "It gives the version of Snowflake running the query "
+                           "(10.15.100 in Snowflake's example); this PC runs DuckDB, whose own version "
+                           "would come back in its place.", f"{_DOCS}/functions/current_version")
+        if isinstance(node, exp.CurrentSchemas):
+            return _refuse("SFN-075", "CURRENT_SCHEMAS", "It gives the schemas Snowflake's session searches, as "
+                           "JSON text of database.schema names ([\"TEST_DB1.BILLING\", \"TEST_DB1.PUBLIC\"] in "
+                           "Snowflake's example); DuckDB's gives a list of its own search path, with pg_catalog "
+                           "and the same schema more than once. CURRENT_DATABASE and CURRENT_SCHEMA run.",
+                           f"{_DOCS}/functions/current_schemas")
+        if isinstance(node, exp.Rand) and node.this is not None:
+            return _refuse("SFN-076", "RANDOM with a seed", "Snowflake's RANDOM(seed) gives the same series for a "
+                           "seed from its own generator (MT19937-64), which DuckDB's random() doesn't reproduce, "
+                           "so a seeded query would give other numbers here. RANDOM() runs.",
+                           f"{_DOCS}/functions/random")
         if isinstance(node, exp.Func) and _function_name(node) in _ACCOUNT_FUNCTIONS:
             return _refuse("SFN-014", f"{_function_name(node)}: Snowflake account and session",
                            "It reads the Snowflake account, session or client running the query; this PC has none.",
@@ -1029,7 +1054,15 @@ def _binary_valued(node: exp.Expression) -> bool:
 
 def _rewrite_time(statement: exp.Expression) -> None:
     """SFX-017: TIME(x) is TO_TIME(x): the time of a string or of a timestamp. sqlglot writes it as a cast
-    through TIMESTAMPTZ at an empty time zone, which DuckDB can't read."""
+    through TIMESTAMPTZ at an empty time zone, which DuckDB can't read.
+    SFX-076: CURRENT_TIME(p) and LOCALTIME(p), with p a whole number from 0 to 9, are the time cut to p digits
+    after the second; DuckDB keeps 6, so 6 to 9 keep them all. sqlglot couldn't write them for DuckDB."""
+    for clock in list(statement.find_all(exp.Localtime)):  # SFX-076
+        digits = clock.this
+        if isinstance(digits, exp.Literal) and digits.is_int and 0 <= int(digits.name) <= 9:
+            step = 10 ** max(6 - int(digits.name), 0)
+            clock.replace(exp.Localtime() if step == 1 else sqlglot.parse_one(
+                f"TIME '00:00:00' + to_microseconds(epoch_us(LOCALTIME) // {step} * {step})", read="duckdb"))
     for node in list(statement.find_all(exp.Time)):
         if node.this is None:  # TIME() with no argument: left for sqlglot, which refuses it (SFX-000)
             continue
@@ -1186,11 +1219,31 @@ def _rewrite_documented_edges(statement: exp.Expression) -> None:
                 call.replace(_date_literal(epoch))
 
 
+def _variant_arrays(statement: exp.Expression) -> None:
+    """SFX-075: an array written in the query with both text and numbers in it is a list of VARIANT values, as
+    an ARRAY column is (SFX-024), so each element keeps its own type, as in Snowflake's array; a DuckDB list of
+    plain values holds one type. SFN-025, which refused it, is retired."""
+    variant = exp.DataType.build("VARIANT")
+    # deepest first (find_all goes breadth first): an array inside a mixed one is made a VARIANT[] before the
+    # array around it is looked at, which then holds a VARIANT[] beside other values and is made one too
+    for node in reversed(list(statement.find_all(exp.Array, exp.ArrayConstructCompact, exp.ArrayInsert,
+                                                 exp.ArrayPrepend, exp.ArrayAppend))):
+        if not _mixed_array(node):
+            continue
+        array = node if isinstance(node, (exp.Array, exp.ArrayConstructCompact)) else node.this
+        for element in [*array.expressions, *([] if array is node else [node.args["expression"]])]:
+            element.replace(exp.Cast(this=element.copy(), to=variant.copy()))
+        # a VARIANT[] cast marks each list as such a list for TO_JSON (SFX-024)
+        for made in {id(array): array, id(node): node}.values():
+            made.replace(exp.Cast(this=made.copy(), to=exp.DataType.build("VARIANT[]", dialect="duckdb")))
+
+
 def _rewrite_arrays(statement: exp.Expression) -> None:
     """SFX-019: ARRAY_DISTINCT keeps each value's first place and one NULL where the first NULL was, as
     Snowflake's does (DuckDB's LIST_DISTINCT doesn't keep the order). ARRAY_FLATTEN of an array holding
     a NULL in place of an array is NULL, as in Snowflake; DuckDB's FLATTEN skips it. ARRAY_INSERT past the
     end fills the gap with NULLs (Snowflake leaves empty elements); DuckDB's slices would close it."""
+    _variant_arrays(statement)
     for distinct in list(statement.find_all(exp.ArrayDistinct)):
         # the array is worked out once (fj_arg0 is read once), then searched for each element's first place
         _put(distinct, "LIST_TRANSFORM([fj_arg0], LAMBDA kf_l: "
@@ -3574,6 +3627,12 @@ CATALOG = (
                 "with no offset, or the session zone's own, is stored as Snowflake stores it; text with another "
                 "offset stops the query (SFN-071). Any other value, and a column whose Snowflake type isn't known "
                 "here, is SFD-002. INSERT ... SELECT * reads the query's columns by place.")),
+    ("SFX-075", "Rewritten", ("An array written with both text and numbers in it (ARRAY_CONSTRUCT, "
+                "ARRAY_CONSTRUCT_COMPACT, and ARRAY_INSERT, ARRAY_PREPEND or ARRAY_APPEND of the other kind to one) "
+                "is a list of VARIANT values, as an ARRAY column is (SFX-024), so each element keeps its own type. "
+                "SFN-025, which refused it, is retired.")),
+    ("SFX-076", "Rewritten", ("CURRENT_TIME(p) and LOCALTIME(p), with p a whole number from 0 to 9, give the time "
+                "cut to p digits after the second; DuckDB keeps 6, so 6 to 9 keep them all.")),
     ("SFX-086", "Rewritten", ("$1, $2, ... read a column of the FROM clause by its position (SELECT $1, $2 FROM "
                 "VALUES (1, 'one')), in the SELECT list, WHERE and ON. A bare $1 in the SELECT list is named $1, "
                 "as in Snowflake.")),
@@ -3631,8 +3690,6 @@ CATALOG = (
     ("SFN-023", "Runs only in Snowflake", ("IDENTIFIER($name) where the same cell doesn't set the variable to a "
                 "string first: its value isn't known here.")),
     ("SFN-024", "Runs only in Snowflake", "PIVOT ... IN (ANY ...) or IN (subquery): DuckDB's PIVOT takes a list of values."),
-    ("SFN-025", "Runs only in Snowflake", ("An array written with both text and numbers in it (ARRAY_CONSTRUCT, "
-                "ARRAY_CONSTRUCT_COMPACT, ARRAY_INSERT, ARRAY_PREPEND, ARRAY_APPEND): a DuckDB list holds one type.")),
     ("SFN-026", "Runs only in Snowflake", ("INSERT ALL and INSERT FIRST: DuckDB has no multi-table INSERT, and "
                 "separate INSERTs wouldn't be one statement.")),
     ("SFN-027", "Runs only in Snowflake", ("CREATE TABLE ... LIKE: Snowflake copies the other table's defaults and "
@@ -3672,6 +3729,12 @@ CATALOG = (
                 "(the query stops at that row), because Snowflake names TIMESTAMP_TZ and TIMESTAMP_LTZ apart, and DuckDB keeps "
                 "one type for both. TYPEOF of TO_TIMESTAMP_TZ, TO_TIMESTAMP_LTZ, a cast to either, or "
                 "CURRENT_TIMESTAMP runs (SFX-009).")),
+    ("SFN-074", "Runs only in Snowflake", ("CURRENT_VERSION: it gives Snowflake's version, and DuckDB's own "
+                "version would come back in its place.")),
+    ("SFN-075", "Runs only in Snowflake", ("CURRENT_SCHEMAS: Snowflake gives its session's search path as JSON text "
+                "of database.schema names; DuckDB's is a list of its own search path.")),
+    ("SFN-076", "Runs only in Snowflake", ("RANDOM with a seed: Snowflake's series for a seed comes from its own "
+                "generator (MT19937-64), which DuckDB doesn't reproduce. RANDOM() runs.")),
     ("SFN-085", "Runs only in Snowflake", ("$1 in ORDER BY, GROUP BY, HAVING or QUALIFY, where DuckDB reads a "
                 "column position as the SELECT list's, not the FROM clause's (SFX-086). Also t.$1, the position "
                 "of one named table's column, which DuckDB has no way to write.")),

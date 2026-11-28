@@ -200,3 +200,74 @@ test("an image output only ever reaches VS Code as an image", () => {
     assert.ok(convert({ type: "image", mime, data }).items.every((i) => i.mime === "text/plain" || IMAGE.has(i.mime)), mime);
   }
 });
+
+test("a kept token that isn't one the app issues is never sent: the window reads as unpaired", async () => {
+  const seen = [];
+  const before = reply;
+  reply = () => ({ status: 200, body: JSON.stringify({ ok: true, result: {} }) });
+  const listener = (req) => { if (!req.url.startsWith("/v1/hello")) seen.push(req.headers.authorization); };
+  server.on("request", listener);
+  try {
+    for (const token of ["kfp_short", "kfp_" + "a".repeat(43) + "\r\nX-Injected: 1", "kfp_" + "é".repeat(43), "x".repeat(600), " kfp_" + "a".repeat(43)]) {
+      const channel = new Channel(dir);
+      channel.token = token;
+      await assert.rejects(channel.status(), (err) => err instanceof ChannelError && err.code === "not_paired", JSON.stringify(token));
+    }
+    const ok = new Channel(dir);
+    ok.token = "kfp_" + "a".repeat(43);
+    await ok.status();
+  } finally {
+    server.off("request", listener);
+    reply = before;
+  }
+  assert.deepStrictEqual(seen, ["Bearer kfp_" + "a".repeat(43)], "only the well-formed token was sent");
+});
+
+test("a long message from the app is cut, not dropped, and a list that isn't a table says so", () => {
+  const { refusal } = require("../out/channel.js");
+  const long = "The notebook couldn't be saved because " + "x".repeat(10_000);
+  const err = refusal(409, "refused", long);
+  assert.ok(err.message.startsWith("The notebook couldn't be saved because"), err.message.slice(0, 80));
+  assert.ok(err.message.length < 4200, String(err.message.length));
+  for (const out of [{ type: "table", columns: "a", rows: [] }, { type: "table", columns: ["a"], rows: 5 }]) {
+    const [item, ...rest] = convert(out).items;
+    assert.deepStrictEqual([item.mime, rest.length], ["text/plain", 0]);
+    assert.match(item.text, /table's rows can't be read here/);
+  }
+});
+
+test("a cell status the app never sends reads as a reply this window can't read, not as ok", async () => {
+  const before = reply;
+  try {
+    for (const status of ["done", "OK", "succeeded", "", "running "]) {
+      reply = () => ({ status: 200, body: JSON.stringify({ ok: true, result: { status, version: 1, outputs: [] } }) });
+      const channel = new Channel(dir);
+      channel.token = "kfp_" + "a".repeat(43);
+      await assert.rejects(channel.run("C:\\n\\x.ipynb", "x = 1", () => {}), (err) => err instanceof ChannelError && err.code === "bad_reply", status);
+    }
+  } finally {
+    reply = before;
+  }
+});
+
+test("an app that answers a poll at once with nothing new isn't polled in a tight loop", async () => {
+  const before = reply;
+  let polls = 0;
+  const started = Date.now();
+  reply = () => {
+    polls++;
+    const status = polls > 6 ? "ok" : "running";
+    return { status: 200, body: JSON.stringify({ ok: true, result: { status, version: 1, outputs: [] } }) };
+  };
+  try {
+    const channel = new Channel(dir);
+    channel.token = "kfp_" + "a".repeat(43);
+    channel.pollPause = 100;
+    const last = await channel.run("C:\\n\\x.ipynb", "x = 1", () => {});
+    assert.strictEqual(last.status, "ok");
+  } finally {
+    reply = before;
+  }
+  assert.strictEqual(polls, 7);
+  assert.ok(Date.now() - started >= 5 * 100, `${Date.now() - started} ms for 5 unchanged polls`);
+});

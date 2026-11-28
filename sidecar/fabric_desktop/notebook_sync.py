@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -187,6 +188,33 @@ def merge_cells(base: list[dict[str, Any]], mine: list[dict[str, Any]], theirs: 
     return {"cells": cells, "conflicts": conflicts, "resolved": not conflicts}
 
 
+_now = time.time_ns  # a test freezes it
+_utime = os.utime  # and keeps times to a file system's tick
+
+
+def _make_newest(folder: Path, path: Path) -> None:
+    """Gives path a file time later than every other base in folder. Pruning keeps the newest few by
+    file time, and two quick writes can share one (coarse clocks, Windows), so the order is made strict.
+    The stamp can't order them: it is a content hash. The file system keeps times to its own tick (100 ns
+    on NTFS, 2 s on FAT), so the step grows until the time read back is later than every other one."""
+    latest = max((p.stat().st_mtime_ns for p in folder.glob("*.json") if p != path), default=None)
+    now = _now()
+    try:
+        if latest is None or now > latest:
+            _utime(path, ns=(now, now))
+            if latest is None or path.stat().st_mtime_ns > latest:
+                return
+        step = 100
+        while step <= 4_000_000_000:  # past FAT's 2 s tick
+            t = max(now, latest + step)
+            _utime(path, ns=(t, t))
+            if path.stat().st_mtime_ns > latest:
+                return
+            step *= 2
+    except (OSError, OverflowError):  # a base set far in the future, past what the file system holds
+        _utime(path, ns=(now, now))
+
+
 class SyncBases:
     """The cells the app last read or saved for each notebook, by disk stamp: the base a merge
     starts from. Kept on disk, so a sync cut short by closing the app can still be merged after
@@ -207,7 +235,7 @@ class SyncBases:
         keep = [{k: c[k] for k in ("cell_id", "type", "source", "meta") if k in c} for c in cells]
         # Opened again unchanged: already kept. Compared in full, since the stamp leaves cell ids out.
         if self.find(name, stamp) == keep:
-            os.utime(path)  # newest again, so it isn't the one pruned
+            _make_newest(folder, path)  # newest again, so it isn't the one pruned
             return
         tmp = folder / f"{stamp}.{uuid.uuid4().hex}.tmp"
         try:
@@ -218,6 +246,7 @@ class SyncBases:
             jsonfile.replace(tmp, path)
         finally:
             tmp.unlink(missing_ok=True)
+        _make_newest(folder, path)
         old = sorted((p for p in folder.glob("*.json")), key=lambda p: p.stat().st_mtime_ns, reverse=True)
         for p in old[KEEP_BASES:]:
             p.unlink(missing_ok=True)

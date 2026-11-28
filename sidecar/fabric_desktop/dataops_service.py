@@ -403,16 +403,20 @@ class DataOpsMixin:
         now = dt.datetime.now(dt.timezone.utc)
         try:
             state = json.loads(jsonfile.read_text(path))
-            if not isinstance(state, dict):
+            if not isinstance(state, dict) or not isinstance(state.get("watched") or [], list) \
+                    or not isinstance(state.get("quiet") or {}, dict):
                 raise ValueError("it isn't a Data health list")
         except FileNotFoundError:
             state = {}
         except ValueError:
-            copy = jsonfile.set_aside(path, "Data health starts again with no watched tables")
+            # Copied, not moved: if the fresh list can't be saved (a full disk), the damaged file is still
+            # there, so the next read sets it aside again and still says the list started again.
+            copy = jsonfile.set_aside(path, "Data health starts again with no watched tables", keep=True)
             state = {"reset": {"at": now.isoformat(timespec="seconds"), "copy": copy.name}}
             jsonfile.write_json(path, state)
-        watched = [w for w in state.get("watched") or [] if isinstance(w, dict) and w.get("entity") and w.get("env")]
-        quiet = {k: v for k, v in (state.get("quiet") or {}).items() if isinstance(v, dict)}
+        watched = [w for w in state.get("watched") or [] if isinstance(w, dict)
+                   and isinstance(w.get("entity"), str) and w["entity"] and isinstance(w.get("env"), str) and w["env"]]
+        quiet = {k: v for k, v in (state.get("quiet") or {}).items() if isinstance(k, str) and isinstance(v, dict)}
         out: dict[str, Any] = {"watched": watched, "quiet": quiet}
         reset = state.get("reset")
         if isinstance(reset, dict) and isinstance(reset.get("at"), str) and isinstance(reset.get("copy"), str):
@@ -487,13 +491,16 @@ class DataOpsMixin:
                 for t in tables if t.get("state") not in ("error", "no_table")}
         if not read:
             return
-        with self._dh_locked():
-            state = self._dh_read()
-            keep = {k: v for k, v in state["quiet"].items()
-                    if not (k.startswith(f"{env}|") and k.split("|")[1] in read and k not in read[k.split("|")[1]])}
-            if len(keep) != len(state["quiet"]):
-                state["quiet"] = keep
-                self._dh_write(state)
+        try:
+            with self._dh_locked():
+                state = self._dh_read()
+                keep = {k: v for k, v in state["quiet"].items()
+                        if not (k.startswith(f"{env}|") and k.split("|")[1] in read and k not in read[k.split("|")[1]])}
+                if len(keep) != len(state["quiet"]):
+                    state["quiet"] = keep
+                    self._dh_write(state)
+        except OSError as exc:  # the list only reads: an old acknowledgement left now is forgotten on a later list
+            _log.warning("Data health couldn't forget old acknowledgements now: %s", describe(exc))
 
     def meta_data_health_watch(self, name: str, env: str, watch: bool = True) -> dict[str, Any]:
         """Add a table to (or take it off) this PC's Data health list. Changes nothing in the table."""

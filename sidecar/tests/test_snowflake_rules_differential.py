@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import calendar
 import datetime as dt
+import math
 import random
 import re
 from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal
@@ -134,6 +135,125 @@ def _regex_cases(r: random.Random) -> list[tuple[str, str, object]]:
     return out
 
 
+def _float_text(x: float) -> str:
+    # data-type-conversion: "When a FLOAT value is cast to a VARCHAR value, trailing zeros are omitted";
+    # data-types-numeric shows 1.23456789012346e+28, 15 significant digits, and inf.
+    if math.isnan(x):
+        return "NaN"
+    if math.isinf(x):
+        return "inf" if x > 0 else "-inf"
+    return "%.15g" % x
+
+
+def _format_number(x: Decimal, model: str) -> str:
+    """sql-format-models for 9, 0, '.', ',', '$', S and MI at either end, and FM: a 9 blanks a leading zero of the
+    whole part (one 0 stays for a zero whole part) and a trailing zero of the fraction; a place is kept for the
+    sign, which, with '$' after it, goes just before the first digit; S prints + or -, MI a blank or -."""
+    compact = model.startswith("FM")
+    body = model[2:] if compact else model
+    sign, last = "", False
+    for mark in ("MI", "S"):
+        if body.startswith(mark) or body.endswith(mark):
+            sign, last = mark, body.endswith(mark)
+            body = body[len(mark):] if not last else body[:-len(mark)]
+            break
+    dollar = body.startswith("$")
+    body = body.lstrip("$")
+    whole, _, fraction = body.partition(".")
+    places = whole.count("9") + whole.count("0")
+    rounded = abs(x).quantize(Decimal(1).scaleb(-len(fraction)), rounding=ROUND_HALF_UP)
+    negative = x < 0 and rounded != 0
+    int_digits, _, frac_digits = f"{rounded:f}".partition(".")
+    int_digits = int_digits.rjust(places, "0")
+    out, k, printing = [], 0, False
+    for c in whole:
+        if c == ",":
+            out.append("," if printing else " ")
+            continue
+        d = int_digits[k]
+        printing = printing or c == "0" or d != "0" or k == places - 1
+        out.append(d if printing else " ")
+        k += 1
+    if "." in body:
+        out.append(".")
+        tail = []
+        keep = False
+        for c, d in reversed(list(zip(fraction, frac_digits, strict=True))):
+            keep = keep or c == "0" or d != "0"
+            tail.append(d if keep else " ")
+        out += reversed(tail)
+    text = "".join(out)
+    plus = "+" if sign == "S" else ("" if compact else " ")
+    mark = "-" if negative else plus
+    money = "$" if dollar else ""
+    if compact:
+        core = text.strip()
+        return money + core + mark if sign and last else mark + money + core
+    lead = " " * (len(text) - len(text.lstrip(" ")))
+    if sign and last:
+        return lead + money + text.lstrip(" ") + mark
+    if sign == "MI":
+        return mark + lead + money + text.lstrip(" ")
+    return lead + mark + money + text.lstrip(" ")
+
+
+def _number_cases(r: random.Random) -> list[tuple[str, str, object]]:
+    """WR-272: numbers as text and text as numbers. Each want is a string, so the scale is compared too."""
+    out: list[tuple[str, str, object]] = []
+    for _ in range(80):
+        x = r.choice([r.uniform(-1000, 1000), r.randint(-10 ** 6, 10 ** 6) * 1.0, 10.0 ** r.randint(-8, 25),
+                      -(10.0 ** r.randint(-8, 25)) * r.randint(1, 9), r.random() / 3])
+        out.append(("FLOAT_TEXT", f"TO_VARCHAR({x!r}::FLOAT)", _float_text(x)))
+        out.append(("FLOAT_TEXT", f"CAST({x!r}::DOUBLE AS VARCHAR)", _float_text(x)))
+    models = ["999.99", "0000", "$9,999", "99MI", "S99", "FM999,999.999", "S000.00", "9,999.90", "MI999", "999S",
+              "$99.9", "FM$9,999.00", "99.999"]
+    for _ in range(200):
+        model = r.choice(models)
+        whole = model.count("9") + model.count("0") - len(model.partition(".")[2])
+        x = Decimal(r.randint(-10 ** (whole + 2) + 1, 10 ** (whole + 2) - 1)).scaleb(-r.randint(2, 4))
+        if abs(x) >= 10 ** whole - 1:
+            continue  # more whole digits than places stops by name (SFN-037)
+        out.append(("TO_CHAR_FORMAT", f"TO_CHAR({x}, '{model}')", _format_number(x, model)))
+    for _ in range(80):
+        # to_decimal: "reducing the number of fractional digits by rounding"; arithmetic rounds half away from 0
+        scale = r.randint(0, 4)
+        x = Decimal(r.randint(-10 ** 7, 10 ** 7)).scaleb(-r.randint(0, 6))
+        text = r.choice(["{}", " {} ", "{}e0", "{}E+0"]).format(x)
+        if text.lstrip().startswith(("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")) and r.random() < 0.3:
+            text = "+" + text.lstrip()
+        want = x.quantize(Decimal(1).scaleb(-scale), rounding=ROUND_HALF_UP)
+        out.append(("TO_NUMBER_SCALE", f"TO_VARCHAR(TO_NUMBER({q(text)}, 20, {scale}))", f"{want:f}"))
+        out.append(("TO_NUMBER_SCALE", f"TO_VARCHAR(TRY_TO_NUMBER({q(text)}, 20, {scale}))", f"{want:f}"))
+        out.append(("TEXT_TO_INT", f"TO_VARCHAR({q(text)}::INT)", f"{x.quantize(Decimal(1), rounding=ROUND_HALF_UP):f}"))
+    for _ in range(150):
+        # operators-arithmetic: * has S1 + S2 places, at most 12 (or the larger input's); / has the numerator's
+        # scale plus 6, at most 12 (or the numerator's), rounded; + has the larger scale.
+        s1, s2 = r.randint(0, 10), r.randint(0, 10)
+        a = Decimal(r.randint(-10 ** 6, 10 ** 6)).scaleb(-s1)
+        b = Decimal(r.choice([1, -1]) * r.randint(1, 10 ** 6)).scaleb(-s2)
+        left, right = f"{a}::NUMBER(20, {s1})", f"{b}::NUMBER(20, {s2})"
+        mul = min(s1 + s2, max(s1, s2, 12))
+        div = max(s1, min(s1 + 6, 12))
+        step = lambda places: Decimal(1).scaleb(-places)  # noqa: E731
+        out.append(("NUMBER_MUL", f"TO_VARCHAR({left} * {right})", f"{(a * b).quantize(step(mul), ROUND_HALF_UP):f}"))
+        out.append(("NUMBER_DIV", f"TO_VARCHAR({left} / {right})", f"{(a / b).quantize(step(div), ROUND_HALF_UP):f}"))
+        out.append(("NUMBER_ADD", f"TO_VARCHAR({left} + {right})",
+                    f"{(a + b).quantize(step(max(s1, s2)), ROUND_HALF_UP):f}"))
+        zero = r.random() < 0.3
+        out.append(("DIV0_NUMBER", f"TO_VARCHAR(DIV0({left}, {'0' if zero else right}))",
+                    f"{(Decimal(0) if zero else a / b).quantize(step(div), ROUND_HALF_UP):f}"))
+    for _ in range(80):
+        # round: half-points away from zero; a negative scale counts places before the point. trunc: toward zero.
+        # near DuckDB's 32-bit edge too, where 1.5's ROUND(2147483647, -1) wrapped round to -2147483646
+        x = r.choice([r.randint(-2 ** 31, 2 ** 31 - 1), 2 ** 31 - r.randint(1, 9), -2 ** 31 + r.randint(0, 9)])
+        places = r.randint(-9, -1)
+        unit = 10 ** -places
+        rounded = int(Decimal(x).scaleb(places).quantize(Decimal(1), rounding=ROUND_HALF_UP)) * unit
+        out.append(("ROUND_NEGATIVE", f"TO_VARCHAR(ROUND({x}, {places}))", str(rounded)))
+        out.append(("TRUNC_NEGATIVE", f"TO_VARCHAR(TRUNC({x}, {places}))", str(_tdiv(x, unit) * unit)))
+    return out
+
+
 def cases() -> list[tuple[str, str, object]]:
     r = random.Random(SEED)
     out: list[tuple[str, str, object]] = []
@@ -222,7 +342,7 @@ def cases() -> list[tuple[str, str, object]]:
         out.append(("TIMESTAMP_TEXT", f"TO_VARCHAR({q(text)}::TIMESTAMP_NTZ)", want))
         out.append(("TIMESTAMP_TEXT", f"'at ' || {q(text)}::TIMESTAMP_NTZ", "at " + want))
         out.append(("TIME_TEXT", f"CAST({q(t.time().isoformat())}::TIME AS VARCHAR)", f"{t:%H:%M:%S}"))
-    return out + _regex_cases(random.Random(SEED + 2))
+    return out + _regex_cases(random.Random(SEED + 2)) + _number_cases(random.Random(SEED + 3))
 
 
 def _run(con: duckdb.DuckDBPyConnection, expression: str) -> object:

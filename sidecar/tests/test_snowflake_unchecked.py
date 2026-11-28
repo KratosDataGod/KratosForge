@@ -99,7 +99,7 @@ def test_random_without_a_seed_and_uniform_still_run():
 def test_the_new_rules_are_in_the_catalog():
     ids = {row[0] for row in sf.CATALOG}
     assert {"SFX-075", "SFX-076", "SFN-074", "SFN-075", "SFN-076"} <= ids
-    assert "SFN-025" not in ids and sf.RULES_VERSION == "2026.11.23"
+    assert "SFN-025" not in ids and sf.RULES_VERSION >= "2026.11.23"
 
 
 def test_the_functions_left_not_checked_each_say_why():

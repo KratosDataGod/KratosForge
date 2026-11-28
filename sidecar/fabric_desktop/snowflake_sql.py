@@ -32,7 +32,7 @@ from sqlglot.errors import ParseError, SqlglotError, TokenError
 
 from . import sql_dialects
 
-RULES_VERSION = "2026.11.23"
+RULES_VERSION = "2026.11.24"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -135,7 +135,9 @@ SFD_TZ = _n("SFD-002", "TIMESTAMP_TZ loses its offset",
             "SFX-074, SFN-071).",
             "Compare instants, not offsets.", f"{_DOCS}/data-types-datetime")
 SFD_DIV = _n("SFD-003", "Division returns DOUBLE",
-             "DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules.",
+             "DuckDB returns DOUBLE for / of a value whose type the statement doesn't show (a column), where "
+             "Snowflake returns NUMBER with its own scale rules. Division of numbers written in the query and of "
+             "casts to NUMBER gives Snowflake's NUMBER (SFX-035).",
              "Round or cast the result where scale matters; use DIV0 where a zero divisor is expected.",
              f"{_DOCS}/operators-arithmetic")
 SFD_LTZ = _n("SFD-004", "Local time zone is this PC's",
@@ -313,11 +315,18 @@ from sqlglot.dialects.snowflake import Snowflake as _Snowflake  # noqa: E402  (b
 # IF(b = 0 AND NOT a IS NULL, 0, a / b)), so each level of nesting doubled the tree and the SQL. Here each
 # argument that isn't a plain name or literal is worked out once, as it is read, in a LIST_TRANSFORM.
 _CHEAP = (exp.Column, exp.Literal, exp.Null, exp.Boolean, exp.Placeholder, exp.Parameter, exp.Star)
+_CONSTANT = (exp.Literal, exp.Null, exp.Boolean, exp.Cast, exp.Neg, exp.Paren, exp.DataType, exp.DataTypeParam)
+
+
+def _cheap(arg: exp.Expression) -> bool:
+    """Read as often as it's written at no cost and with one answer: a column, or a constant such as
+    5.4027::NUMBER(20, 4), whose type SFX-035's division scale reads from the call itself."""
+    return isinstance(arg, _CHEAP) or all(isinstance(n, _CONSTANT) for n in arg.walk())
 
 
 def _once(build: Any) -> Any:
     def built(args: list[Any]) -> Any:
-        bound = [i for i, arg in enumerate(args) if arg is not None and not isinstance(arg, _CHEAP)]
+        bound = [i for i, arg in enumerate(args) if arg is not None and not _cheap(arg)]
         if not bound:
             return build(args)
         # One LIST_TRANSFORM over a list of one ROW of every bound value, so each is worked out outside any
@@ -806,7 +815,7 @@ def _rewrite_date_trunc(statement: exp.Expression) -> None:
 def _rewrite_to_char(statement: exp.Expression) -> None:
     """SFX-002 and SFX-003: TO_VARCHAR / TO_CHAR with a format model."""
     ours: list[exp.Expression] = []   # rewritten here, so quoted text in them is meant
-    for node in list(statement.find_all(exp.ToChar)):
+    for node in reversed(list(statement.find_all(exp.ToChar))):  # the innermost first, as each is copied
         fmt = node.args.get("format")
         if fmt is None:
             continue
@@ -814,10 +823,11 @@ def _rewrite_to_char(statement: exp.Expression) -> None:
             raise _Untranslatable(_refuse("SFX-002", "TO_VARCHAR with a computed format",
                                           "Only a format written in the query can be rewritten."))
         model = fmt.name
-        if re.search(r"[90]", model) or re.fullmatch(r"[\s$,.SMIXGDLB]*", model.upper()):
-            raise _Untranslatable(_refuse("SFX-003", "Number format models",
-                                          f"The number format '{model}' has no DuckDB equivalent.",
-                                          f"{_DOCS}/sql-format-models"))
+        if re.search(r"[90]|TM|EE", model.upper()) or re.fullmatch(r"[\s$,.SMIXGDLB]*", model.upper()):
+            from .sql import _from_template
+            ours.append(_from_template(_number_format_sql(_number_model(model)), [node.this]))  # SFX-033
+            node.replace(ours[-1])
+            continue
         directive = _strftime(model)
         if directive is None:
             raise _Untranslatable(_refuse("SFX-002", "Date or time format",
@@ -2730,6 +2740,358 @@ def _rewrite_division(statement: exp.Expression) -> None:
         divisor.replace(check)
 
 
+# ---------------------------------------------------------------- numbers as text, and text as numbers (WR-272)
+
+_NUMERIC_DOCS = f"{_DOCS}/data-types-numeric"
+_FLOAT_KINDS = {exp.DataType.Type.DOUBLE, exp.DataType.Type.FLOAT}
+# Snowflake's INT, INTEGER, BIGINT, SMALLINT, TINYINT and BYTEINT are all NUMBER(38, 0) ("Synonymous with NUMBER,
+# except that precision and scale can't be specified", data-types-numeric); DuckDB's are 8 to 64 bits wide.
+_WHOLE_RANGES = {exp.DataType.Type.TINYINT: ("TINYINT", 2 ** 7), exp.DataType.Type.SMALLINT: ("SMALLINT", 2 ** 15),
+                 exp.DataType.Type.INT: ("INTEGER", 2 ** 31), exp.DataType.Type.BIGINT: ("BIGINT", 2 ** 63)}
+_FLOAT_FUNCTIONS = (exp.ToDouble, exp.Sqrt, exp.Exp, exp.Ln, exp.Pow)
+_JSONISH = (exp.JSONExtract, exp.JSONExtractScalar, exp.Bracket, exp.ParseJSON)
+
+_INT_RANGE = _refuse(
+    "SFN-036", "A whole number too big for the type DuckDB casts to",
+    "In Snowflake, INT, BIGINT, SMALLINT and TINYINT all hold 38 digits, but DuckDB's hold 8 to 64 bits, so the query "
+    "stopped at a value that doesn't fit and nothing after it ran. Cast to NUMBER (or NUMBER(38, 0)) instead.",
+    _NUMERIC_DOCS)
+_FORMAT_OVERFLOW = _refuse(
+    "SFN-037", "A number with more digits than its format",
+    "When a number has more digits before the point than the format has places, Snowflake prints it as #. The query "
+    "stopped at that value and nothing after it ran. Give the format more 9s or 0s.", f"{_DOCS}/sql-format-models")
+
+
+def _floaty(node: exp.Expr | None) -> bool:
+    """Whether ``node`` is plainly a FLOAT: a cast to FLOAT, DOUBLE or REAL, TO_DOUBLE, a function Snowflake
+    answers with a FLOAT (SQRT, EXP, LN, POWER), a number written with an exponent, or arithmetic with one."""
+    if isinstance(node, (exp.Cast, exp.TryCast)):
+        return node.to.this in _FLOAT_KINDS
+    if isinstance(node, exp.Literal):
+        return not node.is_string and "e" in node.name.lower()
+    if isinstance(node, (exp.Paren, exp.Neg)):
+        return _floaty(node.this)
+    if isinstance(node, (exp.Add, exp.Sub, exp.Mul, exp.Div)):
+        return (_floaty(node.this) and (_floaty(node.expression) or _fixed(node.expression) is not None)) or \
+            (_floaty(node.expression) and _fixed(node.this) is not None)
+    return isinstance(node, _FLOAT_FUNCTIONS)
+
+
+def _fixed(node: exp.Expr | None) -> tuple[int, int] | None:
+    """The NUMBER(precision, scale) Snowflake gives ``node``, when the statement shows it: a number written in
+    the query, a cast to NUMBER or a whole-number type, and +, -, * and / of those, by the rules of
+    https://docs.snowflake.com/en/sql-reference/operators-arithmetic ("Scale and precision in arithmetic
+    operations"). None for anything else (a column, a FLOAT, a function)."""
+    if isinstance(node, exp.Literal):
+        if node.is_string or not re.fullmatch(r"\d+(\.\d*)?|\.\d+", node.name):
+            return None
+        whole, _, fraction = node.name.partition(".")
+        lead = len(whole.lstrip("0"))
+        if lead + len(fraction) > 38:  # past any NUMBER: left to DuckDB, not rewritten
+            return None
+        return max(lead + len(fraction), 1), len(fraction)
+    if isinstance(node, (exp.Paren, exp.Neg)):
+        return _fixed(node.this)
+    if isinstance(node, (exp.Cast, exp.TryCast)):
+        if node.to.this in _WHOLE_RANGES:
+            return 38, 0
+        if node.to.this != exp.DataType.Type.DECIMAL:
+            return None
+        params = [p.this for p in node.to.expressions]
+        if len(params) > 2 or not all(isinstance(p, exp.Literal) and p.name.isdigit() and len(p.name) <= 3
+                                      for p in params):
+            return None
+        sizes = [int(p.name) for p in params] + [38, 0][len(params):]
+        # data-types-numeric: precision 1 to 38, scale 0 to the precision. Anything else isn't a NUMBER
+        # Snowflake would make, so nothing is rewritten (and no power of ten is built from it).
+        if not (1 <= sizes[0] <= 38 and 0 <= sizes[1] <= sizes[0]):
+            return None
+        return sizes[0], sizes[1]
+    if not isinstance(node, (exp.Add, exp.Sub, exp.Mul, exp.Div)):
+        return None
+    left, right = _fixed(node.this), _fixed(node.expression)
+    if left is None or right is None:
+        return None
+    (p1, s1), (p2, s2) = left, right
+    l1, l2 = p1 - s1, p2 - s2
+    if isinstance(node, exp.Mul):  # L = L1 + L2; S = S1 + S2, but no more than 12 unless an input's is
+        lead, scale = l1 + l2, min(s1 + s2, max(s1, s2, 12))
+    elif isinstance(node, exp.Div):  # L = L1 + S2; S = S1 + 6, but no more than 12 unless the numerator's is
+        lead, scale = l1 + s2, max(s1, min(s1 + 6, 12))
+    else:  # + and -: L = max(L1, L2) + 1; S = max(S1, S2)
+        lead, scale = max(l1, l2) + 1, max(s1, s2)
+    return min(38, max(lead + scale, 1)), scale
+
+
+def _divided(node: exp.Div, scale: int, precision: int, s1: int, s2: int) -> exp.Expr:
+    """a / b as Snowflake works out NUMBER division: "Snowflake rounds the output (rather than truncating
+    the output)" to the scale, here half away from zero, in whole numbers (HUGEINT) so no digit is lost.
+    a and b are read once each. A zero divisor stops with Snowflake's "Division by zero" (SFX-010), except
+    inside DIV0 and DIV0NULL, which give 0 first."""
+    from .sql import _from_template
+    numerator = (f"CAST(CAST({{0}} AS DECIMAL(38, {s1})) * {10 ** s1} AS HUGEINT) * "
+                 f"CAST({10 ** (scale + s2 - s1)} AS HUGEINT)")
+    denominator = f"CAST(CAST({{1}} AS DECIMAL(38, {s2})) * {10 ** s2} AS HUGEINT)"
+    n, d = "abs(kf_n)", "abs(kf_d)"
+    whole = (f"sign(kf_n) * sign(kf_d) * ({n} // {d} + CASE WHEN {n} % {d} >= {d} - {n} % {d} "
+             "THEN 1 ELSE 0 END)")
+    text = (f"CAST(CAST({whole} AS DECIMAL(38, 0)) * CAST(0.{'0' * (scale - 1)}1 AS DECIMAL({scale + 1}, "
+            f"{scale})) AS DECIMAL({precision}, {scale}))" if scale else
+            f"CAST({whole} AS DECIMAL({precision}, 0))")
+    if not (_div0_branch(node) or _nonzero_number(node.expression)):
+        text = f"CASE WHEN kf_d = 0 THEN ERROR('Division by zero') ELSE {text} END"
+    # Nested lambdas, not a struct: a {'n': ...} constant would be read as a Snowflake OBJECT (SFX-016)
+    return _from_template(f"(LIST_TRANSFORM([{numerator}], kf_n -> (LIST_TRANSFORM([{denominator}], kf_d -> "
+                          f"{text}))[1]))[1]", [node.this, node.expression])
+
+
+def _literal_whole(node: exp.Expr) -> int | None:
+    """The value of arithmetic written with whole numbers only, or None."""
+    if isinstance(node, exp.Literal) and not node.is_string and node.name.isdigit():
+        return int(node.name) if len(node.name.lstrip("0")) <= 38 else None
+    if isinstance(node, exp.Paren):
+        return _literal_whole(node.this)
+    if isinstance(node, exp.Neg):
+        inner = _literal_whole(node.this)
+        return None if inner is None else -inner
+    if isinstance(node, (exp.Add, exp.Sub, exp.Mul)):
+        left, right = _literal_whole(node.this), _literal_whole(node.expression)
+        if left is None or right is None:
+            return None
+        value = left + right if isinstance(node, exp.Add) else left - right if isinstance(node, exp.Sub) \
+            else left * right
+        return value if abs(value) < 10 ** 38 else None  # past NUMBER(38, 0): no longer worked out here
+    return None
+
+
+def _overflows_int32(node: exp.Expr) -> bool:
+    return any(abs(v) >= 2 ** 31 for v in (_literal_whole(n) for n in node.find_all(exp.Add, exp.Sub, exp.Mul))
+               if v is not None)
+
+
+def _rewrite_number_scales(statement: exp.Expression) -> None:
+    """SFX-035 and SFX-036: NUMBER arithmetic with Snowflake's result scale, and ROUND to tens and beyond.
+
+    Per https://docs.snowflake.com/en/sql-reference/operators-arithmetic:
+    - a / b (and DIV0, DIV0NULL) of two NUMBER values the statement shows is a NUMBER with the numerator's
+      scale plus 6, at most 12 (2 / 7 is 0.285714), rounded; DuckDB gave a DOUBLE (0.2857142857142857).
+    - a * b keeps S1 + S2 places only up to 12 (or the larger input scale): 0.12345678 * 0.12345678 of
+      NUMBER(20, 8) is 0.015241576528 there; DuckDB kept 16 places.
+    - Whole numbers written in the query whose arithmetic leaves DuckDB's 32 bits (100000 * 100000) are
+      NUMBER(38, 0), as every Snowflake number is; DuckDB stopped with "Overflow in multiplication of INT32".
+    Per https://docs.snowflake.com/en/sql-reference/functions/round: ROUND with a negative scale rounds to
+    tens, hundreds...; DuckDB 1.5's ROUND of an INTEGER near its largest value wrapped round (ROUND(2147483647,
+    -1) was -2147483646) and 2.0's stops, so the value is widened to HUGEINT first."""
+    plans: list[tuple[exp.Expr, tuple[int, int], tuple[int, int], tuple[int, int]]] = []
+    for node in statement.find_all(exp.Div, exp.Mul):
+        kind, left, right = _fixed(node), _fixed(node.this), _fixed(node.expression)
+        if kind is not None and left is not None and right is not None:
+            plans.append((node, kind, left, right))
+    for planned, (precision, scale), (_, s1), (_, s2) in reversed(plans):
+        if isinstance(planned, exp.Div):
+            planned.replace(_divided(planned, scale, precision, s1, s2))
+        elif scale < s1 + s2:
+            from .sql import _from_template
+            planned.replace(_from_template(f"CAST(ROUND({{0}} * {{1}}, {scale}) AS DECIMAL({precision}, {scale}))",
+                                           [planned.this, planned.expression]))
+    for top in [n for n in statement.find_all(exp.Add, exp.Sub, exp.Mul)
+                if not isinstance(n.parent, (exp.Add, exp.Sub, exp.Mul, exp.Paren, exp.Neg))]:
+        if _literal_whole(top) is not None and _overflows_int32(top):
+            for literal in list(top.find_all(exp.Literal)):
+                literal.replace(exp.cast(literal.copy(), exp.DataType.build("DECIMAL(38, 0)")))
+    for rounded in statement.find_all(exp.Round):
+        places, value = rounded.args.get("decimals"), rounded.this
+        if isinstance(places, exp.Neg) and isinstance(places.this, exp.Literal) and not places.this.is_string \
+                and not (isinstance(value, exp.Literal) and value.is_string) and not _floaty(value):
+            rounded.set("this", exp.Paren(this=exp.Mul(this=value, expression=exp.cast(
+                exp.Literal.number(1), exp.DataType.build("HUGEINT")))))
+
+
+def _rewrite_number_types(statement: exp.Expression) -> None:
+    """SFX-034: Snowflake's number types, per https://docs.snowflake.com/en/sql-reference/data-types-numeric.
+
+    - FLOAT, FLOAT4, FLOAT8, DOUBLE, DOUBLE PRECISION and REAL are all 64-bit: REAL and FLOAT4 were DuckDB's
+      32-bit FLOAT (0.1::REAL * 3 was 0.30000001192092896).
+    - A cast to INT, INTEGER, BIGINT, SMALLINT, TINYINT or BYTEINT reads the value as NUMBER(38, 0) first:
+      text in hexadecimal isn't a number (to_decimal: hex is read only with the X format element), where
+      DuckDB read '0x1F'::INT as 31; and "Converting a FLOAT value to an INTEGER value rounds the value"
+      (data-type-conversion), half away from zero as NUMBER rounds, where DuckDB rounded 2.5 to 2. The type
+      stays DuckDB's, so it still works as a function's argument; a value outside it stops by name (SFN-036),
+      where Snowflake's 38 digits would hold it."""
+    from .sql import _from_template
+    for kind in statement.find_all(exp.DataType):
+        if kind.this == exp.DataType.Type.FLOAT:
+            kind.set("this", exp.DataType.Type.DOUBLE)
+    for cast_ in reversed(list(statement.find_all(exp.Cast, exp.TryCast))):  # the innermost first
+        if cast_.to.this not in _WHOLE_RANGES or cast_.to.expressions or isinstance(cast_.this, _JSONISH):
+            continue
+        name, bound = _WHOLE_RANGES[cast_.to.this]
+        read = "TRY_CAST" if isinstance(cast_, exp.TryCast) else "CAST"
+        cast_.replace(_from_template(
+            f"(LIST_TRANSFORM([{read}({{0}} AS DECIMAL(38, 0))], kf_w -> CASE WHEN kf_w < -{bound} OR "
+            f"kf_w > {bound - 1} THEN {_stop_sql(_INT_RANGE)} ELSE CAST(kf_w AS {name}) END))[1]", [cast_.this]))
+
+
+_FLOAT_TEXT = ("(LIST_TRANSFORM([{0}], kf_f -> CASE WHEN isnan(kf_f) THEN 'NaN' WHEN isinf(kf_f) THEN "
+               "CASE WHEN kf_f > 0 THEN 'inf' ELSE '-inf' END ELSE printf('%.15g', kf_f) END))[1]")
+
+
+def _rewrite_float_text(statement: exp.Expression) -> None:
+    """SFX-032: a FLOAT written as text, by TO_VARCHAR, TO_CHAR with no format or a cast to VARCHAR, as Snowflake
+    writes it: "When a FLOAT value is cast to a VARCHAR value, trailing zeros are omitted" (5.0 is '5';
+    https://docs.snowflake.com/en/sql-reference/data-type-conversion), with up to 15 significant digits and an
+    exponent past them (1.23456789012346e+28, data-types-numeric), and inf, -inf and NaN. DuckDB wrote '5.0',
+    '1000000000000000.0' and 17 digits. A column is written so when it holds a DOUBLE when the query runs; the
+    value is read once."""
+    from .sql import _from_template
+    for node in reversed(list(statement.find_all(exp.Cast, exp.TryCast, exp.ToChar))):  # the innermost first
+        to_text = (isinstance(node, exp.ToChar) and node.args.get("format") is None
+                   and not node.args.get("nlsparam")) or (isinstance(node, (exp.Cast, exp.TryCast))
+                                                          and node.to.this in _TEXT_TYPES)
+        if not to_text:
+            continue
+        if _floaty(node.this):
+            _keep_name(node)
+            node.replace(_from_template(_FLOAT_TEXT.format("CAST({0} AS DOUBLE)"), [node.this]))
+        elif isinstance(node.this, exp.Column):
+            _keep_name(node)
+            as_text = _duck(node.to) if isinstance(node, (exp.Cast, exp.TryCast)) else "VARCHAR"
+            # No lambda: a column is short to repeat, and DuckDB 2.0 takes a lambda for volatile, which a window's
+            # ORDER BY refuses. pg_typeof (TYPEOF would be read as Snowflake's, SFX-009) picks the branch when the
+            # query is planned; each binds for any type.
+            double = "TRY_CAST(CAST({0} AS VARCHAR) AS DOUBLE)"
+            node.replace(_from_template(
+                f"(CASE WHEN pg_typeof({{0}}) NOT IN ('double', 'float') THEN CAST({{0}} AS {as_text}) "
+                f"WHEN isnan({double}) THEN 'NaN' WHEN isinf({double}) THEN CASE WHEN {double} > 0 THEN 'inf' "
+                f"ELSE '-inf' END ELSE printf('%.15g', {double}) END)", [node.this]))
+
+
+def _model_refusal(model: str, why: str) -> _Untranslatable:
+    return _Untranslatable(_refuse(
+        "SFX-003", "This number format", f"The number format '{model}' {why}, so nothing ran. TO_CHAR and TO_VARCHAR "
+        "with 9, 0, '.', 'D', ',', 'G', '$', 'S', 'MI' and 'FM' run here. Write the number with those, or with "
+        "TO_VARCHAR(n) and no format.", f"{_DOCS}/sql-format-models"))
+
+
+@dataclass(frozen=True)
+class _NumberModel:
+    """A fixed-position number format (sql-format-models): its digit places before and after the point."""
+    whole: str            # '9' and '0' for each place before the point, ',' for a group separator
+    fraction: str         # '9' and '0' after the point; '' with no point
+    point: bool
+    sign: str             # '' (a place for a blank or '-'), 'S', 'MI'
+    sign_last: bool       # S or MI after the digits
+    dollar: bool
+    compact: bool         # FM
+
+
+def _number_model(model: str) -> _NumberModel:
+    upper, i = model.upper(), 0
+    compact = upper.startswith("FM")
+    i = 2 if compact else 0
+    whole, fraction, point, sign, sign_last, dollar, seen_digit = "", "", False, "", False, False, False
+    while i < len(upper):
+        c = upper[i]
+        if upper.startswith("MI", i) or c == "S":
+            if sign or (seen_digit and i + (2 if c == "M" else 1) != len(upper)):
+                raise _model_refusal(model, "has a sign that isn't at its start or end")
+            sign, sign_last = ("MI" if c == "M" else "S"), seen_digit
+            i += 2 if c == "M" else 1
+            continue
+        if c in "90":
+            if point:
+                fraction += c
+            else:
+                whole += c
+            seen_digit = True
+        elif c in ".D":
+            if point:
+                raise _model_refusal(model, "has two decimal points")
+            point = True
+        elif c in ",G":
+            if point or not whole or not whole[-1] in "90":
+                raise _model_refusal(model, "has a group separator that isn't between two digits")
+            whole += ","
+        elif c == "$":
+            if dollar or seen_digit or point:
+                raise _model_refusal(model, "has a $ after its digits")
+            dollar = True
+        else:
+            raise _model_refusal(model, f"uses '{model[i:]}', which isn't rewritten for DuckDB")
+        i += 1
+    if not seen_digit or whole.endswith(","):
+        raise _model_refusal(model, "has no digit after a group separator, or no digit at all")
+    if len(whole.replace(",", "")) + len(fraction) > 38:
+        raise _model_refusal(model, "has more than 38 digit places")
+    return _NumberModel(whole, fraction, point, sign, sign_last, dollar, compact)
+
+
+def _number_format_sql(m: _NumberModel) -> str:
+    """DuckDB SQL ({0} for the value) that writes the value in format ``m`` as sql-format-models says: '9'
+    leaves a leading zero of the whole part blank ("except when the value of the integer part is zero, in
+    which case it is rendered as a single 0 character") and a trailing zero of the fraction blank, '0' prints
+    it; ',' is a blank among the leading blanks; "fixed-position formats always reserve a space for the
+    number's sign", which goes just before the first digit, after any blank, with '$' after it; S prints + or
+    -, MI a blank or -, where they are written; FM drops the blanks. The value is rounded to the format's
+    places, half away from zero, and read once; more whole digits than places stop by name (SFN-037)."""
+    digits = m.whole.replace(",", "")
+    places, frac = len(digits), len(m.fraction)
+    whole = f"lpad(split_part(kf_t, '.', 1), {places}, '0')"
+    parts: list[str] = []
+    k = 0
+    for c in m.whole:
+        e = places - 1 - k if c != "," else places - k  # the power of ten of the digit before a separator
+        forced = "0" in digits[:k + (0 if c == "," else 1)] or (c != "," and k == places - 1)
+        if c == ",":
+            parts.append("','" if forced else f"CASE WHEN kf_i < {10 ** e} THEN ' ' ELSE ',' END")
+            continue
+        digit = f"substr({whole}, {k + 1}, 1)"
+        parts.append(digit if forced else f"CASE WHEN kf_i < {10 ** e} THEN ' ' ELSE {digit} END")
+        k += 1
+    if m.point:
+        parts.append("'.'")
+    for j in range(frac):
+        digit = f"substr(split_part(kf_t, '.', 2), {j + 1}, 1)"
+        if "0" in m.fraction[j:]:
+            parts.append(digit)
+        else:
+            parts.append(f"CASE WHEN ltrim(substr(split_part(kf_t, '.', 2), {j + 1}), '0') = '' THEN ' ' "
+                         f"ELSE {digit} END")
+    body = " || ".join(parts)
+    plus = "'+'" if m.sign == "S" else ("''" if m.compact else "' '")
+    sign = f"CASE WHEN kf_v < 0 THEN '-' ELSE {plus} END"
+    dollar = "'$' || " if m.dollar else ""
+    if m.compact:
+        core = "trim(kf_b)"
+        text = f"{dollar}{core} || {sign}" if m.sign_last else f"{sign} || {dollar}{core}"
+    else:
+        lead, core = "repeat(' ', length(kf_b) - length(ltrim(kf_b)))", "ltrim(kf_b)"
+        if m.sign_last:
+            text = f"{lead} || {dollar}{core} || {sign}"
+        elif m.sign == "MI":
+            text = f"{sign} || {lead} || {dollar}{core}"
+        else:
+            text = f"{lead} || {sign} || {dollar}{core}"
+    return (f"(LIST_TRANSFORM([CAST({{0}} AS DECIMAL(38, {frac}))], kf_v -> (LIST_TRANSFORM([CAST(TRUNC(abs(kf_v)) "
+            f"AS HUGEINT)], kf_i -> (LIST_TRANSFORM([CAST(abs(kf_v) AS VARCHAR)], kf_t -> CASE WHEN kf_i >= "
+            f"{10 ** places} THEN {_stop_sql(_FORMAT_OVERFLOW)} ELSE (LIST_TRANSFORM([{body}], kf_b -> {text}))[1] "
+            "END))[1]))[1]))[1]")
+
+
+_TO_NUMBER_FORMAT = _refuse(
+    "SFN-035", "TO_NUMBER with a format",
+    "TO_NUMBER, TO_DECIMAL, TO_NUMERIC and their TRY_ forms read text by a format ('$9,999.99', 'XXX', 'TM9') with "
+    "Snowflake's own rules, which aren't rewritten for DuckDB, so nothing ran. Take the format's characters out "
+    "first (REPLACE(t, ',', '')) and call TO_NUMBER(t, precision, scale) without one.",
+    f"{_DOCS}/functions/to_decimal")
+
+
+def _refuse_number_formats(statement: exp.Expression) -> None:
+    """SFN-035: TO_NUMBER and its kin with a format (sqlglot stopped with "Unsupported TO_NUMBER function")."""
+    if any(n.args.get("format") is not None for n in statement.find_all(exp.ToNumber)):
+        raise _Untranslatable(_TO_NUMBER_FORMAT)
+
+
 # ---------------------------------------------------------------- known differences (SFD-*)
 
 _TIMESTAMP_TYPES = {exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPNTZ, exp.DataType.Type.TIMESTAMPLTZ,
@@ -3077,7 +3439,8 @@ def _differences(statement: exp.Expression) -> list[Note]:
     if any(d.this == exp.DataType.Type.TIMESTAMPTZ and not _offset_checked(d) for d in statement.find_all(exp.DataType)):
         notes.append(SFD_TZ)
     if any(not any(isinstance(side, exp.Literal) and not side.is_string and "." in side.name
-                   for side in (d.this, d.expression)) for d in statement.find_all(exp.Div)):
+                   for side in (d.this, d.expression)) and _fixed(d) is None
+           for d in statement.find_all(exp.Div)):  # SFX-035 gives a NUMBER where both sides' types are shown
         notes.append(SFD_DIV)
     if exp.DataType.Type.TIMESTAMPLTZ in types or any(statement.find_all(exp.CurrentTimestamp)):
         notes.append(SFD_LTZ)
@@ -3111,7 +3474,8 @@ CATALOG = (
                 "SFD-005 is retired. The columns are named KEY, PATH, INDEX, VALUE and THIS (SFX-073).")),
     ("SFX-002", "Rewritten", ("TO_VARCHAR and TO_CHAR with a date or time format written in the query become "
                 "strftime. Elements with no equivalent (quarter, week) aren't rewritten.")),
-    ("SFX-003", "Runs only in Snowflake", "TO_VARCHAR and TO_CHAR with a number format."),
+    ("SFX-003", "Runs only in Snowflake", ("TO_VARCHAR and TO_CHAR with a number format other than SFX-033's: TM, "
+                "TM9, TME, EE, X, B, quoted text, or a sign or $ in another place.")),
     ("SFX-004", "Rewritten", ("OBJECT_CONSTRUCT drops a pair whose value is SQL NULL and keeps JSON null, as "
                 "Snowflake does. OBJECT_CONSTRUCT(*) isn't rewritten.")),
     ("SFX-005", "Rewritten", ("A VALUES list in FROM gets Snowflake's column names COLUMN1, COLUMN2..., unless "
@@ -3231,6 +3595,25 @@ CATALOG = (
                 "TO_CHAR with no format), or joined with || or CONCAT, is written in Snowflake's default output "
                 "formats: TIMESTAMP_NTZ as YYYY-MM-DD HH24:MI:SS.FF3, TIMESTAMP_LTZ and TIMESTAMP_TZ with the "
                 "session time zone's offset as TZHTZM after it, and TIME as HH24:MI:SS.")),
+    ("SFX-032", "Rewritten", ("A FLOAT written as text (TO_VARCHAR, TO_CHAR with no format, a cast to VARCHAR) has "
+                "no trailing zeros and up to 15 significant digits, with an exponent past them, as Snowflake writes it: "
+                "100 is '100', 1e15 is '1e+15', 1/3 is '0.333333333333333', and inf, -inf and NaN. A column is "
+                "written so when it holds a DOUBLE when the query runs.")),
+    ("SFX-033", "Rewritten", ("TO_VARCHAR and TO_CHAR of a number with a fixed-position format of 9, 0, '.', D, ',', G, "
+                "$, S or MI at the start or end, and FM: a 9 leaves a leading or trailing zero blank (a zero whole part "
+                "is one 0), a place is kept for the sign before the first digit, and the value is rounded to the "
+                "format's places. More whole digits than places stop the query (SFN-037).")),
+    ("SFX-034", "Rewritten", ("REAL and FLOAT4 are 64-bit, as every Snowflake FLOAT is. A cast to INT, INTEGER, BIGINT, "
+                "SMALLINT, TINYINT or BYTEINT reads the value as NUMBER(38, 0): hexadecimal text is not a number, and "
+                "a FLOAT or a fraction rounds half away from zero (2.5 is 3). A value outside DuckDB's type stops the "
+                "query (SFN-036).")),
+    ("SFX-035", "Rewritten", ("/, DIV0 and DIV0NULL of two NUMBER values the statement shows (numbers written in the "
+                "query, casts to NUMBER or a whole-number type, and arithmetic on them) give a NUMBER with the "
+                "numerator's scale plus 6, at most 12, rounded half away from zero (2 / 7 is 0.285714); * keeps at "
+                "most 12 places unless an input has more; whole numbers written in the query whose arithmetic passes "
+                "32 bits are NUMBER(38, 0). Division of a column of unknown type is SFD-003.")),
+    ("SFX-036", "Rewritten", ("ROUND with a negative scale works on a value widened to 128 bits first, so ROUND(2147483647, "
+                "-1) is 2147483650.")),
     ("SFX-070", "Rewritten", ("TO_JSON writes an object's keys in sorted order at every level, as Snowflake keeps "
                 "an OBJECT's keys, and writes an object a VARIANT column holds as JSON (DuckDB 1.x's TO_JSON "
                 "wrote it as quoted text). SFD-014 is retired.")),
@@ -3335,6 +3718,12 @@ CATALOG = (
                 "TIMESTAMP_FROM_PARTS or TIME_FROM_PARTS, and TO_TIMESTAMP with scale 7 to 9, unless the "
                 "nanoseconds are written as whole microseconds. Snowflake keeps nanoseconds; DuckDB keeps "
                 "microseconds.")),
+    ("SFN-035", "Runs only in Snowflake", ("TO_NUMBER, TO_DECIMAL, TO_NUMERIC and their TRY_ forms with a format: "
+                "Snowflake's rules for reading text by a format aren't rewritten.")),
+    ("SFN-036", "Runs only in Snowflake", ("A cast to INT, BIGINT, SMALLINT or TINYINT of a value outside DuckDB's type "
+                "(the query stops at that row). Snowflake's hold 38 digits, so cast to NUMBER instead.")),
+    ("SFN-037", "Runs only in Snowflake", ("TO_CHAR of a number with more whole digits than its format has places (the "
+                "query stops at that row), which Snowflake prints as #.")),
     ("SFN-070", "Runs only in Snowflake", ("JAROWINKLER_SIMILARITY: Snowflake doesn't document its score, and "
                 "DuckDB's differs from it for pairs in Snowflake's own example. SFD-012 is retired.")),
     ("SFN-071", "Runs only in Snowflake", ("TIMESTAMP_TZ from text with a UTC offset other than the session zone's "
@@ -3405,6 +3794,10 @@ def _statement(n: int, statement: exp.Expression, tables: Tables | None = None) 
         _mark_offsets_and_json(tree)
         _variant_text(tree)
         _rewrite_flatten(tree)
+        _refuse_number_formats(tree)
+        _rewrite_number_scales(tree)
+        _rewrite_number_types(tree)
+        _rewrite_float_text(tree)
         _rewrite_to_char(tree)
         _rewrite_date_trunc(tree)
         _rewrite_object_construct(tree)

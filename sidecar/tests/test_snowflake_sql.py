@@ -57,7 +57,7 @@ PROBE = [
      "difference", ["SFD-002", "SFD-004"]),
     ("TIMESTAMP_TZ literal with offset", "select '2026-01-01 10:00:00 +05:00'::timestamp_tz",
      "not_translatable", ["SFN-013"]),
-    ("Integer division 7/2", "select 7/2, 7 % 2", "difference", ["SFD-003"]),
+    ("Integer division 7/2", "select 7/2, 7 % 2", "translated", []),
     ("Quoted alias", 'select 1 as "Mixed", 2 as plain', "translated", []),
     ("Unquoted identifier case", "create table up_test(MyCol int)", "translated", []),
     ("CREATE STREAM", "create stream s1 on table t", "not_translatable", ["SFN-001"]),
@@ -205,7 +205,7 @@ def test_sfx002_format_elements_without_an_equivalent_are_refused(fmt):
 
 
 def test_sfx003_number_formats_are_refused():
-    t = sf.translate("select to_varchar(amt, '999,999.00') from t")
+    t = sf.translate("select to_varchar(amt, 'XXXX') from t")
     assert not t.runnable and t.statements[0].notes[0].id == "SFX-003"
 
 
@@ -1254,7 +1254,7 @@ def test_jarowinkler_similarity_is_refused_by_name():
     t = sf.translate("SELECT jarowinkler_similarity(s, t) FROM ed")
     assert not t.runnable and t.statements[0].notes[0].id == "SFN-070"
     assert "EDITDISTANCE runs here" in t.first_refusal()
-    assert sf.RULES_VERSION == "2026.11.23" and "SFN-070" in sf.docs_table()
+    assert sf.RULES_VERSION == "2026.11.24" and "SFN-070" in sf.docs_table()
 
 
 @pytest.mark.parametrize("code, want", [
